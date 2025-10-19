@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import TimeRangeFilter, { TimeRange } from '../components/History/TimeRangeFilter';
 import MetricSelector from '../components/History/MetricSelector';
 import WaterQualityChart from '../components/History/WaterQualityChart';
 import SummaryStats from '../components/History/SummaryStats';
 import { getHistoricalData, HistoricalDataPoint } from '../services/historicalData';
 
-const History: React.FC = () => {
+const History = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('1week');
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['wqi', 'pH']);
   const [showMovingAverage, setShowMovingAverage] = useState(false);

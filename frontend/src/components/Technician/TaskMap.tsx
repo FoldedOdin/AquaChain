@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TechnicianTask } from '../../types';
 import { technicianService } from '../../services/technicianService';
 
@@ -10,11 +10,11 @@ interface TaskMapProps {
 
 // Mock Google Maps implementation for development
 // In production, this would use the actual Google Maps API
-const TaskMap: React.FC<TaskMapProps> = ({
+const TaskMap = ({
   tasks,
   selectedTask,
   onTaskSelect
-}) => {
+}: TaskMapProps) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
   const [routeInfo, setRouteInfo] = useState<{distance: string, duration: string} | null>(null);

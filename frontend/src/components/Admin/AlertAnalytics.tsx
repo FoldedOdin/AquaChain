@@ -66,7 +66,7 @@ const AlertAnalytics = ({ analytics }: AlertAnalyticsProps) => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }: any) => `${name}: ${(percent * 100).toFixed(0)}%`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
@@ -90,7 +90,7 @@ const AlertAnalytics = ({ analytics }: AlertAnalyticsProps) => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }: any) => `${name}: ${(percent * 100).toFixed(0)}%`}
                 outerRadius={80}
                 fill="#8884d8"
                 dataKey="value"
@@ -138,11 +138,10 @@ const AlertAnalytics = ({ analytics }: AlertAnalyticsProps) => {
                   <td className="px-4 py-2 text-sm font-medium text-gray-900">{device.deviceId}</td>
                   <td className="px-4 py-2 text-sm text-gray-700">{device.count}</td>
                   <td className="px-4 py-2">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      device.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${device.severity === 'critical' ? 'bg-red-100 text-red-800' :
                       device.severity === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-green-100 text-green-800'
-                    }`}>
+                        'bg-green-100 text-green-800'
+                      }`}>
                       {device.severity}
                     </span>
                   </td>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { TechnicianTask, TaskNote } from '../../types';
 import { technicianService } from '../../services/technicianService';
 import MaintenanceReport from './MaintenanceReport';
@@ -9,11 +9,11 @@ interface TaskDetailsProps {
   onRefresh: () => void;
 }
 
-const TaskDetails: React.FC<TaskDetailsProps> = ({
+const TaskDetails = ({
   task,
   onTaskUpdate,
   onRefresh
-}) => {
+}: TaskDetailsProps) => {
   const [showNoteForm, setShowNoteForm] = useState(false);
   const [noteContent, setNoteContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

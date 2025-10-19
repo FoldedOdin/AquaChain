@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import ServiceRequestForm, { ServiceRequestData } from '../components/Service/ServiceRequestForm';
 import ServiceRequestList from '../components/Service/ServiceRequestList';
 import ServiceRequestTracker from '../components/Service/ServiceRequestTracker';
@@ -10,7 +10,7 @@ import {
   simulateServiceUpdates 
 } from '../services/serviceRequests';
 
-const Service: React.FC = () => {
+const Service = () => {
   const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null);
   const [showRequestForm, setShowRequestForm] = useState(false);

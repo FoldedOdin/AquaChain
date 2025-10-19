@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { TechnicianTask, MaintenanceReport, MaintenancePart, DiagnosticData } from '../../types';
 import { technicianService } from '../../services/technicianService';
 
@@ -8,11 +8,11 @@ interface MaintenanceReportProps {
   onCancel: () => void;
 }
 
-const MaintenanceReportComponent: React.FC<MaintenanceReportProps> = ({
+const MaintenanceReportComponent = ({
   task,
   onComplete,
   onCancel
-}) => {
+}: MaintenanceReportProps) => {
   const [workPerformed, setWorkPerformed] = useState('');
   const [partsUsed, setPartsUsed] = useState<MaintenancePart[]>([]);
   const [diagnosticData, setDiagnosticData] = useState<DiagnosticData>({

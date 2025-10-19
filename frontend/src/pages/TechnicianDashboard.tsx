@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { TechnicianTask } from '../types';
 import { technicianService } from '../services/technicianService';
 import TaskList from '../components/Technician/TaskList';
@@ -6,7 +6,7 @@ import TaskDetails from '../components/Technician/TaskDetails';
 import TaskMap from '../components/Technician/TaskMap';
 import MaintenanceHistory from '../components/Technician/MaintenanceHistory';
 
-const TechnicianDashboard: React.FC = () => {
+const TechnicianDashboard = () => {
   const [tasks, setTasks] = useState<TechnicianTask[]>([]);
   const [selectedTask, setSelectedTask] = useState<TechnicianTask | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,31 +108,28 @@ const TechnicianDashboard: React.FC = () => {
             <div className="flex space-x-3">
               <button
                 onClick={() => setView('list')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  view === 'list'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'list'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
               >
                 List View
               </button>
               <button
                 onClick={() => setView('map')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  view === 'map'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'map'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
               >
                 Map View
               </button>
               <button
                 onClick={() => setView('history')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  view === 'history'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'history'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
               >
                 History
               </button>
