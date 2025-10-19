@@ -105,9 +105,9 @@ def lambda_handler(event, context):
         # Store processed data in DynamoDB
         stored_reading = store_reading_dynamodb(validated_data, ml_results, s3_reference)
         
-        # Check for critical events and trigger alerts
-        if is_critical_event(ml_results):
-            trigger_alert_notification(validated_data, ml_results)
+        # Alert detection will be handled by DynamoDB Streams trigger
+        # No need to manually trigger alerts here as the alert detection Lambda
+        # will be triggered automatically when data is written to DynamoDB
         
         return {
             'statusCode': 200,

@@ -421,6 +421,280 @@ class DynamoDBTableManager:
         except Exception as e:
             print(f"Sequence counter already initialized or error: {e}")
     
+    def create_alerts_table(self) -> Dict[str, Any]:
+        """
+        Create alerts table for alert history and tracking
+        """
+        table_definition = {
+            'TableName': 'aquachain-alerts',
+            'KeySchema': [
+                {
+                    'AttributeName': 'alertId',
+                    'KeyType': 'HASH'
+                }
+            ],
+            'AttributeDefinitions': [
+                {
+                    'AttributeName': 'alertId',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'deviceId',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'createdAt',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'alertLevel',
+                    'AttributeType': 'S'
+                }
+            ],
+            'GlobalSecondaryIndexes': [
+                {
+                    'IndexName': 'DeviceAlerts',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'deviceId',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'createdAt',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                },
+                {
+                    'IndexName': 'AlertLevelIndex',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'alertLevel',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'createdAt',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                }
+            ],
+            'BillingMode': 'PAY_PER_REQUEST',
+            'Tags': [
+                {
+                    'Key': 'Project',
+                    'Value': 'AquaChain'
+                },
+                {
+                    'Key': 'Environment',
+                    'Value': 'production'
+                }
+            ]
+        }
+        
+        try:
+            response = self.dynamodb.create_table(**table_definition)
+            print(f"Created alerts table: {response['TableDescription']['TableName']}")
+            
+            # Enable TTL for alert cleanup (30 days)
+            self._enable_ttl('aquachain-alerts', 'ttl')
+            
+            return response
+        except self.dynamodb.exceptions.ResourceInUseException:
+            print("Alerts table already exists")
+            return self.dynamodb.describe_table(TableName='aquachain-alerts')
+    
+    def create_notifications_table(self) -> Dict[str, Any]:
+        """
+        Create notifications table for tracking notification delivery
+        """
+        table_definition = {
+            'TableName': 'aquachain-notifications',
+            'KeySchema': [
+                {
+                    'AttributeName': 'notificationId',
+                    'KeyType': 'HASH'
+                }
+            ],
+            'AttributeDefinitions': [
+                {
+                    'AttributeName': 'notificationId',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'userId',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'createdAt',
+                    'AttributeType': 'S'
+                }
+            ],
+            'GlobalSecondaryIndexes': [
+                {
+                    'IndexName': 'UserNotifications',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'userId',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'createdAt',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                }
+            ],
+            'BillingMode': 'PAY_PER_REQUEST',
+            'Tags': [
+                {
+                    'Key': 'Project',
+                    'Value': 'AquaChain'
+                },
+                {
+                    'Key': 'Environment',
+                    'Value': 'production'
+                }
+            ]
+        }
+        
+        try:
+            response = self.dynamodb.create_table(**table_definition)
+            print(f"Created notifications table: {response['TableDescription']['TableName']}")
+            
+            # Enable TTL for notification cleanup (30 days)
+            self._enable_ttl('aquachain-notifications', 'ttl')
+            
+            return response
+        except self.dynamodb.exceptions.ResourceInUseException:
+            print("Notifications table already exists")
+            return self.dynamodb.describe_table(TableName='aquachain-notifications')
+    
+    def create_rate_limits_table(self) -> Dict[str, Any]:
+        """
+        Create rate limits table for notification rate limiting
+        """
+        table_definition = {
+            'TableName': 'aquachain-rate-limits',
+            'KeySchema': [
+                {
+                    'AttributeName': 'limitKey',
+                    'KeyType': 'HASH'
+                }
+            ],
+            'AttributeDefinitions': [
+                {
+                    'AttributeName': 'limitKey',
+                    'AttributeType': 'S'
+                }
+            ],
+            'BillingMode': 'PAY_PER_REQUEST',
+            'Tags': [
+                {
+                    'Key': 'Project',
+                    'Value': 'AquaChain'
+                },
+                {
+                    'Key': 'Environment',
+                    'Value': 'production'
+                }
+            ]
+        }
+        
+        try:
+            response = self.dynamodb.create_table(**table_definition)
+            print(f"Created rate limits table: {response['TableDescription']['TableName']}")
+            
+            # Enable TTL for automatic cleanup
+            self._enable_ttl('aquachain-rate-limits', 'ttl')
+            
+            return response
+        except self.dynamodb.exceptions.ResourceInUseException:
+            print("Rate limits table already exists")
+            return self.dynamodb.describe_table(TableName='aquachain-rate-limits')
+    
+    def create_websocket_connections_table(self) -> Dict[str, Any]:
+        """
+        Create WebSocket connections table for real-time updates
+        """
+        table_definition = {
+            'TableName': 'aquachain-websocket-connections',
+            'KeySchema': [
+                {
+                    'AttributeName': 'connectionId',
+                    'KeyType': 'HASH'
+                }
+            ],
+            'AttributeDefinitions': [
+                {
+                    'AttributeName': 'connectionId',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'userId',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'connectedAt',
+                    'AttributeType': 'S'
+                }
+            ],
+            'GlobalSecondaryIndexes': [
+                {
+                    'IndexName': 'UserConnections',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'userId',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'connectedAt',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                }
+            ],
+            'BillingMode': 'PAY_PER_REQUEST',
+            'Tags': [
+                {
+                    'Key': 'Project',
+                    'Value': 'AquaChain'
+                },
+                {
+                    'Key': 'Environment',
+                    'Value': 'production'
+                }
+            ]
+        }
+        
+        try:
+            response = self.dynamodb.create_table(**table_definition)
+            print(f"Created WebSocket connections table: {response['TableDescription']['TableName']}")
+            
+            # Enable TTL for connection cleanup (24 hours)
+            self._enable_ttl('aquachain-websocket-connections', 'ttl')
+            
+            return response
+        except self.dynamodb.exceptions.ResourceInUseException:
+            print("WebSocket connections table already exists")
+            return self.dynamodb.describe_table(TableName='aquachain-websocket-connections')
+
     def create_all_tables(self):
         """Create all DynamoDB tables for AquaChain system"""
         print("Creating DynamoDB tables for AquaChain system...")
@@ -430,7 +704,11 @@ class DynamoDBTableManager:
             self.create_ledger_table,
             self.create_sequence_table,
             self.create_users_table,
-            self.create_service_requests_table
+            self.create_service_requests_table,
+            self.create_alerts_table,
+            self.create_notifications_table,
+            self.create_rate_limits_table,
+            self.create_websocket_connections_table
         ]
         
         for create_table_func in tables:
