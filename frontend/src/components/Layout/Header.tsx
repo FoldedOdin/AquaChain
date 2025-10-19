@@ -27,24 +27,35 @@ const Header: React.FC = () => {
           {/* Desktop Navigation */}
           <div className="hidden md:block">
             <div className="ml-10 flex items-baseline space-x-4">
-              <a
-                href="/dashboard"
-                className="text-gray-900 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                Dashboard
-              </a>
-              <a
-                href="/history"
-                className="text-gray-500 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                History
-              </a>
-              <a
-                href="/service"
-                className="text-gray-500 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                Service
-              </a>
+              {user?.role === 'technician' ? (
+                <a
+                  href="/technician"
+                  className="text-gray-900 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  Field Service
+                </a>
+              ) : (
+                <>
+                  <a
+                    href="/dashboard"
+                    className="text-gray-900 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Dashboard
+                  </a>
+                  <a
+                    href="/history"
+                    className="text-gray-500 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    History
+                  </a>
+                  <a
+                    href="/service"
+                    className="text-gray-500 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Service
+                  </a>
+                </>
+              )}
             </div>
           </div>
 
@@ -126,24 +137,35 @@ const Header: React.FC = () => {
       {isMenuOpen && (
         <div className="md:hidden">
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-white border-t">
-            <a
-              href="/dashboard"
-              className="text-gray-900 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
-            >
-              Dashboard
-            </a>
-            <a
-              href="/history"
-              className="text-gray-500 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
-            >
-              History
-            </a>
-            <a
-              href="/service"
-              className="text-gray-500 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
-            >
-              Service
-            </a>
+            {user?.role === 'technician' ? (
+              <a
+                href="/technician"
+                className="text-gray-900 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
+              >
+                Field Service
+              </a>
+            ) : (
+              <>
+                <a
+                  href="/dashboard"
+                  className="text-gray-900 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
+                >
+                  Dashboard
+                </a>
+                <a
+                  href="/history"
+                  className="text-gray-500 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
+                >
+                  History
+                </a>
+                <a
+                  href="/service"
+                  className="text-gray-500 hover:text-primary-600 block px-3 py-2 rounded-md text-base font-medium"
+                >
+                  Service
+                </a>
+              </>
+            )}
             <div className="border-t pt-4">
               <div className="flex items-center px-3">
                 <div className="h-10 w-10 rounded-full bg-primary-500 flex items-center justify-center">

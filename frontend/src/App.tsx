@@ -6,6 +6,7 @@ import Layout from './components/Layout/Layout';
 import Dashboard from './pages/Dashboard';
 import History from './pages/History';
 import Service from './pages/Service';
+import TechnicianDashboard from './pages/TechnicianDashboard';
 import './App.css';
 
 function App() {
@@ -44,6 +45,16 @@ function App() {
                 <ProtectedRoute requiredRole="consumer">
                   <Layout>
                     <Service />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/technician"
+              element={
+                <ProtectedRoute requiredRole="technician">
+                  <Layout>
+                    <TechnicianDashboard />
                   </Layout>
                 </ProtectedRoute>
               }
