@@ -1,3 +1,17 @@
-boto3==1.34.0
-numpy==1.24.3
+# AquaChain ML Inference Lambda Requirements
+
+# Core ML libraries
 scikit-learn==1.3.0
+numpy==1.24.3
+pandas==2.0.3
+scipy==1.11.1
+
+# AWS SDK
+boto3==1.28.25
+botocore==1.31.25
+
+# SageMaker
+sagemaker==2.175.0
+
+# Utilities
+python-dateutil==2.8.2
