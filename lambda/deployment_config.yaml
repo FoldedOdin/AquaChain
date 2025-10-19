@@ -1,0 +1,229 @@
+# AWS Lambda Deployment Configuration for AquaChain Data Processing Pipeline
+# This file defines the Lambda functions and their configurations
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AquaChain Data Processing Pipeline Lambda Functions
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        REGION: !Ref AWS::Region
+        ACCOUNT_ID: !Ref AWS::AccountId
+
+Resources:
+  # Data Processing Lambda Function
+  DataProcessingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AquaChain-Data-Processing
+      CodeUri: data_processing/
+      Handler: handler.lambda_handler
+      Description: Validates and processes IoT device data
+      MemorySize: 512
+      Timeout: 30
+      ReservedConcurrencyLimit: 100
+      Environment:
+        Variables:
+          READINGS_TABLE: aquachain-readings
+          DATA_LAKE_BUCKET: !Sub 'aquachain-data-lake-${AWS::AccountId}'
+          ML_INFERENCE_FUNCTION: !Ref MLInferenceFunction
+          DLQ_URL: !Ref DataProcessingDLQ
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: aquachain-readings
+        - DynamoDBCrudPolicy:
+            TableName: aquachain-sequence
+        - S3WritePolicy:
+            BucketName: !Sub 'aquachain-data-lake-${AWS::AccountId}'
+        - LambdaInvokePolicy:
+            FunctionName: !Ref MLInferenceFunction
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt DataProcessingDLQ.QueueName
+        - SNSPublishMessagePolicy:
+            TopicName: !Ref CriticalAlertsTopicName
+        - KMSEncryptPolicy:
+            KeyId: alias/aquachain-s3-key
+      Events:
+        IoTRule:
+          Type: IoTRule
+          Properties:
+            Sql: "SELECT *, timestamp() as serverTimestamp FROM 'topic/aquachain/+/data'"
+            AwsIotSqlVersion: '2016-03-23'
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt DataProcessingDLQ.Arn
+
+  # ML Inference Lambda Function
+  MLInferenceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AquaChain-ML-Inference
+      CodeUri: ml_inference/
+      Handler: handler.lambda_handler
+      Description: Calculates WQI and detects anomalies using ML models
+      MemorySize: 1024
+      Timeout: 15
+      Environment:
+        Variables:
+          MODEL_BUCKET: !Sub 'aquachain-data-lake-${AWS::AccountId}'
+          MODEL_KEY_PREFIX: ml-models/current/
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub 'aquachain-data-lake-${AWS::AccountId}'
+        - KMSDecryptPolicy:
+            KeyId: alias/aquachain-s3-key
+      Layers:
+        - !Ref MLLibrariesLayer
+
+  # Secure Ledger Service Lambda Function
+  LedgerServiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AquaChain-Ledger-Service
+      CodeUri: ledger_service/
+      Handler: handler.lambda_handler
+      Description: Secure ledger service with cryptographic verification
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          LEDGER_TABLE: aquachain-ledger
+          SEQUENCE_TABLE: aquachain-sequence
+          SIGNING_KEY_ALIAS: alias/aquachain-ledger-signing-key
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: aquachain-ledger
+        - DynamoDBCrudPolicy:
+            TableName: aquachain-sequence
+        - KMSEncryptPolicy:
+            KeyId: alias/aquachain-ledger-signing-key
+        - Statement:
+            - Effect: Allow
+              Action:
+                - kms:Sign
+                - kms:Verify
+                - kms:GetPublicKey
+              Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*'
+              Condition:
+                StringEquals:
+                  'kms:via': 'alias/aquachain-ledger-signing-key'
+
+  # Audit Trail Processor Lambda Function
+  AuditTrailProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: AquaChain-Audit-Trail-Processor
+      CodeUri: audit_trail_processor/
+      Handler: handler.lambda_handler
+      Description: Processes DynamoDB streams for audit trail creation
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          AUDIT_BUCKET: !Sub 'aquachain-audit-trail-${AWS::AccountId}'
+          REPLICA_BUCKET: !Sub 'aquachain-audit-replica-${AWS::AccountId}'
+          DEDUPLICATION_TABLE: aquachain-audit-deduplication
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Sub 'aquachain-audit-trail-${AWS::AccountId}'
+        - DynamoDBCrudPolicy:
+            TableName: aquachain-audit-deduplication
+        - KMSEncryptPolicy:
+            KeyId: alias/aquachain-audit-key
+      Events:
+        LedgerStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt LedgerTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 5
+
+  # Lambda Layer for ML Libraries
+  MLLibrariesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: aquachain-ml-libraries
+      Description: ML libraries for AquaChain (numpy, scikit-learn)
+      ContentUri: layers/ml_libraries/
+      CompatibleRuntimes:
+        - python3.11
+      RetentionPolicy: Delete
+
+  # Dead Letter Queue for Data Processing
+  DataProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: aquachain-data-processing-dlq
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeoutSeconds: 60
+      KmsMasterKeyId: alias/aws/sqs
+
+  # SNS Topic for Critical Alerts
+  CriticalAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: aquachain-critical-alerts
+      DisplayName: AquaChain Critical Water Quality Alerts
+      KmsMasterKeyId: alias/aws/sns
+
+  # DynamoDB Table for Audit Deduplication
+  AuditDeduplicationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: aquachain-audit-deduplication
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+        - AttributeName: sequenceNumber
+          AttributeType: N
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+        - AttributeName: sequenceNumber
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: AquaChain
+        - Key: Purpose
+          Value: Audit-Deduplication
+
+Outputs:
+  DataProcessingFunctionArn:
+    Description: ARN of the Data Processing Lambda Function
+    Value: !GetAtt DataProcessingFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DataProcessingFunctionArn'
+
+  MLInferenceFunctionArn:
+    Description: ARN of the ML Inference Lambda Function
+    Value: !GetAtt MLInferenceFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-MLInferenceFunctionArn'
+
+  LedgerServiceFunctionArn:
+    Description: ARN of the Ledger Service Lambda Function
+    Value: !GetAtt LedgerServiceFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LedgerServiceFunctionArn'
+
+  AuditTrailProcessorFunctionArn:
+    Description: ARN of the Audit Trail Processor Lambda Function
+    Value: !GetAtt AuditTrailProcessorFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AuditTrailProcessorFunctionArn'
+
+  CriticalAlertsTopicArn:
+    Description: ARN of the Critical Alerts SNS Topic
+    Value: !Ref CriticalAlertsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-CriticalAlertsTopicArn'

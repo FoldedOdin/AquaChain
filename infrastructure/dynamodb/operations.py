@@ -65,9 +65,53 @@ class DynamoDBOperations:
             return '0' * 64
     
     def create_ledger_entry(self, device_id: str, data_hash: str, wqi: float, 
-                          anomaly_type: str) -> Dict[str, Any]:
+                          anomaly_type: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Create a new ledger entry with hash chaining
+        Create a new ledger entry with hash chaining and KMS signing
+        This method now delegates to the secure ledger service
+        """
+        try:
+            # Import the secure ledger service
+            import boto3
+            lambda_client = boto3.client('lambda')
+            
+            # Invoke the secure ledger service
+            payload = {
+                'operation': 'create_entry',
+                'deviceId': device_id,
+                'dataHash': data_hash,
+                'wqi': wqi,
+                'anomalyType': anomaly_type,
+                'metadata': metadata or {}
+            }
+            
+            response = lambda_client.invoke(
+                FunctionName='AquaChain-Ledger-Service',
+                InvocationType='RequestResponse',
+                Payload=json.dumps(payload)
+            )
+            
+            result = json.loads(response['Payload'].read())
+            
+            if response['StatusCode'] == 200:
+                ledger_result = json.loads(result['body'])
+                print(f"Created ledger entry {ledger_result['logId']} with sequence {ledger_result['sequenceNumber']}")
+                return ledger_result
+            else:
+                raise ClientError(
+                    error_response={'Error': {'Code': 'LedgerServiceError', 'Message': result.get('body', 'Unknown error')}},
+                    operation_name='create_ledger_entry'
+                )
+                
+        except Exception as e:
+            print(f"Error creating ledger entry via service: {e}")
+            # Fallback to direct creation if service is unavailable
+            return self._create_ledger_entry_direct(device_id, data_hash, wqi, anomaly_type, metadata)
+    
+    def _create_ledger_entry_direct(self, device_id: str, data_hash: str, wqi: float, 
+                                  anomaly_type: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Direct ledger entry creation (fallback method)
         """
         sequence_number = self.get_next_sequence_number()
         previous_hash = self.get_previous_ledger_hash()
@@ -88,12 +132,14 @@ class DynamoDBOperations:
             'previousHash': previous_hash,
             'chainHash': chain_hash,
             'wqi': wqi,
-            'anomalyType': anomaly_type
+            'anomalyType': anomaly_type,
+            'metadata': metadata or {},
+            'kmsSignature': 'fallback-mode'  # Placeholder for fallback
         }
         
         try:
             self.ledger_table.put_item(Item=ledger_entry)
-            print(f"Created ledger entry {log_id} with sequence {sequence_number}")
+            print(f"Created ledger entry {log_id} with sequence {sequence_number} (fallback mode)")
             return ledger_entry
         except ClientError as e:
             print(f"Error creating ledger entry: {e}")
