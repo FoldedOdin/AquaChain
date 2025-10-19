@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import History from './pages/History';
 import Service from './pages/Service';
 import TechnicianDashboard from './pages/TechnicianDashboard';
+import AdminDashboard from './pages/AdminDashboard';
 import './App.css';
 
 function App() {
@@ -55,6 +56,16 @@ function App() {
                 <ProtectedRoute requiredRole="technician">
                   <Layout>
                     <TechnicianDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute requiredRole="administrator">
+                  <Layout>
+                    <AdminDashboard />
                   </Layout>
                 </ProtectedRoute>
               }
