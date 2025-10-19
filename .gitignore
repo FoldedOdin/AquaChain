@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# CDK outputs
+cdk.out/
+*.d.ts
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+
+# AWS
+.aws/
+
+# Lambda deployment packages
+*.zip
+
+# Frontend build
+frontend/build/
+frontend/dist/
+
+# CDK context
+cdk.context.json
+
+#IDE
+.idea/
+.vscode/
+.kiro/
+
+# Local history
+.local_history/
+
+# Mac OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.__*
+.__
+
+#
+.husky/
+ml-training/*
+AquaChain_*
+DOCS 
