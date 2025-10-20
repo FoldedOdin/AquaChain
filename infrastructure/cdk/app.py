@@ -12,6 +12,7 @@ from stacks.compute_stack import AquaChainComputeStack
 from stacks.api_stack import AquaChainApiStack
 from stacks.monitoring_stack import AquaChainMonitoringStack
 from stacks.security_stack import AquaChainSecurityStack
+from stacks.disaster_recovery_stack import AquaChainDisasterRecoveryStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -103,6 +104,18 @@ def main():
         description=f"AquaChain Monitoring Layer - {env_name}"
     )
     monitoring_stack.add_dependency(api_stack)
+    
+    # 7. Disaster Recovery Stack (Backup, Cross-region replication, DR automation)
+    dr_stack = AquaChainDisasterRecoveryStack(
+        app,
+        f"AquaChain-DR-{env_name}",
+        config=config,
+        data_resources=data_stack.data_resources,
+        security_resources=security_stack.security_resources,
+        env=aws_env,
+        description=f"AquaChain Disaster Recovery Layer - {env_name}"
+    )
+    dr_stack.add_dependency(data_stack)
     
     # Synthesize the app
     app.synth()
