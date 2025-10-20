@@ -52,6 +52,17 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
                 "instance_type": "ml.t3.medium",
                 "enable_auto_scaling": False,
                 "max_capacity": 1
+            },
+            "backup_config": {
+                "enable_continuous_backup": False,
+                "backup_retention_days": 7,
+                "enable_cross_region_backup": False,
+                "enable_automated_failover": False,
+                "failover_rto_minutes": 480,  # 8 hours (relaxed for dev)
+                "failover_rpo_minutes": 240,  # 4 hours (relaxed for dev)
+                "enable_automated_dr_testing": False,
+                "backup_window_start": "02:00",
+                "backup_window_duration_hours": 1
             }
         },
         
@@ -79,6 +90,14 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
                 "instance_type": "ml.m5.large",
                 "enable_auto_scaling": True,
                 "max_capacity": 3
+            },
+            "backup_config": {
+                "enable_continuous_backup": False,
+                "backup_retention_days": 30,
+                "enable_cross_region_backup": True,
+                "enable_automated_failover": True,
+                "failover_rto_minutes": 240,  # 4 hours
+                "failover_rpo_minutes": 60    # 1 hour
             }
         },
         
@@ -112,7 +131,15 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
             "backup_config": {
                 "enable_continuous_backup": True,
                 "backup_retention_days": 35,
-                "enable_cross_region_backup": True
+                "enable_cross_region_backup": True,
+                "enable_automated_failover": True,
+                "failover_rto_minutes": 240,  # 4 hours
+                "failover_rpo_minutes": 60,   # 1 hour
+                "enable_global_tables": True,
+                "enable_automated_dr_testing": True,
+                "dr_test_schedule": "cron(0 4 ? * SAT *)",  # Weekly Saturday 4 AM
+                "backup_window_start": "02:00",
+                "backup_window_duration_hours": 2
             }
         }
     }

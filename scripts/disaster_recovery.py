@@ -313,11 +313,16 @@ class DisasterRecoveryManager:
                 'RestoreTestSuccess',
                 'RestoreTestFailure',
                 'FullDRTestSuccess',
-                'FullDRTestFailure'
+                'FullDRTestFailure',
+                'RegionalOutageDetected',
+                'FailoverInitiated',
+                'FailoverFailed',
+                'FailoverValidationSuccess',
+                'FailoverRollback'
             ]
             
             print("\nDisaster Recovery Metrics:")
-            print("-" * 40)
+            print("-" * 50)
             
             for metric_name in metrics:
                 response = self.cloudwatch_client.get_metric_statistics(
@@ -340,8 +345,329 @@ class DisasterRecoveryManager:
                 
                 print(f"{metric_name}: {int(total)}")
             
+            # Calculate DR health score
+            self._calculate_dr_health_score(start_time, end_time)
+            
         except Exception as e:
             print(f"Error getting DR metrics: {str(e)}")
+    
+    def _calculate_dr_health_score(self, start_time: datetime, end_time: datetime) -> None:
+        """
+        Calculate and display DR health score
+        """
+        try:
+            # Get backup success rate
+            backup_success = self._get_metric_sum('RestoreTestSuccess', start_time, end_time)
+            backup_failure = self._get_metric_sum('RestoreTestFailure', start_time, end_time)
+            backup_total = backup_success + backup_failure
+            backup_success_rate = (backup_success / backup_total * 100) if backup_total > 0 else 100
+            
+            # Get DR test success rate
+            dr_success = self._get_metric_sum('FullDRTestSuccess', start_time, end_time)
+            dr_failure = self._get_metric_sum('FullDRTestFailure', start_time, end_time)
+            dr_total = dr_success + dr_failure
+            dr_success_rate = (dr_success / dr_total * 100) if dr_total > 0 else 100
+            
+            # Get failover metrics
+            failover_initiated = self._get_metric_sum('FailoverInitiated', start_time, end_time)
+            failover_failed = self._get_metric_sum('FailoverFailed', start_time, end_time)
+            
+            print(f"\nDR Health Score:")
+            print("-" * 30)
+            print(f"Backup Success Rate: {backup_success_rate:.1f}% ({backup_success}/{backup_total})")
+            print(f"DR Test Success Rate: {dr_success_rate:.1f}% ({dr_success}/{dr_total})")
+            print(f"Failover Events: {int(failover_initiated)} initiated, {int(failover_failed)} failed")
+            
+            # Overall health score (weighted average)
+            overall_score = (backup_success_rate * 0.4 + dr_success_rate * 0.6)
+            print(f"Overall DR Health Score: {overall_score:.1f}%")
+            
+            # Health status
+            if overall_score >= 95:
+                print("Status: ✓ EXCELLENT")
+            elif overall_score >= 85:
+                print("Status: ✓ GOOD")
+            elif overall_score >= 70:
+                print("Status: ⚠ NEEDS ATTENTION")
+            else:
+                print("Status: ✗ CRITICAL")
+                
+        except Exception as e:
+            print(f"Error calculating DR health score: {str(e)}")
+    
+    def _get_metric_sum(self, metric_name: str, start_time: datetime, end_time: datetime) -> float:
+        """
+        Get sum of metric values for time period
+        """
+        try:
+            response = self.cloudwatch_client.get_metric_statistics(
+                Namespace='AquaChain/DisasterRecovery',
+                MetricName=metric_name,
+                Dimensions=[
+                    {
+                        'Name': 'Environment',
+                        'Value': self.environment
+                    }
+                ],
+                StartTime=start_time,
+                EndTime=end_time,
+                Period=86400,  # Daily
+                Statistics=['Sum']
+            )
+            
+            datapoints = response.get('Datapoints', [])
+            return sum(point['Sum'] for point in datapoints)
+            
+        except Exception:
+            return 0.0
+    
+    def test_failover_system(self) -> bool:
+        """
+        Test the automated failover system
+        """
+        print(f"Testing automated failover system for environment: {self.environment}")
+        
+        try:
+            # Get failover state machine ARN
+            account_id = boto3.client('sts').get_caller_identity()['Account']
+            failover_state_machine_name = f"aquachain-statemachine-automated-failover-{self.environment}"
+            state_machine_arn = f"arn:aws:states:{self.region}:{account_id}:stateMachine:{failover_state_machine_name}"
+            
+            # Start test execution
+            execution_name = f"failover-test-{int(time.time())}"
+            
+            response = self.stepfunctions_client.start_execution(
+                stateMachineArn=state_machine_arn,
+                name=execution_name,
+                input=json.dumps({
+                    'operation': 'assess_outage',
+                    'environment': self.environment,
+                    'test_mode': True
+                })
+            )
+            
+            execution_arn = response['executionArn']
+            print(f"Started failover test execution: {execution_name}")
+            print(f"Execution ARN: {execution_arn}")
+            
+            # Monitor execution (shorter timeout for test)
+            print("\nMonitoring test execution...")
+            
+            max_wait_time = 300  # 5 minutes for test
+            wait_time = 0
+            
+            while wait_time < max_wait_time:
+                status_response = self.stepfunctions_client.describe_execution(
+                    executionArn=execution_arn
+                )
+                
+                status = status_response['status']
+                
+                if status == 'SUCCEEDED':
+                    print("✓ Failover system test completed successfully!")
+                    
+                    # Get execution output
+                    output = json.loads(status_response.get('output', '{}'))
+                    self._print_failover_test_results(output)
+                    return True
+                    
+                elif status in ['FAILED', 'TIMED_OUT', 'ABORTED']:
+                    print(f"✗ Failover system test failed with status: {status}")
+                    
+                    # Get error details
+                    error = status_response.get('error', 'Unknown error')
+                    cause = status_response.get('cause', 'Unknown cause')
+                    print(f"Error: {error}")
+                    print(f"Cause: {cause}")
+                    return False
+                
+                # Still running
+                print(f"Status: {status} - waiting...")
+                time.sleep(15)
+                wait_time += 15
+            
+            print("✗ Failover system test timed out!")
+            return False
+                
+        except Exception as e:
+            print(f"Error testing failover system: {str(e)}")
+            return False
+    
+    def _print_failover_test_results(self, results: Dict[str, Any]) -> None:
+        """
+        Print formatted failover test results
+        """
+        print("\n" + "="*60)
+        print("FAILOVER SYSTEM TEST RESULTS")
+        print("="*60)
+        
+        print(f"Test Environment: {results.get('environment', 'Unknown')}")
+        print(f"Assessment Time: {results.get('assessment_time', 'Unknown')}")
+        print(f"Health Score: {results.get('health_score', 'Unknown')}")
+        print(f"Status: {results.get('status', 'Unknown')}")
+        
+        checks = results.get('checks', [])
+        if checks:
+            print(f"\nService Health Checks ({len(checks)} services):")
+            print("-" * 40)
+            
+            for check in checks:
+                service = check.get('service', 'Unknown')
+                status = check.get('status', 'Unknown')
+                details = check.get('details', 'No details')
+                
+                status_icon = "✓" if status == 'healthy' else "⚠" if status == 'warning' else "✗"
+                print(f"{status_icon} {service}: {status}")
+                print(f"   {details}")
+                print()
+    
+    def generate_dr_report(self, output_file: str = None) -> bool:
+        """
+        Generate comprehensive DR report
+        """
+        print(f"Generating DR report for environment: {self.environment}")
+        
+        try:
+            report_data = {
+                'report_generated': datetime.utcnow().isoformat(),
+                'environment': self.environment,
+                'region': self.region
+            }
+            
+            # Get backup information
+            print("Gathering backup information...")
+            backups = self.list_backups()
+            report_data['backup_summary'] = {
+                'total_backups': len(backups),
+                'recent_backups': len([b for b in backups if self._is_recent_backup(b)]),
+                'backup_types': self._categorize_backups(backups)
+            }
+            
+            # Get DR metrics
+            print("Gathering DR metrics...")
+            end_time = datetime.utcnow()
+            start_time = end_time - timedelta(days=30)
+            
+            metrics_data = {}
+            for metric in ['RestoreTestSuccess', 'RestoreTestFailure', 'FullDRTestSuccess', 'FullDRTestFailure']:
+                metrics_data[metric] = self._get_metric_sum(metric, start_time, end_time)
+            
+            report_data['metrics'] = metrics_data
+            
+            # Calculate compliance scores
+            report_data['compliance'] = self._calculate_compliance_scores(metrics_data)
+            
+            # Generate report
+            report_content = self._format_dr_report(report_data)
+            
+            if output_file:
+                with open(output_file, 'w') as f:
+                    f.write(report_content)
+                print(f"✓ DR report saved to: {output_file}")
+            else:
+                print("\n" + "="*80)
+                print("DISASTER RECOVERY REPORT")
+                print("="*80)
+                print(report_content)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error generating DR report: {str(e)}")
+            return False
+    
+    def _is_recent_backup(self, backup: Dict[str, Any]) -> bool:
+        """
+        Check if backup is recent (within last 48 hours)
+        """
+        try:
+            creation_date = backup.get('CreationDate')
+            if creation_date:
+                cutoff_time = datetime.utcnow() - timedelta(hours=48)
+                return creation_date > cutoff_time
+            return False
+        except Exception:
+            return False
+    
+    def _categorize_backups(self, backups: List[Dict[str, Any]]) -> Dict[str, int]:
+        """
+        Categorize backups by resource type
+        """
+        categories = {}
+        for backup in backups:
+            resource_type = backup.get('ResourceType', 'Unknown')
+            categories[resource_type] = categories.get(resource_type, 0) + 1
+        return categories
+    
+    def _calculate_compliance_scores(self, metrics_data: Dict[str, float]) -> Dict[str, Any]:
+        """
+        Calculate compliance scores based on metrics
+        """
+        # Backup test compliance (target: 95% success rate)
+        backup_success = metrics_data.get('RestoreTestSuccess', 0)
+        backup_failure = metrics_data.get('RestoreTestFailure', 0)
+        backup_total = backup_success + backup_failure
+        backup_compliance = (backup_success / backup_total * 100) if backup_total > 0 else 100
+        
+        # DR test compliance (target: 90% success rate)
+        dr_success = metrics_data.get('FullDRTestSuccess', 0)
+        dr_failure = metrics_data.get('FullDRTestFailure', 0)
+        dr_total = dr_success + dr_failure
+        dr_compliance = (dr_success / dr_total * 100) if dr_total > 0 else 100
+        
+        return {
+            'backup_test_compliance': {
+                'score': backup_compliance,
+                'target': 95.0,
+                'status': 'PASS' if backup_compliance >= 95 else 'FAIL'
+            },
+            'dr_test_compliance': {
+                'score': dr_compliance,
+                'target': 90.0,
+                'status': 'PASS' if dr_compliance >= 90 else 'FAIL'
+            }
+        }
+    
+    def _format_dr_report(self, report_data: Dict[str, Any]) -> str:
+        """
+        Format DR report as readable text
+        """
+        report = []
+        
+        report.append(f"Environment: {report_data['environment']}")
+        report.append(f"Region: {report_data['region']}")
+        report.append(f"Report Generated: {report_data['report_generated']}")
+        report.append("")
+        
+        # Backup Summary
+        backup_summary = report_data['backup_summary']
+        report.append("BACKUP SUMMARY")
+        report.append("-" * 20)
+        report.append(f"Total Backups: {backup_summary['total_backups']}")
+        report.append(f"Recent Backups (48h): {backup_summary['recent_backups']}")
+        report.append("Backup Types:")
+        for backup_type, count in backup_summary['backup_types'].items():
+            report.append(f"  {backup_type}: {count}")
+        report.append("")
+        
+        # Metrics Summary
+        metrics = report_data['metrics']
+        report.append("METRICS SUMMARY (Last 30 Days)")
+        report.append("-" * 30)
+        for metric, value in metrics.items():
+            report.append(f"{metric}: {int(value)}")
+        report.append("")
+        
+        # Compliance Scores
+        compliance = report_data['compliance']
+        report.append("COMPLIANCE SCORES")
+        report.append("-" * 20)
+        for test_type, data in compliance.items():
+            status_icon = "✓" if data['status'] == 'PASS' else "✗"
+            report.append(f"{status_icon} {test_type}: {data['score']:.1f}% (Target: {data['target']:.1f}%)")
+        report.append("")
+        
+        return "\n".join(report)
 
 def main():
     """
@@ -375,6 +701,13 @@ def main():
     metrics_parser.add_argument('--days', type=int, default=7,
                                help='Number of days to look back (default: 7)')
     
+    # Test failover system command
+    subparsers.add_parser('test-failover', help='Test automated failover system')
+    
+    # Generate DR report command
+    report_parser = subparsers.add_parser('generate-report', help='Generate comprehensive DR report')
+    report_parser.add_argument('--output', '-o', help='Output file path (default: print to console)')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -397,6 +730,10 @@ def main():
         success = dr_manager.create_manual_backup(args.resource_arn)
     elif args.command == 'get-metrics':
         dr_manager.get_dr_metrics(args.days)
+    elif args.command == 'test-failover':
+        success = dr_manager.test_failover_system()
+    elif args.command == 'generate-report':
+        success = dr_manager.generate_dr_report(args.output)
     
     sys.exit(0 if success else 1)
 

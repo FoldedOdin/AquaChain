@@ -297,29 +297,342 @@ class AquaChainDisasterRecoveryStack(Stack):
         
         # Schedule regular DR tests
         if self.config["environment"] in ["staging", "prod"]:
-            self.dr_test_rule = events.Rule(
-                self, "DRTestSchedule",
-                rule_name=get_resource_name(self.config, "rule", "dr-test"),
-                description="Schedule regular disaster recovery tests",
-                schedule=events.Schedule.cron(
-                    hour="4",  # 4 AM
-                    minute="0",
-                    week_day="SAT"  # Weekly on Saturday
-                ),
-                targets=[
-                    targets.SfnStateMachine(
-                        self.dr_state_machine,
-                        input=events.RuleTargetInput.from_object({
-                            "operation": "test",
-                            "environment": self.config["environment"]
-                        })
-                    )
-                ]
-            )
+            backup_config = self.config.get("backup_config", {})
+            if backup_config.get("enable_automated_dr_testing", False):
+                dr_schedule = backup_config.get("dr_test_schedule", "cron(0 4 ? * SAT *)")
+                
+                self.dr_test_rule = events.Rule(
+                    self, "DRTestSchedule",
+                    rule_name=get_resource_name(self.config, "rule", "dr-test"),
+                    description="Schedule regular disaster recovery tests",
+                    schedule=events.Schedule.expression(dr_schedule),
+                    targets=[
+                        targets.SfnStateMachine(
+                            self.dr_state_machine,
+                            input=events.RuleTargetInput.from_object({
+                                "operation": "full_dr_test",
+                                "environment": self.config["environment"]
+                            })
+                        )
+                    ]
+                )
+        
+        # Create automated failover system
+        if self.config.get("backup_config", {}).get("enable_automated_failover"):
+            self._create_automated_failover_system()
         
         self.dr_resources.update({
             "dr_lambda": self.dr_lambda,
             "dr_state_machine": self.dr_state_machine
+        })
+    
+    def _create_automated_failover_system(self) -> None:
+        """
+        Create automated failover system for regional disasters
+        """
+        
+        # Create failover Lambda function
+        self.failover_lambda = lambda_.Function(
+            self, "FailoverFunction",
+            function_name=get_resource_name(self.config, "function", "automated-failover"),
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            handler="failover_handler.lambda_handler",
+            code=lambda_.Code.from_asset("../lambda/disaster_recovery"),
+            timeout=Duration.minutes(15),
+            memory_size=1024,
+            environment={
+                "ENVIRONMENT": self.config["environment"],
+                "PRIMARY_REGION": self.config["region"],
+                "REPLICA_REGION": self.config.get("replica_region", "us-west-2"),
+                "FAILOVER_RTO_MINUTES": str(self.config.get("backup_config", {}).get("failover_rto_minutes", 240)),
+                "FAILOVER_RPO_MINUTES": str(self.config.get("backup_config", {}).get("failover_rpo_minutes", 60)),
+                "SNS_TOPIC_ARN": self._create_dr_notifications().topic_arn
+            },
+            role=self._create_failover_lambda_role()
+        )
+        
+        # Create failover state machine
+        self.failover_state_machine = self._create_failover_state_machine()
+        
+        # Create health check alarms that trigger failover
+        self._create_failover_triggers()
+        
+        self.dr_resources.update({
+            "failover_lambda": self.failover_lambda,
+            "failover_state_machine": self.failover_state_machine
+        })
+    
+    def _create_failover_lambda_role(self) -> iam.Role:
+        """
+        Create IAM role for automated failover Lambda function
+        """
+        return iam.Role(
+            self, "FailoverLambdaRole",
+            role_name=get_resource_name(self.config, "role", "failover-lambda"),
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+            ],
+            inline_policies={
+                "FailoverOperations": iam.PolicyDocument(
+                    statements=[
+                        # Route 53 operations for DNS failover
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "route53:ChangeResourceRecordSets",
+                                "route53:GetChange",
+                                "route53:ListResourceRecordSets",
+                                "route53:GetHealthCheck",
+                                "route53:UpdateHealthCheck"
+                            ],
+                            resources=["*"]
+                        ),
+                        # CloudFormation operations for stack management
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "cloudformation:DescribeStacks",
+                                "cloudformation:DescribeStackResources",
+                                "cloudformation:CreateStack",
+                                "cloudformation:UpdateStack",
+                                "cloudformation:DeleteStack"
+                            ],
+                            resources=["*"]
+                        ),
+                        # DynamoDB Global Tables operations
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "dynamodb:CreateGlobalTable",
+                                "dynamodb:DescribeGlobalTable",
+                                "dynamodb:UpdateGlobalTable",
+                                "dynamodb:ListGlobalTables"
+                            ],
+                            resources=["*"]
+                        ),
+                        # Auto Scaling operations
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "application-autoscaling:RegisterScalableTarget",
+                                "application-autoscaling:DeregisterScalableTarget",
+                                "application-autoscaling:DescribeScalableTargets",
+                                "application-autoscaling:PutScalingPolicy"
+                            ],
+                            resources=["*"]
+                        ),
+                        # Lambda operations for scaling functions
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "lambda:UpdateFunctionConfiguration",
+                                "lambda:PutProvisionedConcurrencyConfig",
+                                "lambda:DeleteProvisionedConcurrencyConfig"
+                            ],
+                            resources=["*"]
+                        ),
+                        # SNS for notifications
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "sns:Publish"
+                            ],
+                            resources=["*"]
+                        ),
+                        # CloudWatch for metrics and alarms
+                        iam.PolicyStatement(
+                            effect=iam.Effect.ALLOW,
+                            actions=[
+                                "cloudwatch:PutMetricData",
+                                "cloudwatch:GetMetricStatistics",
+                                "cloudwatch:DescribeAlarms",
+                                "cloudwatch:PutMetricAlarm"
+                            ],
+                            resources=["*"]
+                        )
+                    ]
+                )
+            }
+        )
+    
+    def _create_failover_state_machine(self) -> sfn.StateMachine:
+        """
+        Create Step Function state machine for automated failover workflow
+        """
+        
+        # Define failover tasks
+        assess_outage_task = sfn_tasks.LambdaInvoke(
+            self, "AssessOutage",
+            lambda_function=self.failover_lambda,
+            payload=sfn.TaskInput.from_object({
+                "operation": "assess_outage",
+                "environment": self.config["environment"]
+            }),
+            result_path="$.assessmentResult"
+        )
+        
+        initiate_failover_task = sfn_tasks.LambdaInvoke(
+            self, "InitiateFailover",
+            lambda_function=self.failover_lambda,
+            payload=sfn.TaskInput.from_object({
+                "operation": "initiate_failover",
+                "environment": self.config["environment"]
+            }),
+            result_path="$.failoverResult"
+        )
+        
+        validate_failover_task = sfn_tasks.LambdaInvoke(
+            self, "ValidateFailover",
+            lambda_function=self.failover_lambda,
+            payload=sfn.TaskInput.from_object({
+                "operation": "validate_failover",
+                "environment": self.config["environment"]
+            }),
+            result_path="$.validationResult"
+        )
+        
+        notify_failover_task = sfn_tasks.SnsPublish(
+            self, "NotifyFailover",
+            topic=self._create_dr_notifications(),
+            message=sfn.TaskInput.from_json_path_at("$.failoverMessage")
+        )
+        
+        rollback_failover_task = sfn_tasks.LambdaInvoke(
+            self, "RollbackFailover",
+            lambda_function=self.failover_lambda,
+            payload=sfn.TaskInput.from_object({
+                "operation": "rollback_failover",
+                "environment": self.config["environment"]
+            }),
+            result_path="$.rollbackResult"
+        )
+        
+        # Define workflow states
+        success_state = sfn.Succeed(self, "FailoverSuccess")
+        failure_state = sfn.Fail(self, "FailoverFailure")
+        
+        # Chain the tasks with decision logic
+        definition = assess_outage_task.next(
+            sfn.Choice(self, "OutageConfirmed")
+            .when(
+                sfn.Condition.string_equals("$.assessmentResult.Payload.status", "confirmed_outage"),
+                initiate_failover_task.next(
+                    sfn.Choice(self, "FailoverSuccessful")
+                    .when(
+                        sfn.Condition.string_equals("$.failoverResult.Payload.status", "success"),
+                        validate_failover_task.next(
+                            sfn.Choice(self, "ValidationSuccessful")
+                            .when(
+                                sfn.Condition.string_equals("$.validationResult.Payload.status", "success"),
+                                notify_failover_task.next(success_state)
+                            )
+                            .otherwise(
+                                rollback_failover_task.next(failure_state)
+                            )
+                        )
+                    )
+                    .otherwise(
+                        notify_failover_task.next(failure_state)
+                    )
+                )
+            )
+            .otherwise(
+                # False alarm - no action needed
+                sfn.Succeed(self, "FalseAlarm")
+            )
+        )
+        
+        return sfn.StateMachine(
+            self, "FailoverStateMachine",
+            state_machine_name=get_resource_name(self.config, "statemachine", "automated-failover"),
+            definition=definition,
+            timeout=Duration.hours(1)
+        )
+    
+    def _create_failover_triggers(self) -> None:
+        """
+        Create CloudWatch alarms that trigger automated failover
+        """
+        
+        # Create composite alarm for regional outage detection
+        primary_region_health_alarm = cloudwatch.Alarm(
+            self, "PrimaryRegionHealthAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "primary-region-health"),
+            alarm_description="Detects primary region health issues that may require failover",
+            metric=cloudwatch.Metric(
+                namespace="AquaChain/System",
+                metric_name="RegionalHealthScore",
+                dimensions_map={
+                    "Region": self.config["region"],
+                    "Environment": self.config["environment"]
+                }
+            ),
+            threshold=0.5,  # Health score below 50%
+            evaluation_periods=3,
+            datapoints_to_alarm=2,
+            comparison_operator=cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.BREACHING
+        )
+        
+        # Create alarm for critical service failures
+        critical_service_alarm = cloudwatch.Alarm(
+            self, "CriticalServiceFailureAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "critical-service-failure"),
+            alarm_description="Detects critical service failures that may require failover",
+            metric=cloudwatch.Metric(
+                namespace="AquaChain/System",
+                metric_name="CriticalServiceErrorRate",
+                dimensions_map={
+                    "Environment": self.config["environment"]
+                }
+            ),
+            threshold=0.1,  # 10% error rate
+            evaluation_periods=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        )
+        
+        # Create composite alarm that triggers failover
+        failover_trigger_alarm = cloudwatch.CompositeAlarm(
+            self, "FailoverTriggerAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "failover-trigger"),
+            alarm_description="Composite alarm that triggers automated failover",
+            composite_alarm_rule=cloudwatch.AlarmRule.any_of(
+                cloudwatch.AlarmRule.from_alarm(primary_region_health_alarm, cloudwatch.AlarmState.ALARM),
+                cloudwatch.AlarmRule.from_alarm(critical_service_alarm, cloudwatch.AlarmState.ALARM)
+            )
+        )
+        
+        # Add alarm action to trigger failover state machine
+        failover_trigger_alarm.add_alarm_action(
+            cloudwatch_actions.SnsAction(
+                sns.Topic.from_topic_arn(
+                    self, "FailoverTriggerTopic",
+                    topic_arn=f"arn:aws:sns:{self.config['region']}:{self.account}:{get_resource_name(self.config, 'topic', 'failover-trigger')}"
+                )
+            )
+        )
+        
+        # Create SNS topic that triggers the failover state machine
+        failover_trigger_topic = sns.Topic(
+            self, "FailoverTriggerTopicResource",
+            topic_name=get_resource_name(self.config, "topic", "failover-trigger"),
+            display_name="AquaChain Automated Failover Trigger"
+        )
+        
+        # Subscribe the failover state machine to the trigger topic
+        sns.Subscription(
+            self, "FailoverTriggerSubscription",
+            topic=failover_trigger_topic,
+            endpoint=self.failover_state_machine.state_machine_arn,
+            protocol=sns.SubscriptionProtocol.SQS  # Use SQS for reliable delivery
+        )
+        
+        self.dr_resources.update({
+            "primary_region_health_alarm": primary_region_health_alarm,
+            "critical_service_alarm": critical_service_alarm,
+            "failover_trigger_alarm": failover_trigger_alarm,
+            "failover_trigger_topic": failover_trigger_topic
         })
     
     def _create_dr_lambda_role(self) -> iam.Role:

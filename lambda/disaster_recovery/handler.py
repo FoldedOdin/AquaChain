@@ -40,6 +40,10 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             return cleanup_test_resources(environment)
         elif operation == 'full_dr_test':
             return run_full_dr_test(environment)
+        elif operation == 'automated_backup':
+            return create_automated_backup(environment, event.get('resource_type'))
+        elif operation == 'validate_cross_region_replication':
+            return validate_cross_region_replication(environment)
         else:
             raise ValueError(f"Unknown operation: {operation}")
             
@@ -473,6 +477,327 @@ def send_notification(message: str, severity: str = "info") -> None:
         
     except Exception as e:
         logger.error(f"Failed to send notification: {str(e)}")
+
+def create_automated_backup(environment: str, resource_type: str = None) -> Dict[str, Any]:
+    """
+    Create automated backups for critical resources
+    """
+    logger.info(f"Creating automated backup for environment: {environment}")
+    
+    backup_vault_name = os.environ.get('BACKUP_VAULT_NAME')
+    backup_results = []
+    
+    try:
+        # Get list of critical resources to backup
+        critical_resources = get_critical_resources(environment, resource_type)
+        
+        for resource in critical_resources:
+            try:
+                backup_job_id = f"auto-backup-{resource['type']}-{int(time.time())}"
+                
+                response = backup_client.start_backup_job(
+                    BackupVaultName=backup_vault_name,
+                    ResourceArn=resource['arn'],
+                    IamRoleArn=get_backup_role_arn(),
+                    IdempotencyToken=backup_job_id,
+                    StartWindowMinutes=60,
+                    CompleteWindowMinutes=120
+                )
+                
+                backup_results.append({
+                    'resource_arn': resource['arn'],
+                    'resource_type': resource['type'],
+                    'backup_job_id': response['BackupJobId'],
+                    'status': 'started'
+                })
+                
+                logger.info(f"Started backup for {resource['arn']}")
+                
+            except Exception as resource_error:
+                backup_results.append({
+                    'resource_arn': resource['arn'],
+                    'resource_type': resource['type'],
+                    'status': 'failed',
+                    'error': str(resource_error)
+                })
+                
+                logger.error(f"Failed to start backup for {resource['arn']}: {str(resource_error)}")
+        
+        # Calculate success rate
+        successful_backups = sum(1 for result in backup_results if result['status'] == 'started')
+        total_backups = len(backup_results)
+        success_rate = (successful_backups / total_backups) if total_backups > 0 else 0
+        
+        # Record metrics
+        record_dr_metric('AutomatedBackupsStarted', successful_backups, environment)
+        record_dr_metric('AutomatedBackupsFailed', total_backups - successful_backups, environment)
+        
+        return {
+            'status': 'success' if success_rate > 0.8 else 'partial',
+            'message': f'Automated backup completed. {successful_backups}/{total_backups} backups started',
+            'backup_results': backup_results,
+            'success_rate': success_rate,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Automated backup failed: {str(e)}")
+        record_dr_metric('AutomatedBackupError', 1, environment)
+        
+        return {
+            'status': 'error',
+            'message': f'Automated backup failed: {str(e)}',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+
+def get_critical_resources(environment: str, resource_type: str = None) -> List[Dict[str, str]]:
+    """
+    Get list of critical resources that need backup
+    """
+    critical_resources = []
+    
+    # DynamoDB tables
+    if not resource_type or resource_type == 'dynamodb':
+        dynamodb_tables = [
+            f"aquachain-table-ledger-{environment}",
+            f"aquachain-table-readings-{environment}",
+            f"aquachain-table-users-{environment}",
+            f"aquachain-table-service-requests-{environment}"
+        ]
+        
+        for table_name in dynamodb_tables:
+            try:
+                # Verify table exists
+                dynamodb_client.describe_table(TableName=table_name)
+                
+                # Get table ARN
+                account_id = boto3.client('sts').get_caller_identity()['Account']
+                region = os.environ.get('AWS_REGION', 'us-east-1')
+                table_arn = f"arn:aws:dynamodb:{region}:{account_id}:table/{table_name}"
+                
+                critical_resources.append({
+                    'type': 'DynamoDB',
+                    'name': table_name,
+                    'arn': table_arn
+                })
+                
+            except Exception as e:
+                logger.warning(f"Table {table_name} not found or not accessible: {str(e)}")
+    
+    # S3 buckets
+    if not resource_type or resource_type == 's3':
+        s3_buckets = [
+            f"aquachain-bucket-audit-trail-{environment}",
+            f"aquachain-bucket-ml-models-{environment}",
+            f"aquachain-bucket-data-lake-{environment}"
+        ]
+        
+        for bucket_name in s3_buckets:
+            try:
+                # Verify bucket exists
+                s3_client.head_bucket(Bucket=bucket_name)
+                
+                bucket_arn = f"arn:aws:s3:::{bucket_name}"
+                
+                critical_resources.append({
+                    'type': 'S3',
+                    'name': bucket_name,
+                    'arn': bucket_arn
+                })
+                
+            except Exception as e:
+                logger.warning(f"Bucket {bucket_name} not found or not accessible: {str(e)}")
+    
+    return critical_resources
+
+def validate_cross_region_replication(environment: str) -> Dict[str, Any]:
+    """
+    Validate cross-region replication status
+    """
+    logger.info(f"Validating cross-region replication for environment: {environment}")
+    
+    replica_region = os.environ.get('REPLICA_REGION', 'us-west-2')
+    primary_region = os.environ.get('AWS_REGION', 'us-east-1')
+    
+    validation_results = {
+        'primary_region': primary_region,
+        'replica_region': replica_region,
+        'validation_time': datetime.utcnow().isoformat(),
+        'replication_checks': []
+    }
+    
+    try:
+        # Check S3 cross-region replication
+        s3_replication_check = validate_s3_replication(environment, replica_region)
+        validation_results['replication_checks'].append(s3_replication_check)
+        
+        # Check DynamoDB Global Tables (if enabled)
+        dynamodb_replication_check = validate_dynamodb_replication(environment, replica_region)
+        validation_results['replication_checks'].append(dynamodb_replication_check)
+        
+        # Calculate overall replication health
+        total_checks = len(validation_results['replication_checks'])
+        healthy_checks = sum(1 for check in validation_results['replication_checks'] if check['status'] == 'healthy')
+        replication_health = (healthy_checks / total_checks) if total_checks > 0 else 0
+        
+        validation_results['replication_health_score'] = replication_health
+        validation_results['healthy_replications'] = healthy_checks
+        validation_results['total_replications'] = total_checks
+        
+        if replication_health >= 0.8:
+            validation_results['status'] = 'success'
+            validation_results['message'] = f'Cross-region replication healthy. Score: {replication_health:.2f}'
+            record_dr_metric('CrossRegionReplicationHealthy', 1, environment)
+        else:
+            validation_results['status'] = 'warning'
+            validation_results['message'] = f'Cross-region replication issues detected. Score: {replication_health:.2f}'
+            record_dr_metric('CrossRegionReplicationIssues', 1, environment)
+        
+        return validation_results
+        
+    except Exception as e:
+        logger.error(f"Cross-region replication validation failed: {str(e)}")
+        record_dr_metric('CrossRegionReplicationValidationError', 1, environment)
+        
+        return {
+            'status': 'error',
+            'message': f'Cross-region replication validation failed: {str(e)}',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+
+def validate_s3_replication(environment: str, replica_region: str) -> Dict[str, Any]:
+    """
+    Validate S3 cross-region replication
+    """
+    try:
+        # Check audit trail bucket replication
+        audit_bucket_name = f"aquachain-bucket-audit-trail-{environment}"
+        
+        try:
+            replication_config = s3_client.get_bucket_replication(Bucket=audit_bucket_name)
+            rules = replication_config.get('ReplicationConfiguration', {}).get('Rules', [])
+            
+            if rules:
+                # Check replication metrics
+                replica_s3_client = boto3.client('s3', region_name=replica_region)
+                replica_bucket_name = f"aquachain-bucket-audit-replica-{environment}"
+                
+                try:
+                    replica_s3_client.head_bucket(Bucket=replica_bucket_name)
+                    
+                    return {
+                        'service': 'S3 Cross-Region Replication',
+                        'status': 'healthy',
+                        'details': f'Replication configured and replica bucket exists in {replica_region}',
+                        'source_bucket': audit_bucket_name,
+                        'replica_bucket': replica_bucket_name
+                    }
+                    
+                except Exception as replica_error:
+                    return {
+                        'service': 'S3 Cross-Region Replication',
+                        'status': 'unhealthy',
+                        'details': f'Replica bucket not accessible: {str(replica_error)}',
+                        'source_bucket': audit_bucket_name,
+                        'replica_bucket': replica_bucket_name
+                    }
+            else:
+                return {
+                    'service': 'S3 Cross-Region Replication',
+                    'status': 'unhealthy',
+                    'details': 'No replication rules configured',
+                    'source_bucket': audit_bucket_name
+                }
+                
+        except Exception as config_error:
+            return {
+                'service': 'S3 Cross-Region Replication',
+                'status': 'unhealthy',
+                'details': f'Failed to get replication configuration: {str(config_error)}',
+                'source_bucket': audit_bucket_name
+            }
+            
+    except Exception as e:
+        return {
+            'service': 'S3 Cross-Region Replication',
+            'status': 'error',
+            'details': f'S3 replication validation failed: {str(e)}',
+            'error': str(e)
+        }
+
+def validate_dynamodb_replication(environment: str, replica_region: str) -> Dict[str, Any]:
+    """
+    Validate DynamoDB Global Tables replication
+    """
+    try:
+        # Check if Global Tables are configured
+        replica_dynamodb_client = boto3.client('dynamodb', region_name=replica_region)
+        
+        critical_tables = [
+            f"aquachain-table-ledger-{environment}",
+            f"aquachain-table-readings-{environment}"
+        ]
+        
+        replication_status = []
+        
+        for table_name in critical_tables:
+            try:
+                # Check if table exists in replica region
+                replica_dynamodb_client.describe_table(TableName=table_name)
+                
+                replication_status.append({
+                    'table': table_name,
+                    'status': 'replicated',
+                    'details': f'Table exists in {replica_region}'
+                })
+                
+            except replica_dynamodb_client.exceptions.ResourceNotFoundException:
+                replication_status.append({
+                    'table': table_name,
+                    'status': 'not_replicated',
+                    'details': f'Table not found in {replica_region}'
+                })
+                
+            except Exception as table_error:
+                replication_status.append({
+                    'table': table_name,
+                    'status': 'error',
+                    'details': f'Error checking table: {str(table_error)}'
+                })
+        
+        # Calculate replication health
+        replicated_tables = sum(1 for status in replication_status if status['status'] == 'replicated')
+        total_tables = len(replication_status)
+        
+        if replicated_tables == total_tables:
+            return {
+                'service': 'DynamoDB Global Tables',
+                'status': 'healthy',
+                'details': f'All {total_tables} critical tables replicated to {replica_region}',
+                'replication_status': replication_status
+            }
+        elif replicated_tables > 0:
+            return {
+                'service': 'DynamoDB Global Tables',
+                'status': 'partial',
+                'details': f'{replicated_tables}/{total_tables} tables replicated to {replica_region}',
+                'replication_status': replication_status
+            }
+        else:
+            return {
+                'service': 'DynamoDB Global Tables',
+                'status': 'unhealthy',
+                'details': f'No tables replicated to {replica_region}',
+                'replication_status': replication_status
+            }
+            
+    except Exception as e:
+        return {
+            'service': 'DynamoDB Global Tables',
+            'status': 'error',
+            'details': f'DynamoDB replication validation failed: {str(e)}',
+            'error': str(e)
+        }
 
 def record_dr_metric(metric_name: str, value: float, environment: str) -> None:
     """
