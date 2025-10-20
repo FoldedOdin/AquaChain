@@ -1,0 +1,85 @@
+{
+  "devices": [
+    {
+      "deviceId": "DEV-DEMO-001",
+      "name": "Kitchen Tap Monitor",
+      "location": {
+        "latitude": 9.9312,
+        "longitude": 76.2673,
+        "address": "123 Main St, Kochi, Kerala"
+      },
+      "sensorProfile": "residential",
+      "enabled": true
+    },
+    {
+      "deviceId": "DEV-DEMO-002", 
+      "name": "Community Well Sensor",
+      "location": {
+        "latitude": 9.9412,
+        "longitude": 76.2773,
+        "address": "456 Community Center, Kochi, Kerala"
+      },
+      "sensorProfile": "community",
+      "enabled": true
+    },
+    {
+      "deviceId": "DEV-DEMO-003",
+      "name": "Industrial Outlet Monitor",
+      "location": {
+        "latitude": 9.9512,
+        "longitude": 76.2873,
+        "address": "789 Industrial Park, Kochi, Kerala"
+      },
+      "sensorProfile": "industrial",
+      "enabled": true
+    }
+  ],
+  "sensorProfiles": {
+    "residential": {
+      "pH": {"min": 6.5, "max": 8.0, "normal": [6.8, 7.4]},
+      "turbidity": {"min": 0.1, "max": 5.0, "normal": [0.5, 2.0]},
+      "tds": {"min": 50, "max": 500, "normal": [120, 180]},
+      "temperature": {"min": 15, "max": 35, "normal": [22, 26]},
+      "humidity": {"min": 30, "max": 90, "normal": [55, 75]}
+    },
+    "community": {
+      "pH": {"min": 6.0, "max": 8.5, "normal": [6.5, 7.8]},
+      "turbidity": {"min": 0.1, "max": 10.0, "normal": [1.0, 3.0]},
+      "tds": {"min": 100, "max": 800, "normal": [150, 250]},
+      "temperature": {"min": 18, "max": 32, "normal": [20, 28]},
+      "humidity": {"min": 40, "max": 85, "normal": [50, 70]}
+    },
+    "industrial": {
+      "pH": {"min": 5.5, "max": 9.0, "normal": [6.0, 8.0]},
+      "turbidity": {"min": 0.5, "max": 20.0, "normal": [2.0, 5.0]},
+      "tds": {"min": 200, "max": 1500, "normal": [300, 600]},
+      "temperature": {"min": 15, "max": 40, "normal": [18, 30]},
+      "humidity": {"min": 35, "max": 95, "normal": [45, 80]}
+    }
+  },
+  "scenarios": {
+    "normal": {
+      "probability": 0.85,
+      "description": "Normal water quality readings"
+    },
+    "contamination": {
+      "probability": 0.10,
+      "description": "Water contamination event",
+      "modifications": {
+        "pH": {"multiply": 0.7, "add": -1.0},
+        "turbidity": {"multiply": 10.0, "add": 15.0},
+        "tds": {"multiply": 3.0, "add": 500}
+      }
+    },
+    "sensor_fault": {
+      "probability": 0.05,
+      "description": "Sensor malfunction",
+      "faultyReadings": ["pH", "turbidity"]
+    }
+  },
+  "timing": {
+    "readingInterval": 30,
+    "batchSize": 1,
+    "jitterSeconds": 5
+  }
+}
