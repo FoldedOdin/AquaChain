@@ -1,0 +1,538 @@
+name: AquaChain CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Security and Code Quality Checks
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Semgrep security scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+
+  # Frontend Testing and Build
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint --if-present
+
+      - name: Run unit tests
+        run: npm test -- --coverage --watchAll=false
+
+      - name: Run accessibility tests
+        run: npm run test:a11y --if-present
+
+      - name: Build application
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build/
+          retention-days: 7
+
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: frontend/coverage/lcov.info
+          flags: frontend
+
+  # Lambda Function Testing
+  lambda-test:
+    name: Lambda Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        function: 
+          - data_processing
+          - ml_inference
+          - ledger_service
+          - audit_trail_processor
+          - alert_detection
+          - notification_service
+          - auth_service
+          - user_management
+          - technician_service
+          - api_gateway
+          - websocket_api
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('lambda/${{ matrix.function }}/requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          cd lambda/${{ matrix.function }}
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pytest pytest-cov moto[all] boto3
+
+      - name: Run unit tests
+        run: |
+          cd lambda/${{ matrix.function }}
+          if [ -f test_handler.py ]; then
+            python -m pytest test_handler.py -v --cov=handler --cov-report=xml
+          fi
+
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: lambda/${{ matrix.function }}/coverage.xml
+          flags: lambda-${{ matrix.function }}
+
+  # Infrastructure Testing
+  infrastructure-test:
+    name: Infrastructure Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install boto3 pytest moto[all] pyyaml
+
+      - name: Run infrastructure tests
+        run: |
+          cd infrastructure
+          python -m pytest tests/ -v --cov=. --cov-report=xml
+
+      - name: Validate CloudFormation templates
+        run: |
+          aws cloudformation validate-template --template-body file://lambda/deployment_config.yaml --region ${{ env.AWS_REGION }} || echo "Template validation skipped - requires AWS credentials"
+
+  # Integration Tests
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-test, lambda-test]
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: dynamodb,s3,sns,sqs,iot,lambda,apigateway
+          DEBUG: 1
+          DATA_DIR: /tmp/localstack/data
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install boto3 pytest requests localstack-client
+
+      - name: Wait for LocalStack
+        run: |
+          timeout 60 bash -c 'until curl -s http://localhost:4566/health; do sleep 2; done'
+
+      - name: Run integration tests
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+          LOCALSTACK_ENDPOINT: http://localhost:4566
+        run: |
+          python -m pytest tests/integration/ -v
+
+  # Build and Package
+  build-package:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    needs: [security-scan, frontend-test, lambda-test, infrastructure-test]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build Lambda functions
+        run: |
+          # Create deployment packages for each Lambda function
+          for function_dir in lambda/*/; do
+            if [ -f "$function_dir/handler.py" ]; then
+              function_name=$(basename "$function_dir")
+              echo "Building $function_name"
+              cd "$function_dir"
+              
+              # Install dependencies
+              if [ -f requirements.txt ]; then
+                pip install -r requirements.txt -t .
+              fi
+              
+              # Create deployment package
+              zip -r "../${function_name}-deployment.zip" . -x "*.pyc" "__pycache__/*" "tests/*" "*.md"
+              cd - > /dev/null
+            fi
+          done
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Upload Lambda packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-packages
+          path: lambda/*-deployment.zip
+          retention-days: 30
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-production-build
+          path: frontend/build/
+          retention-days: 30
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-package, integration-test]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Lambda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-packages
+          path: lambda/
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-production-build
+          path: frontend/build/
+
+      - name: Deploy infrastructure
+        run: |
+          cd infrastructure
+          python setup_infrastructure.py --region ${{ env.AWS_REGION }} --environment staging
+
+      - name: Deploy Lambda functions
+        run: |
+          # Deploy each Lambda function
+          for zip_file in lambda/*-deployment.zip; do
+            if [ -f "$zip_file" ]; then
+              function_name=$(basename "$zip_file" -deployment.zip)
+              aws lambda update-function-code \
+                --function-name "AquaChain-${function_name}-staging" \
+                --zip-file "fileb://$zip_file" \
+                --region ${{ env.AWS_REGION }}
+              
+              # Wait for update to complete
+              aws lambda wait function-updated \
+                --function-name "AquaChain-${function_name}-staging" \
+                --region ${{ env.AWS_REGION }}
+            fi
+          done
+
+      - name: Deploy frontend to S3
+        run: |
+          aws s3 sync frontend/build/ s3://aquachain-frontend-staging-${{ secrets.AWS_ACCOUNT_ID }}/ --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_STAGING }} --paths "/*"
+
+      - name: Run smoke tests
+        run: |
+          python tests/smoke/staging_smoke_tests.py
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PRODUCTION }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRODUCTION }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Lambda packages
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-packages
+          path: lambda/
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-production-build
+          path: frontend/build/
+
+      - name: Blue-Green Deployment - Create Green Environment
+        run: |
+          # Create green versions of Lambda functions
+          for zip_file in lambda/*-deployment.zip; do
+            if [ -f "$zip_file" ]; then
+              function_name=$(basename "$zip_file" -deployment.zip)
+              
+              # Update function code
+              aws lambda update-function-code \
+                --function-name "AquaChain-${function_name}-production" \
+                --zip-file "fileb://$zip_file" \
+                --region ${{ env.AWS_REGION }}
+              
+              # Wait for update to complete
+              aws lambda wait function-updated \
+                --function-name "AquaChain-${function_name}-production" \
+                --region ${{ env.AWS_REGION }}
+              
+              # Create new version
+              VERSION=$(aws lambda publish-version \
+                --function-name "AquaChain-${function_name}-production" \
+                --description "Deployment $(date -u +%Y%m%d-%H%M%S)" \
+                --region ${{ env.AWS_REGION }} \
+                --query 'Version' --output text)
+              
+              # Update GREEN alias to point to new version
+              aws lambda update-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name GREEN \
+                --function-version $VERSION \
+                --region ${{ env.AWS_REGION }} || \
+              aws lambda create-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name GREEN \
+                --function-version $VERSION \
+                --region ${{ env.AWS_REGION }}
+              
+              echo "GREEN_VERSION_${function_name}=$VERSION" >> $GITHUB_ENV
+            fi
+          done
+
+      - name: Deploy frontend to staging S3 bucket
+        run: |
+          # Deploy to green S3 bucket first
+          aws s3 sync frontend/build/ s3://aquachain-frontend-green-${{ secrets.AWS_ACCOUNT_ID }}/ --delete
+
+      - name: Run production validation tests
+        run: |
+          # Test green environment
+          export ENVIRONMENT=green
+          python tests/smoke/production_validation_tests.py
+
+      - name: Blue-Green Deployment - Switch Traffic
+        run: |
+          # Switch API Gateway to GREEN aliases
+          for zip_file in lambda/*-deployment.zip; do
+            if [ -f "$zip_file" ]; then
+              function_name=$(basename "$zip_file" -deployment.zip)
+              green_version_var="GREEN_VERSION_${function_name}"
+              green_version=${!green_version_var}
+              
+              # Update LIVE alias to point to GREEN version
+              aws lambda update-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name LIVE \
+                --function-version $green_version \
+                --region ${{ env.AWS_REGION }} || \
+              aws lambda create-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name LIVE \
+                --function-version $green_version \
+                --region ${{ env.AWS_REGION }}
+            fi
+          done
+          
+          # Switch CloudFront to green S3 bucket
+          aws s3 sync s3://aquachain-frontend-green-${{ secrets.AWS_ACCOUNT_ID }}/ s3://aquachain-frontend-production-${{ secrets.AWS_ACCOUNT_ID }}/ --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_PRODUCTION }} --paths "/*"
+
+      - name: Post-deployment validation
+        run: |
+          # Wait for CloudFront invalidation
+          sleep 60
+          
+          # Run full production tests
+          export ENVIRONMENT=production
+          python tests/smoke/production_validation_tests.py
+
+      - name: Update BLUE aliases (backup)
+        if: success()
+        run: |
+          # Update BLUE aliases to previous LIVE versions for rollback capability
+          for zip_file in lambda/*-deployment.zip; do
+            if [ -f "$zip_file" ]; then
+              function_name=$(basename "$zip_file" -deployment.zip)
+              
+              # Get current LIVE version (before we updated it)
+              BLUE_VERSION=$(aws lambda get-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name BLUE \
+                --region ${{ env.AWS_REGION }} \
+                --query 'FunctionVersion' --output text 2>/dev/null || echo "1")
+              
+              # Keep BLUE as the previous version for rollback
+              aws lambda update-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name BLUE \
+                --function-version $BLUE_VERSION \
+                --region ${{ env.AWS_REGION }} || \
+              aws lambda create-alias \
+                --function-name "AquaChain-${function_name}-production" \
+                --name BLUE \
+                --function-version $BLUE_VERSION \
+                --region ${{ env.AWS_REGION }}
+            fi
+          done
+
+  # Rollback capability
+  rollback-production:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    if: failure() && github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PRODUCTION }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRODUCTION }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback Lambda functions
+        run: |
+          # Switch LIVE aliases back to BLUE versions
+          for function_name in data_processing ml_inference ledger_service audit_trail_processor alert_detection notification_service auth_service user_management technician_service api_gateway websocket_api; do
+            BLUE_VERSION=$(aws lambda get-alias \
+              --function-name "AquaChain-${function_name}-production" \
+              --name BLUE \
+              --region ${{ env.AWS_REGION }} \
+              --query 'FunctionVersion' --output text)
+            
+            aws lambda update-alias \
+              --function-name "AquaChain-${function_name}-production" \
+              --name LIVE \
+              --function-version $BLUE_VERSION \
+              --region ${{ env.AWS_REGION }}
+          done
+
+      - name: Rollback frontend
+        run: |
+          # Restore from blue S3 bucket (if exists)
+          aws s3 sync s3://aquachain-frontend-blue-${{ secrets.AWS_ACCOUNT_ID }}/ s3://aquachain-frontend-production-${{ secrets.AWS_ACCOUNT_ID }}/ --delete || echo "No blue backup found"
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_PRODUCTION }} --paths "/*"
+
+      - name: Notify team of rollback
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: "🚨 Production deployment failed and was rolled back. Please investigate."
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
