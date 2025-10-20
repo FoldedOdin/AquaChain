@@ -1,2 +1,3 @@
 boto3==1.34.0
 jsonschema==4.19.2
+aws-xray-sdk==2.12.1

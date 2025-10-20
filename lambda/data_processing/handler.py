@@ -11,10 +11,22 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from jsonschema import validate, ValidationError
 import logging
+import sys
+import os
+
+# Add shared utilities to path
+sys.path.append('/opt/python')  # Lambda layer path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import X-Ray tracing utilities
+from xray_utils import AquaChainTracer, trace_lambda_handler, EndToEndTracer
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Initialize tracer
+tracer = AquaChainTracer('data-processing')
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -80,6 +92,7 @@ class DuplicateDataError(Exception):
     """Exception for duplicate data detection"""
     pass
 
+@trace_lambda_handler('data-processing')
 def lambda_handler(event, context):
     """
     Main Lambda handler for IoT data processing
@@ -89,6 +102,10 @@ def lambda_handler(event, context):
         
         # Extract IoT data from event
         iot_data = extract_iot_data(event)
+        
+        # Start end-to-end tracing
+        trace_id = f"{iot_data['deviceId']}-{iot_data['timestamp']}"
+        EndToEndTracer.start_trace(trace_id, 'iot_device', 'sensor_reading')
         
         # Validate and sanitize data
         validated_data = validate_and_sanitize_data(iot_data)
@@ -151,6 +168,7 @@ def extract_iot_data(event: Dict[str, Any]) -> Dict[str, Any]:
     # Direct invocation or IoT Rule
     return event
 
+@tracer.trace_critical_path('validate_sensor_data')
 def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate IoT data against schema and sanitize values
@@ -231,6 +249,7 @@ def check_for_duplicates(data: Dict[str, Any]) -> None:
         logger.warning(f"Error checking duplicates: {e}")
         # Continue processing if duplicate check fails
 
+@tracer.trace_external_call('s3', 'put_object')
 def store_raw_data_s3(data: Dict[str, Any]) -> str:
     """
     Store raw IoT data in S3 data lake with partitioned structure
@@ -271,6 +290,7 @@ def store_raw_data_s3(data: Dict[str, Any]) -> str:
         logger.error(f"Error storing data in S3: {e}")
         raise DataProcessingError(f"Failed to store raw data: {e}")
 
+@tracer.trace_external_call('lambda', 'invoke_ml_inference')
 def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Invoke ML inference Lambda for WQI calculation and anomaly detection
@@ -312,6 +332,7 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
             'error': str(e)
         }
 
+@tracer.trace_external_call('dynamodb', 'put_item')
 def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any], 
                           s3_reference: str) -> Dict[str, Any]:
     """

@@ -1,7 +1,11 @@
 {
-  "version": "1.0",
-  "created_at": "2025-10-19T13:07:45.446076",
-  "training_samples": 5000,
+  "version": "v1.0",
+  "created_at": "2025-10-20T05:42:54.135313",
+  "models": {
+    "WQI": "XGBRegressor_GPU",
+    "Anomaly": "XGBClassifier_GPU"
+  },
+  "scaler": "StandardScaler",
   "features": [
     "pH",
     "turbidity",
@@ -17,18 +21,5 @@
     "turbidity_tds_ratio",
     "pH_deviation",
     "temp_deviation"
-  ],
-  "wqi_model": {
-    "algorithm": "RandomForestRegressor",
-    "n_estimators": 50,
-    "r2_score": 0.9435977451081862
-  },
-  "anomaly_model": {
-    "algorithm": "RandomForestClassifier",
-    "n_estimators": 50,
-    "accuracy": 0.986
-  },
-  "feature_scaler": {
-    "algorithm": "StandardScaler"
-  }
+  ]
 }
