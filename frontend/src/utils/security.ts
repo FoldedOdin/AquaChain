@@ -1,5 +1,92 @@
 import DOMPurify from 'dompurify';
 
+// Security Manager class from design specification
+export class SecurityManager {
+  /**
+   * Sanitize input based on type with comprehensive validation
+   */
+  public sanitizeInput(input: string, type: 'email' | 'name' | 'message'): string {
+    // Remove potentially dangerous characters
+    let sanitized = DOMPurify.sanitize(input, {
+      ALLOWED_TAGS: [],
+      ALLOWED_ATTR: []
+    });
+    
+    // Type-specific validation
+    switch (type) {
+      case 'email':
+        sanitized = this.validateEmail(sanitized);
+        break;
+      case 'name':
+        sanitized = this.validateName(sanitized);
+        break;
+      case 'message':
+        sanitized = this.validateMessage(sanitized);
+        break;
+    }
+    
+    return sanitized;
+  }
+  
+  private validateEmail(email: string): string {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new ValidationError('Invalid email format');
+    }
+    return email.toLowerCase().trim();
+  }
+  
+  private validateName(name: string): string {
+    // Remove any HTML tags and scripts
+    const cleaned = name.replace(/<[^>]*>/g, '').trim();
+    
+    if (cleaned.length < 1) {
+      throw new ValidationError('Name is required');
+    }
+    
+    if (cleaned.length > 100) {
+      throw new ValidationError('Name is too long');
+    }
+    
+    // Only allow letters, spaces, hyphens, and apostrophes
+    const nameRegex = /^[a-zA-Z\s\-']+$/;
+    if (!nameRegex.test(cleaned)) {
+      throw new ValidationError('Name contains invalid characters');
+    }
+    
+    return cleaned;
+  }
+  
+  private validateMessage(message: string): string {
+    // Remove any HTML tags and scripts
+    const cleaned = message.replace(/<[^>]*>/g, '').trim();
+    
+    if (cleaned.length < 1) {
+      throw new ValidationError('Message is required');
+    }
+    
+    if (cleaned.length > 5000) {
+      throw new ValidationError('Message is too long');
+    }
+    
+    return cleaned;
+  }
+  
+  public generateCSRFToken(): string {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+}
+
+// Custom validation error class
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
 // CSRF Token Management
 class CSRFTokenManager {
   private static instance: CSRFTokenManager;
@@ -387,19 +474,19 @@ export class SecurityHeaders {
 // Export singleton instances
 export const csrfTokenManager = CSRFTokenManager.getInstance();
 
-// Main Security Manager
-export class SecurityManager {
-  private static instance: SecurityManager;
+// Main Security Manager (Enhanced version)
+export class EnhancedSecurityManager {
+  private static instance: EnhancedSecurityManager;
   
   private constructor() {
     this.initialize();
   }
 
-  public static getInstance(): SecurityManager {
-    if (!SecurityManager.instance) {
-      SecurityManager.instance = new SecurityManager();
+  public static getInstance(): EnhancedSecurityManager {
+    if (!EnhancedSecurityManager.instance) {
+      EnhancedSecurityManager.instance = new EnhancedSecurityManager();
     }
-    return SecurityManager.instance;
+    return EnhancedSecurityManager.instance;
   }
 
   private initialize(): void {
@@ -509,7 +596,7 @@ export class SecurityManager {
 }
 
 // Export singleton instance
-export const securityManager = SecurityManager.getInstance();
+export const enhancedSecurityManager = EnhancedSecurityManager.getInstance();
 
 // Convenience functions for backward compatibility
 export const sanitizeInput = (input: string, type: 'email' | 'name' | 'message' | 'text' = 'text'): string => {

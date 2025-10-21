@@ -241,3 +241,80 @@ export class FocusManager {
 }
 
 export const focusManager = new FocusManager();
+
+/**
+ * Announce message to screen readers
+ */
+export const announceToScreenReader = (message: string, priority: 'polite' | 'assertive' = 'polite'): void => {
+  const announcer = document.getElementById('sr-announcements');
+  if (announcer) {
+    announcer.setAttribute('aria-live', priority);
+    announcer.textContent = message;
+    
+    // Clear after a short delay to allow for re-announcements
+    setTimeout(() => {
+      announcer.textContent = '';
+    }, 1000);
+  }
+};
+
+/**
+ * Focus management utilities
+ */
+export const focusManagement = {
+  /**
+   * Set focus to element with fallback
+   */
+  setFocus: (selector: string, fallbackSelector?: string): boolean => {
+    const element = document.querySelector(selector) as HTMLElement;
+    if (element && element.focus) {
+      element.focus();
+      return true;
+    }
+    
+    if (fallbackSelector) {
+      const fallback = document.querySelector(fallbackSelector) as HTMLElement;
+      if (fallback && fallback.focus) {
+        fallback.focus();
+        return true;
+      }
+    }
+    
+    return false;
+  },
+
+  /**
+   * Trap focus within container
+   */
+  trapFocus: (container: HTMLElement): (() => void) => {
+    const focusableElements = container.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    
+    const firstElement = focusableElements[0] as HTMLElement;
+    const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+    const handleTabKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            lastElement.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            firstElement.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    container.addEventListener('keydown', handleTabKey);
+    
+    // Return cleanup function
+    return () => {
+      container.removeEventListener('keydown', handleTabKey);
+    };
+  }
+};

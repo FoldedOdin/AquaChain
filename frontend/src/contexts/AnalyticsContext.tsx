@@ -66,8 +66,11 @@ export const AnalyticsProvider: React.FC<AnalyticsProviderProps> = ({
           } : undefined
         };
 
-        // Initialize AWS Pinpoint
-        await analyticsService.initialize(analyticsConfig);
+        // Initialize AWS Pinpoint only if analytics is enabled
+        const analyticsEnabled = process.env.REACT_APP_ENABLE_ANALYTICS !== 'false';
+        if (analyticsEnabled && analyticsConfig.credentials) {
+          await analyticsService.initialize(analyticsConfig);
+        }
 
         // Initialize Google Analytics 4
         const googleAnalyticsId = config.googleAnalyticsId || process.env.REACT_APP_GA4_MEASUREMENT_ID;

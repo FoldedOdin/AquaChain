@@ -5,6 +5,11 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Metric } from 'web-vitals';
+import {
+  PerformanceMonitor,
+  PerformanceBudget,
+  PerformanceMetrics as PMMetrics,
+} from '../utils/performanceMonitor';
 
 interface PerformanceMetrics {
   lcp?: number;
@@ -39,7 +44,7 @@ export const usePerformanceMonitoring = (config: PerformanceConfig = {}) => {
     enableRealTimeMonitoring = true,
     enableRecommendations = true,
     enableConnectionMonitoring = true,
-    reportingInterval = 5000
+    reportingInterval = 5000,
   } = config;
 
   const [performanceState, setPerformanceState] = useState<PerformanceState>({
@@ -47,254 +52,78 @@ export const usePerformanceMonitoring = (config: PerformanceConfig = {}) => {
     isLoading: true,
     overallScore: 0,
     recommendations: [],
-    connectionInfo: {}
+    connectionInfo: {},
   });
 
-  const metricsRef = useRef<PerformanceMetrics>({});
-  const reportingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Performance monitor instance
+  const performanceMonitorRef = useRef<PerformanceMonitor | null>(null);
 
-  // Calculate overall performance score
-  const calculateOverallScore = useCallback((metrics: PerformanceMetrics): number => {
-    const weights = {
-      lcp: 0.25,  // Largest Contentful Paint
-      fid: 0.25,  // First Input Delay
-      cls: 0.25,  // Cumulative Layout Shift
-      fcp: 0.15,  // First Contentful Paint
-      ttfb: 0.1   // Time to First Byte
-    };
-
-    let totalScore = 0;
-    let totalWeight = 0;
-
-    Object.entries(weights).forEach(([metric, weight]) => {
-      const value = metrics[metric as keyof PerformanceMetrics];
-      if (value !== undefined) {
-        let score = 100;
-        
-        switch (metric) {
-          case 'lcp':
-            score = value <= 2500 ? 100 : value <= 4000 ? 75 : 50;
-            break;
-          case 'fid':
-            score = value <= 100 ? 100 : value <= 300 ? 75 : 50;
-            break;
-          case 'cls':
-            score = value <= 0.1 ? 100 : value <= 0.25 ? 75 : 50;
-            break;
-          case 'fcp':
-            score = value <= 1800 ? 100 : value <= 3000 ? 75 : 50;
-            break;
-          case 'ttfb':
-            score = value <= 800 ? 100 : value <= 1800 ? 75 : 50;
-            break;
-        }
-        
-        totalScore += score * weight;
-        totalWeight += weight;
-      }
-    });
-
-    return totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
-  }, []);
-
-  // Generate performance recommendations
-  const generateRecommendations = useCallback((metrics: PerformanceMetrics): string[] => {
-    const recommendations: string[] = [];
-
-    if (metrics.lcp && metrics.lcp > 2500) {
-      recommendations.push('Optimize Largest Contentful Paint by reducing image sizes and improving server response times');
-    }
-
-    if (metrics.fid && metrics.fid > 100) {
-      recommendations.push('Reduce First Input Delay by minimizing JavaScript execution time');
-    }
-
-    if (metrics.cls && metrics.cls > 0.1) {
-      recommendations.push('Improve Cumulative Layout Shift by setting dimensions for images and ads');
-    }
-
-    if (metrics.fcp && metrics.fcp > 1800) {
-      recommendations.push('Speed up First Contentful Paint by optimizing critical rendering path');
-    }
-
-    if (metrics.ttfb && metrics.ttfb > 800) {
-      recommendations.push('Reduce Time to First Byte by optimizing server response time');
-    }
-
-    return recommendations;
-  }, []);
-
-  // Get connection information
-  const getConnectionInfo = useCallback(() => {
-    const connection = (navigator as any).connection || 
-                      (navigator as any).mozConnection || 
-                      (navigator as any).webkitConnection;
-    
-    return {
-      effectiveType: connection?.effectiveType,
-      downlink: connection?.downlink,
-      rtt: connection?.rtt
-    };
-  }, []);
-
-  // Handle metric updates
-  const handleMetricUpdate = useCallback((metric: Metric) => {
-    metricsRef.current = {
-      ...metricsRef.current,
-      [metric.name.toLowerCase()]: metric.value
-    };
-
-    if (enableRealTimeMonitoring) {
-      const newMetrics = { ...metricsRef.current };
-      const overallScore = calculateOverallScore(newMetrics);
-      const recommendations = enableRecommendations ? generateRecommendations(newMetrics) : [];
-      const connectionInfo = enableConnectionMonitoring ? getConnectionInfo() : {};
-
-      setPerformanceState({
-        metrics: newMetrics,
-        isLoading: false,
-        overallScore,
-        recommendations,
-        connectionInfo
-      });
-    }
-  }, [enableRealTimeMonitoring, enableRecommendations, enableConnectionMonitoring, calculateOverallScore, generateRecommendations, getConnectionInfo]);
-
-  // Initialize performance monitoring
+  // Initialize performance monitor
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (enableRealTimeMonitoring) {
+      performanceMonitorRef.current = new PerformanceMonitor();
+      performanceMonitorRef.current.start();
 
-    let cleanup: (() => void)[] = [];
-
-    // Import and setup web-vitals
-    import('web-vitals').then((webVitals) => {
-      webVitals.getCLS(handleMetricUpdate);
-      webVitals.getFID(handleMetricUpdate);
-      webVitals.getFCP(handleMetricUpdate);
-      webVitals.getLCP(handleMetricUpdate);
-      webVitals.getTTFB(handleMetricUpdate);
-      if ('onINP' in webVitals) {
-        (webVitals as any).onINP(handleMetricUpdate);
-      }
-    });
-
-    // Setup periodic reporting
-    if (reportingInterval > 0) {
-      reportingTimerRef.current = setInterval(() => {
-        const currentMetrics = { ...metricsRef.current };
-        const overallScore = calculateOverallScore(currentMetrics);
-        const recommendations = enableRecommendations ? generateRecommendations(currentMetrics) : [];
-        const connectionInfo = enableConnectionMonitoring ? getConnectionInfo() : {};
-
-        setPerformanceState(prev => ({
-          ...prev,
-          metrics: currentMetrics,
-          overallScore,
-          recommendations,
-          connectionInfo
-        }));
-      }, reportingInterval);
-
-      cleanup.push(() => {
-        if (reportingTimerRef.current) {
-          clearInterval(reportingTimerRef.current);
-        }
-      });
-    }
-
-    // Monitor connection changes
-    if (enableConnectionMonitoring && 'connection' in navigator) {
-      const connection = (navigator as any).connection;
-      const handleConnectionChange = () => {
-        setPerformanceState(prev => ({
-          ...prev,
-          connectionInfo: getConnectionInfo()
-        }));
-      };
-
-      connection?.addEventListener('change', handleConnectionChange);
-      cleanup.push(() => {
-        connection?.removeEventListener('change', handleConnectionChange);
-      });
-    }
-
-    return () => {
-      cleanup.forEach(fn => fn());
-    };
-  }, [handleMetricUpdate, reportingInterval, enableConnectionMonitoring, enableRecommendations, calculateOverallScore, generateRecommendations, getConnectionInfo]);
-
-  // Manual performance measurement
-  const measurePerformance = useCallback(async () => {
-    if (typeof window === 'undefined') return;
-
-    const { getCLS, getFID, getFCP, getLCP, getTTFB } = await import('web-vitals');
-    
-    return new Promise<PerformanceMetrics>((resolve) => {
-      const metrics: PerformanceMetrics = {};
-      let pendingMetrics = 5;
-
-      const checkComplete = () => {
-        pendingMetrics--;
-        if (pendingMetrics === 0) {
-          resolve(metrics);
+      return () => {
+        if (performanceMonitorRef.current) {
+          performanceMonitorRef.current.stop();
         }
       };
+    }
+  }, [enableRealTimeMonitoring]);
 
-      getCLS((metric) => {
-        metrics.cls = metric.value;
-        checkComplete();
-      });
+  // Track layout shift
+  const trackLayoutShift = useCallback(() => {
+    if (performanceMonitorRef.current) {
+      // Layout shift tracking is handled automatically by PerformanceMonitor
+      const report = performanceMonitorRef.current.checkBudget();
 
-      getFID((metric) => {
-        metrics.fid = metric.value;
-        checkComplete();
-      });
-
-      getFCP((metric) => {
-        metrics.fcp = metric.value;
-        checkComplete();
-      });
-
-      getLCP((metric) => {
-        metrics.lcp = metric.value;
-        checkComplete();
-      });
-
-      getTTFB((metric) => {
-        metrics.ttfb = metric.value;
-        checkComplete();
-      });
-    });
+      setPerformanceState((prev: PerformanceState) => ({
+        ...prev,
+        overallScore: report.score,
+        recommendations: report.violations.map(v => v.recommendation),
+      }));
+    }
   }, []);
 
-  // Get performance insights
+  // Get current performance metrics
+  const getMetrics = useCallback(() => {
+    if (performanceMonitorRef.current) {
+      return performanceMonitorRef.current.getMetrics();
+    }
+    return {};
+  }, []);
+
+  // Check performance budget
+  const checkBudget = useCallback(() => {
+    if (performanceMonitorRef.current) {
+      return performanceMonitorRef.current.checkBudget();
+    }
+    return null;
+  }, []);
+
+  // Legacy functions for backward compatibility
+  const measurePerformance = useCallback(() => {
+    console.warn(
+      'measurePerformance is deprecated, use trackLayoutShift instead'
+    );
+    trackLayoutShift();
+  }, [trackLayoutShift]);
+
   const getPerformanceInsights = useCallback(() => {
-    const { metrics, overallScore } = performanceState;
-    
-    return {
-      score: overallScore,
-      grade: overallScore >= 90 ? 'A' : overallScore >= 80 ? 'B' : overallScore >= 70 ? 'C' : overallScore >= 60 ? 'D' : 'F',
-      coreWebVitals: {
-        lcp: {
-          value: metrics.lcp,
-          status: !metrics.lcp ? 'pending' : metrics.lcp <= 2500 ? 'good' : metrics.lcp <= 4000 ? 'needs-improvement' : 'poor'
-        },
-        fid: {
-          value: metrics.fid,
-          status: !metrics.fid ? 'pending' : metrics.fid <= 100 ? 'good' : metrics.fid <= 300 ? 'needs-improvement' : 'poor'
-        },
-        cls: {
-          value: metrics.cls,
-          status: !metrics.cls ? 'pending' : metrics.cls <= 0.1 ? 'good' : metrics.cls <= 0.25 ? 'needs-improvement' : 'poor'
-        }
-      },
-      recommendations: performanceState.recommendations
-    };
-  }, [performanceState]);
+    console.warn(
+      'getPerformanceInsights is deprecated, use getMetrics instead'
+    );
+    return getMetrics();
+  }, [getMetrics]);
 
   return {
     ...performanceState,
+    trackLayoutShift,
+    getMetrics,
+    checkBudget,
     measurePerformance,
-    getPerformanceInsights
+    getPerformanceInsights,
+    performanceMonitor: performanceMonitorRef.current,
   };
 };

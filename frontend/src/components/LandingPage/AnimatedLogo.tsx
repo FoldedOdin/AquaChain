@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 
+interface AnimatedLogoProps {
+  className?: string;
+}
+
 /**
  * Animated AquaChain Logo Component
  * Features floating droplet icon with pulsing and floating animations
  * Responsive scaling and accessibility support
  */
-const AnimatedLogo: React.FC = () => {
+const AnimatedLogo: React.FC<AnimatedLogoProps> = ({ className = '' }) => {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
@@ -22,7 +26,7 @@ const AnimatedLogo: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex flex-col items-center">
+    <div className={`flex flex-col items-center ${className}`}>
       {/* Animated Droplet Icon */}
       <div 
         className={`relative mb-4 ${

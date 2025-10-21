@@ -1,6 +1,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import LandingPageLayout from './LandingPageLayout';
 import LandingPageHeader from './LandingPageHeader';
+import AnimationEngineComponent from './AnimationEngine';
 import LandingPageFooter from './LandingPageFooter';
 import HeroSection from './HeroSection';
 import ScrollNavigation from './ScrollNavigation';
@@ -54,6 +55,14 @@ const LandingPage: React.FC<LandingPageProps> = ({
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'signup'>('login');
   const [isDemoDashboardOpen, setIsDemoDashboardOpen] = useState(false);
+  
+  // Animation settings based on user preferences and performance
+  const [animationSettings, setAnimationSettings] = useState({
+    enableParallax: true,
+    enableRipples: true,
+    enableBubbles: true,
+    performanceMode: 'high' as 'high' | 'medium' | 'low'
+  });
 
   // Initialize analytics and tracking hooks
   const { trackConversion, trackPageView, trackInteraction } = useConversionTracking();
@@ -251,14 +260,18 @@ const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <LandingPageLayout>
-      {/* Header with Navigation */}
-      <LandingPageHeader
-        onGetStartedClick={handleGetStartedClick}
-        onViewDashboardsClick={handleViewDashboardsClick}
-      />
+      <AnimationEngineComponent 
+        settings={animationSettings}
+        className="min-h-screen"
+      >
+        {/* Header with Navigation */}
+        <LandingPageHeader
+          onGetStartedClick={handleGetStartedClick}
+          onViewDashboardsClick={handleViewDashboardsClick}
+        />
 
-      {/* Main Content Area */}
-      <main id="main-content" className="flex-1" role="main">
+        {/* Main Content Area */}
+        <main id="main-content" className="flex-1" role="main">
         {/* Hero Section */}
         <section id="hero">
           <SectionTransition direction="fade" duration={0.8}>
@@ -305,13 +318,14 @@ const LandingPage: React.FC<LandingPageProps> = ({
             </LazyContent>
           </SectionTransition>
         </section>
-      </main>
+        </main>
 
-      {/* Scroll Navigation */}
-      <ScrollNavigation />
+        {/* Scroll Navigation */}
+        <ScrollNavigation />
 
-      {/* Footer */}
-      <LandingPageFooter onContactClick={onContactClick} />
+        {/* Footer */}
+        <LandingPageFooter onContactClick={onContactClick} />
+      </AnimationEngineComponent>
 
       {/* Authentication Modal - Lazy Loaded */}
       {isAuthModalOpen && (

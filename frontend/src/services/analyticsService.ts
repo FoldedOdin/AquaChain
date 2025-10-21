@@ -78,6 +78,15 @@ class AnalyticsService {
         ...config
       };
 
+      // Check if credentials are provided
+      if (!this.config.credentials || !this.config.credentials.accessKeyId) {
+        if (this.config.enableDebugMode) {
+          console.warn('Analytics service: No AWS credentials provided, running in mock mode');
+        }
+        this.isInitialized = true; // Allow the service to work without Pinpoint
+        return;
+      }
+
       // Initialize Pinpoint client
       this.pinpointClient = new PinpointClient({
         region: this.config.region,
@@ -97,7 +106,8 @@ class AnalyticsService {
       }
     } catch (error) {
       console.error('Failed to initialize analytics service:', error);
-      throw error;
+      // Don't throw error, allow app to continue without analytics
+      this.isInitialized = true;
     }
   }
 
@@ -308,6 +318,11 @@ class AnalyticsService {
    */
   private async flush(): Promise<void> {
     if (!this.pinpointClient || !this.config || this.eventQueue.length === 0) {
+      // If no Pinpoint client, just log events in debug mode and clear queue
+      if (this.config?.enableDebugMode && this.eventQueue.length > 0) {
+        console.log('Analytics (Mock Mode): Would flush events:', this.eventQueue);
+        this.eventQueue.length = 0; // Clear the queue
+      }
       return;
     }
 
