@@ -4,17 +4,28 @@
   "private": true,
   "dependencies": {
     "@aws-amplify/ui-react": "^6.13.0",
+    "@aws-sdk/client-pinpoint": "^3.913.0",
+    "@aws-sdk/client-pinpoint-email": "^3.913.0",
+    "@headlessui/react": "^2.2.9",
+    "@heroicons/react": "^2.2.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
+    "@types/dompurify": "^3.0.5",
     "@types/jest": "^27.5.2",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "@types/react-google-recaptcha": "^2.1.9",
     "@types/react-router-dom": "^5.3.3",
     "aws-amplify": "^6.15.7",
+    "dompurify": "^3.3.0",
+    "framer-motion": "^12.23.24",
+    "gtag": "^1.0.1",
+    "lucide-react": "^0.546.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-google-recaptcha": "^3.1.0",
     "react-router-dom": "^7.9.4",
     "react-scripts": "5.0.1",
     "recharts": "^3.3.0",
@@ -24,8 +35,35 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "build:analyze": "npm run build && npx webpack-bundle-analyzer build/static/js/*.js",
+    "analyze": "node scripts/analyze-bundle.js",
+    "performance:budget": "node scripts/performance-budget.js",
+    "performance:regression": "node scripts/performance-regression.js",
+    "lighthouse": "npx lhci autorun --config=lighthouserc.js",
+    "lighthouse:ci": "npm run build && npm run lighthouse",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "test:ci": "react-scripts test --coverage --ci --watchAll=false",
+    "test:a11y": "npm run build && npx @axe-core/cli build",
+    "test:a11y-dev": "react-scripts test --testNamePattern=\"accessibility|a11y\" --watchAll=false",
+    "test:performance": "react-scripts test --testNamePattern='performance' --watchAll=false",
+    "test:security": "react-scripts test --testNamePattern=\"security|xss|csrf\" --watchAll=false",
+    "test:compatibility": "react-scripts test --testNamePattern=\"compatibility|cross.browser|device\" --watchAll=false",
+    "test:coverage": "react-scripts test --coverage --watchAll=false",
+    "test:comprehensive": "node scripts/run-all-tests.js",
+    "audit:accessibility": "node scripts/accessibility-audit.js",
+    "audit:performance": "node scripts/performance-testing.js",
+    "audit:security": "node scripts/security-testing.js",
+    "audit:compatibility": "node scripts/cross-browser-testing.js",
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .ts,.tsx,.js,.jsx",
+    "lint:fix": "eslint src --ext .ts,.tsx,.js,.jsx --fix",
+    "format": "prettier --write src/**/*.{ts,tsx,js,jsx,css,md}",
+    "format:check": "prettier --check src/**/*.{ts,tsx,js,jsx,css,md}",
+    "prepare": "husky install",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "storybook:test": "test-storybook",
+    "chromatic": "npx chromatic --project-token=<project-token>"
   },
   "eslintConfig": {
     "extends": [
@@ -46,9 +84,39 @@
     ]
   },
   "devDependencies": {
+    "@axe-core/react": "^4.10.2",
+    "@lhci/cli": "^0.15.1",
+    "@storybook/addon-a11y": "^9.1.13",
+    "@storybook/addon-actions": "^9.0.8",
+    "@storybook/addon-controls": "^9.0.8",
+    "@storybook/addon-docs": "^9.1.13",
+    "@storybook/addon-onboarding": "^9.1.13",
+    "@storybook/addon-viewport": "^9.0.8",
+    "@storybook/preset-create-react-app": "^9.1.13",
+    "@storybook/react-webpack5": "^9.1.13",
+    "@types/jest-axe": "^3.5.9",
     "@types/node": "^24.8.1",
     "autoprefixer": "^10.4.21",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-storybook": "^9.1.13",
+    "husky": "^9.1.7",
+    "jest-axe": "^10.0.0",
+    "lint-staged": "^16.2.4",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.18"
+    "prettier": "^3.6.2",
+    "prop-types": "^15.8.1",
+    "storybook": "^9.1.13",
+    "tailwindcss": "^3.4.18",
+    "webpack": "^5.102.1",
+    "webpack-bundle-analyzer": "^4.10.2"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "src/**/*.{css,md}": [
+      "prettier --write"
+    ]
   }
 }

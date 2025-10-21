@@ -1,28 +1,150 @@
 {
   "short_name": "AquaChain",
-  "name": "AquaChain Water Quality Monitor",
+  "name": "AquaChain - Real-Time Water Quality You Can Trust",
+  "description": "Professional water quality monitoring platform with real-time alerts, tamper-evident blockchain ledger, and AI-powered insights for consumers and technicians.",
   "icons": [
     {
       "src": "favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "type": "image/x-icon",
+      "purpose": "any"
     },
     {
       "src": "logo192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
       "src": "logo512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-72x72.png",
+      "type": "image/png",
+      "sizes": "72x72",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-96x96.png",
+      "type": "image/png",
+      "sizes": "96x96",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-128x128.png",
+      "type": "image/png",
+      "sizes": "128x128",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-144x144.png",
+      "type": "image/png",
+      "sizes": "144x144",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-152x152.png",
+      "type": "image/png",
+      "sizes": "152x152",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-384x384.png",
+      "type": "image/png",
+      "sizes": "384x384",
+      "purpose": "any"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "theme_color": "#3b82f6",
-  "background_color": "#ffffff",
-  "description": "Real-time water quality monitoring and analysis system",
-  "categories": ["utilities", "health"],
-  "orientation": "portrait-primary"
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "theme_color": "#06b6d4",
+  "background_color": "#001f2e",
+  "categories": ["utilities", "health", "productivity", "business"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "shortcuts": [
+    {
+      "name": "Consumer Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your water quality dashboard",
+      "url": "/dashboard/consumer",
+      "icons": [
+        {
+          "src": "shortcut-dashboard.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "View Demo",
+      "short_name": "Demo",
+      "description": "Explore AquaChain demo dashboards",
+      "url": "/demo",
+      "icons": [
+        {
+          "src": "shortcut-demo.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Contact Support",
+      "short_name": "Support",
+      "description": "Get help with AquaChain",
+      "url": "/contact",
+      "icons": [
+        {
+          "src": "shortcut-support.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "AquaChain Dashboard - Desktop View"
+    },
+    {
+      "src": "screenshot-narrow.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "AquaChain Dashboard - Mobile View"
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://aquachain.io/manifest.json"
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+aquachain",
+      "url": "/device/%s"
+    }
+  ]
 }

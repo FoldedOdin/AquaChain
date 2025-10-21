@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- AquaChain Safari Pinned Tab Icon -->
+  <defs>
+    <style>
+      .water-drop { fill: #06b6d4; }
+      .wave { fill: #088395; }
+    </style>
+  </defs>
+  
+  <!-- Water drop shape -->
+  <path class="water-drop" d="M256 64c-64 0-128 64-128 128 0 64 64 128 128 128s128-64 128-128c0-64-64-128-128-128z"/>
+  
+  <!-- Wave pattern -->
+  <path class="wave" d="M64 384c32-16 64-16 96 0s64 16 96 0 64-16 96 0 64 16 96 0v64H64v-64z"/>
+  <path class="wave" d="M64 416c32-16 64-16 96 0s64 16 96 0 64-16 96 0 64 16 96 0v32H64v-32z"/>
+</svg>

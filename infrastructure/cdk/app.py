@@ -13,6 +13,7 @@ from stacks.api_stack import AquaChainApiStack
 from stacks.monitoring_stack import AquaChainMonitoringStack
 from stacks.security_stack import AquaChainSecurityStack
 from stacks.disaster_recovery_stack import AquaChainDisasterRecoveryStack
+from stacks.landing_page_stack import AquaChainLandingPageStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -116,6 +117,16 @@ def main():
         description=f"AquaChain Disaster Recovery Layer - {env_name}"
     )
     dr_stack.add_dependency(data_stack)
+    
+    # 8. Landing Page Stack (Static website hosting with CloudFront, S3, Route 53, WAF)
+    landing_page_stack = AquaChainLandingPageStack(
+        app,
+        f"AquaChain-LandingPage-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain Landing Page - {env_name}"
+    )
+    # Landing page is independent of other stacks
     
     # Synthesize the app
     app.synth()
