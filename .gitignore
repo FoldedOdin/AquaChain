@@ -71,6 +71,20 @@ cdk.context.json
 .__*
 .__
 
+# Text files that might contain sensitive data
+*.txt
+!README.txt
+!LICENSE.txt
+!CHANGELOG.txt
+!requirements.txt
+!**/requirements.txt
+
+# Notes and temporary files
+notes/
+scratch/
+*.notes
+*.todo
+
 #
 .husky/
 ml-training/*
