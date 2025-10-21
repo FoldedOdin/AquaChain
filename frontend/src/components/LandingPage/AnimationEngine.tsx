@@ -77,18 +77,18 @@ const AnimationEngineComponent: React.FC<AnimationEngineProps> = ({
     }
   };
 
-  // Expose parallax management functions via callback props if needed
-  const addParallaxElement = React.useCallback((element: HTMLElement, speed: number = 0.5) => {
-    if (engineRef.current && settings.enableParallax) {
-      engineRef.current.parallaxController.addElement(element, speed);
-    }
-  }, [settings.enableParallax]);
+  // Parallax management functions (available for future use)
+  // const addParallaxElement = React.useCallback((element: HTMLElement, speed: number = 0.5) => {
+  //   if (engineRef.current && settings.enableParallax) {
+  //     engineRef.current.parallaxController.addElement(element, speed);
+  //   }
+  // }, [settings.enableParallax]);
 
-  const removeParallaxElement = React.useCallback((element: HTMLElement) => {
-    if (engineRef.current) {
-      engineRef.current.parallaxController.removeElement(element);
-    }
-  }, []);
+  // const removeParallaxElement = React.useCallback((element: HTMLElement) => {
+  //   if (engineRef.current) {
+  //     engineRef.current.parallaxController.removeElement(element);
+  //   }
+  // }, []);
 
   return (
     <div

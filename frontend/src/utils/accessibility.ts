@@ -1,7 +1,17 @@
-import { axe, toHaveNoViolations } from 'jest-axe';
+// Only import jest-axe in test environment
+let axe: any;
+let toHaveNoViolations: any;
 
-// Extend Jest matchers
-expect.extend(toHaveNoViolations);
+if (process.env.NODE_ENV === 'test') {
+  const jestAxe = require('jest-axe');
+  axe = jestAxe.axe;
+  toHaveNoViolations = jestAxe.toHaveNoViolations;
+  
+  // Extend Jest matchers (only in test environment)
+  if (typeof expect !== 'undefined') {
+    expect.extend(toHaveNoViolations);
+  }
+}
 
 export interface AccessibilityConfig {
   rules?: Record<string, { enabled: boolean }>;
@@ -35,38 +45,65 @@ export class AccessibilityTester {
   /**
    * Test a DOM element for accessibility violations
    */
-  async testElement(element: Element): Promise<void> {
+  async testElement(element: Element): Promise<any> {
+    if (process.env.NODE_ENV !== 'test' || !axe) {
+      console.warn('Accessibility testing is only available in test environment');
+      return null;
+    }
     const results = await axe(element);
-    expect(results).toHaveNoViolations();
+    if (typeof expect !== 'undefined') {
+      expect(results).toHaveNoViolations();
+    }
+    return results;
   }
 
   /**
    * Test the entire document for accessibility violations
    */
-  async testDocument(): Promise<void> {
+  async testDocument(): Promise<any> {
+    if (process.env.NODE_ENV !== 'test' || !axe) {
+      console.warn('Accessibility testing is only available in test environment');
+      return null;
+    }
     const results = await axe(document.body);
-    expect(results).toHaveNoViolations();
+    if (typeof expect !== 'undefined') {
+      expect(results).toHaveNoViolations();
+    }
+    return results;
   }
 
   /**
    * Test keyboard navigation for an element
    */
-  testKeyboardNavigation(element: Element): void {
+  testKeyboardNavigation(element: Element): boolean {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('Accessibility testing is only available in test environment');
+      return false;
+    }
+    
     // Check if element is focusable
     const focusableElements = element.querySelectorAll(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     );
 
     focusableElements.forEach(el => {
-      expect(el).toBeVisible();
-      expect(el).not.toHaveAttribute('tabindex', '-1');
+      if (typeof expect !== 'undefined') {
+        expect(el).toBeVisible();
+        expect(el).not.toHaveAttribute('tabindex', '-1');
+      }
     });
+    return true;
   }
 
   /**
    * Test ARIA labels and roles
    */
-  testAriaLabels(element: Element): void {
+  testAriaLabels(element: Element): boolean {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('Accessibility testing is only available in test environment');
+      return false;
+    }
+    
     // Check for proper ARIA labels
     const interactiveElements = element.querySelectorAll(
       'button, [role="button"], input, select, textarea, [role="textbox"]'
@@ -79,14 +116,22 @@ export class AccessibilityTester {
         el.querySelector('label') ||
         el.textContent?.trim();
 
-      expect(hasLabel).toBeTruthy();
+      if (typeof expect !== 'undefined') {
+        expect(hasLabel).toBeTruthy();
+      }
     });
+    return true;
   }
 
   /**
    * Test color contrast (requires manual verification in most cases)
    */
-  testColorContrast(element: Element): void {
+  testColorContrast(element: Element): boolean {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('Accessibility testing is only available in test environment');
+      return false;
+    }
+    
     // This is a basic check - real color contrast testing requires visual analysis
     const textElements = element.querySelectorAll(
       'p, span, div, h1, h2, h3, h4, h5, h6, label'
@@ -98,9 +143,12 @@ export class AccessibilityTester {
       const backgroundColor = styles.backgroundColor;
 
       // Basic check that colors are defined
-      expect(color).not.toBe('');
-      expect(backgroundColor).not.toBe('');
+      if (typeof expect !== 'undefined') {
+        expect(color).not.toBe('');
+        expect(backgroundColor).not.toBe('');
+      }
     });
+    return true;
   }
 }
 

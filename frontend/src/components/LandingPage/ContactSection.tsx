@@ -25,13 +25,13 @@ const ContactSection: React.FC<ContactSectionProps> = ({ onFormSubmit }) => {
     {
       icon: MapPinIcon,
       title: 'Headquarters',
-      details: ['123 Water Quality Blvd', 'Tech City, TC 12345', 'United States'],
+      details: ['AquaChain Technologies pvt', 'Ernakulam, Kerala', 'India'],
       color: 'text-aqua-400'
     },
     {
       icon: PhoneIcon,
       title: 'Phone Support',
-      details: ['+1 (555) 123-AQUA', 'Mon-Fri: 8AM-6PM EST', 'Emergency: 24/7'],
+      details: ['+91 12345678921', 'Mon-Fri: 8AM-6PM EST', 'Emergency: 24/7'],
       color: 'text-emerald-400'
     },
     {

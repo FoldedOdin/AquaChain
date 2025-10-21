@@ -57,7 +57,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
   const [isDemoDashboardOpen, setIsDemoDashboardOpen] = useState(false);
   
   // Animation settings based on user preferences and performance
-  const [animationSettings, setAnimationSettings] = useState({
+  const [animationSettings] = useState({
     enableParallax: true,
     enableRipples: true,
     enableBubbles: true,
@@ -66,7 +66,6 @@ const LandingPage: React.FC<LandingPageProps> = ({
 
   // Initialize analytics and tracking hooks
   const { trackConversion, trackPageView, trackInteraction } = useConversionTracking();
-  const { scrollDepth } = useScrollTracking();
   const { isInitialized: isABTestInitialized } = useABTesting();
 
   // Initialize keyboard navigation

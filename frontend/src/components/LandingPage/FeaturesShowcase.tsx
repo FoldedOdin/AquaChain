@@ -4,7 +4,6 @@ import {
   ActivityIcon, 
   ShieldCheckIcon, 
   BrainCircuitIcon,
-  WavesIcon,
   ClockIcon,
   TrendingUpIcon
 } from 'lucide-react';
@@ -322,7 +321,7 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
         </p>
 
         {/* Benefits List */}
-        <ul className="space-y-2" role="list">
+        <ul className="space-y-2">
           {benefits.map((benefit, index) => (
             <li 
               key={index}

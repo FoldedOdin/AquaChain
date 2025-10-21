@@ -4,12 +4,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Metric } from 'web-vitals';
-import {
-  PerformanceMonitor,
-  PerformanceBudget,
-  PerformanceMetrics as PMMetrics,
-} from '../utils/performanceMonitor';
+import { PerformanceMonitor } from '../utils/performanceMonitor';
 
 interface PerformanceMetrics {
   lcp?: number;
@@ -42,9 +37,6 @@ interface PerformanceConfig {
 export const usePerformanceMonitoring = (config: PerformanceConfig = {}) => {
   const {
     enableRealTimeMonitoring = true,
-    enableRecommendations = true,
-    enableConnectionMonitoring = true,
-    reportingInterval = 5000,
   } = config;
 
   const [performanceState, setPerformanceState] = useState<PerformanceState>({
@@ -104,16 +96,12 @@ export const usePerformanceMonitoring = (config: PerformanceConfig = {}) => {
 
   // Legacy functions for backward compatibility
   const measurePerformance = useCallback(() => {
-    console.warn(
-      'measurePerformance is deprecated, use trackLayoutShift instead'
-    );
+    // Deprecated: use trackLayoutShift instead
     trackLayoutShift();
   }, [trackLayoutShift]);
 
   const getPerformanceInsights = useCallback(() => {
-    console.warn(
-      'getPerformanceInsights is deprecated, use getMetrics instead'
-    );
+    // Deprecated: use getMetrics instead
     return getMetrics();
   }, [getMetrics]);
 

@@ -185,7 +185,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       try {
         recaptchaToken = await RecaptchaService.executeRecaptcha('login');
       } catch (recaptchaError) {
-        console.warn('reCAPTCHA not available:', recaptchaError);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.warn('reCAPTCHA not available:', recaptchaError);
+        }
       }
 
       // Get CSRF token
@@ -216,7 +219,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const handleGoogleSignIn = async () => {
     setError(null);
     try {
-      const result = await authService.signInWithGoogle();
+      await authService.signInWithGoogle();
       setSuccess('Google sign-in successful! Redirecting...');
       
       // Call the parent's onSubmit with a mock credentials object
@@ -537,7 +540,10 @@ export const SignupForm: React.FC<SignupFormProps> = ({
       try {
         recaptchaToken = await RecaptchaService.executeRecaptcha('signup');
       } catch (recaptchaError) {
-        console.warn('reCAPTCHA not available:', recaptchaError);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.warn('reCAPTCHA not available:', recaptchaError);
+        }
       }
 
       // Get CSRF token
@@ -578,7 +584,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({
 
     setError(null);
     try {
-      const result = await authService.signInWithGoogle();
+      await authService.signInWithGoogle();
       setSuccess('Google sign-in successful! Redirecting...');
       
       // For Google OAuth, we'll create a mock signup data object

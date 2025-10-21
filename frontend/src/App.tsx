@@ -4,11 +4,16 @@ import LandingPageWithAnalytics from './components/LandingPage/LandingPageWithAn
 import './App.css';
 
 function App() {
-  // Debug current location
+  // Debug current location (development only)
   React.useEffect(() => {
-    console.log('=== APP MOUNTED ===');
-    console.log('Current location:', window.location.href);
-    console.log('Current pathname:', window.location.pathname);
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('=== APP MOUNTED ===');
+      // eslint-disable-next-line no-console
+      console.log('Current location:', window.location.href);
+      // eslint-disable-next-line no-console
+      console.log('Current pathname:', window.location.pathname);
+    }
   }, []);
 
   return (

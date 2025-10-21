@@ -25,7 +25,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
     overallScore, 
     recommendations, 
     connectionInfo,
-    getPerformanceInsights 
+    getMetrics 
   } = usePerformanceMonitoring({
     enableRealTimeMonitoring: true,
     enableRecommendations,
@@ -33,7 +33,15 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
     reportingInterval: 3000
   });
 
-  const insights = getPerformanceInsights();
+  // Create mock insights for UI display
+  const insights = {
+    grade: overallScore >= 90 ? 'A' : overallScore >= 80 ? 'B' : overallScore >= 70 ? 'C' : 'D',
+    coreWebVitals: {
+      lcp: { status: metrics.lcp ? (metrics.lcp < 2500 ? 'good' : metrics.lcp < 4000 ? 'needs-improvement' : 'poor') : 'unknown' },
+      fid: { status: metrics.fid ? (metrics.fid < 100 ? 'good' : metrics.fid < 300 ? 'needs-improvement' : 'poor') : 'unknown' },
+      cls: { status: metrics.cls ? (metrics.cls < 0.1 ? 'good' : metrics.cls < 0.25 ? 'needs-improvement' : 'poor') : 'unknown' }
+    }
+  };
 
   if (!isVisible && process.env.NODE_ENV !== 'development') {
     return null;
