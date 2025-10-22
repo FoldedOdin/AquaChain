@@ -4,7 +4,6 @@ import {
   XMarkIcon,
   ArrowLeftIcon,
   ExclamationTriangleIcon,
-  CheckCircleIcon,
   ClockIcon,
   MapPinIcon,
   ChartBarIcon,
@@ -68,87 +67,127 @@ interface Alert {
   priority: 'low' | 'medium' | 'high';
 }
 
-interface TimeSeriesData {
-  timestamp: string;
-  value: number;
-  threshold?: number;
-}
 
-// Sample demo data following style guide
-const sampleWaterQualityData: WaterQualityData[] = [
-  {
-    id: 'wqi',
-    parameter: 'Water Quality Index',
-    value: 85.3,
-    unit: '',
-    status: 'good',
-    threshold: 90,
-    trend: 2.5,
-    color: '#06b6d4',
-    lastUpdated: '2 minutes ago',
-    sparklineData: [82, 83, 84, 85, 86, 85, 84, 85, 86, 85]
-  },
-  {
-    id: 'ph',
-    parameter: 'pH Level',
-    value: 7.2,
-    unit: 'pH',
-    status: 'excellent',
-    threshold: 7.5,
-    trend: -0.3,
-    color: '#10b981',
-    lastUpdated: '2 minutes ago',
-    sparklineData: [7.3, 7.2, 7.1, 7.2, 7.3, 7.2, 7.1, 7.2, 7.2, 7.2]
-  },
-  {
-    id: 'turbidity',
-    parameter: 'Turbidity',
-    value: 3.8,
-    unit: 'NTU',
-    status: 'good',
-    threshold: 5.0,
-    trend: 0,
-    color: '#8b5cf6',
-    lastUpdated: '3 minutes ago',
-    sparklineData: [3.9, 3.8, 3.7, 3.8, 3.9, 3.8, 3.7, 3.8, 3.8, 3.8]
-  },
-  {
-    id: 'do',
-    parameter: 'Dissolved Oxygen',
-    value: 8.5,
-    unit: 'mg/L',
-    status: 'excellent',
-    threshold: 6.0,
-    trend: 1.2,
-    color: '#10b981',
-    lastUpdated: '1 minute ago',
-    sparklineData: [8.2, 8.3, 8.4, 8.5, 8.6, 8.5, 8.4, 8.5, 8.6, 8.5]
-  },
-  {
-    id: 'chlorine',
-    parameter: 'Chlorine',
-    value: 0.8,
-    unit: 'mg/L',
-    status: 'good',
-    threshold: 1.0,
-    trend: -0.5,
-    color: '#06b6d4',
-    lastUpdated: '2 minutes ago',
-    sparklineData: [0.9, 0.8, 0.7, 0.8, 0.9, 0.8, 0.7, 0.8, 0.8, 0.8]
-  },
-  {
-    id: 'tds',
-    parameter: 'Total Dissolved Solids',
-    value: 245,
-    unit: 'ppm',
-    status: 'excellent',
-    threshold: 500,
-    trend: 0.8,
-    color: '#10b981',
-    lastUpdated: '4 minutes ago',
-    sparklineData: [240, 242, 244, 245, 246, 245, 244, 245, 246, 245]
-  }
-];
+
+// Function to generate time-based data - creates different datasets for each time range
+const generateTimeBasedData = (timeRange: string): WaterQualityData[] => {
+  const baseData = [
+    {
+      id: 'wqi',
+      parameter: 'Water Quality Index',
+      value: 85.3,
+      unit: '',
+      status: 'good' as const,
+      threshold: 90,
+      trend: 2.5,
+      color: '#06b6d4',
+      lastUpdated: '2 minutes ago',
+      sparklineData: [82, 83, 84, 85, 86, 85, 84, 85, 86, 85]
+    },
+    {
+      id: 'ph',
+      parameter: 'pH Level',
+      value: 7.2,
+      unit: 'pH',
+      status: 'excellent' as const,
+      threshold: 7.5,
+      trend: -0.3,
+      color: '#10b981',
+      lastUpdated: '2 minutes ago',
+      sparklineData: [7.3, 7.2, 7.1, 7.2, 7.3, 7.2, 7.1, 7.2, 7.2, 7.2]
+    },
+    {
+      id: 'turbidity',
+      parameter: 'Turbidity',
+      value: 3.8,
+      unit: 'NTU',
+      status: 'good' as const,
+      threshold: 5.0,
+      trend: 0,
+      color: '#8b5cf6',
+      lastUpdated: '3 minutes ago',
+      sparklineData: [3.9, 3.8, 3.7, 3.8, 3.9, 3.8, 3.7, 3.8, 3.8, 3.8]
+    },
+    {
+      id: 'do',
+      parameter: 'Dissolved Oxygen',
+      value: 8.5,
+      unit: 'mg/L',
+      status: 'excellent' as const,
+      threshold: 6.0,
+      trend: 1.2,
+      color: '#10b981',
+      lastUpdated: '1 minute ago',
+      sparklineData: [8.2, 8.3, 8.4, 8.5, 8.6, 8.5, 8.4, 8.5, 8.6, 8.5]
+    },
+    {
+      id: 'chlorine',
+      parameter: 'Chlorine',
+      value: 0.8,
+      unit: 'mg/L',
+      status: 'good' as const,
+      threshold: 1.0,
+      trend: -0.5,
+      color: '#06b6d4',
+      lastUpdated: '2 minutes ago',
+      sparklineData: [0.9, 0.8, 0.7, 0.8, 0.9, 0.8, 0.7, 0.8, 0.8, 0.8]
+    },
+    {
+      id: 'tds',
+      parameter: 'Total Dissolved Solids',
+      value: 245,
+      unit: 'ppm',
+      status: 'excellent' as const,
+      threshold: 500,
+      trend: 0.8,
+      color: '#10b981',
+      lastUpdated: '4 minutes ago',
+      sparklineData: [240, 242, 244, 245, 246, 245, 244, 245, 246, 245]
+    }
+  ];
+
+  // Modify data based on time range
+  return baseData.map(param => {
+    const baseParam = { ...param };
+    
+    switch (timeRange) {
+      case '1day':
+        // Current data (no changes)
+        return {
+          ...baseParam,
+          lastUpdated: 'Just now'
+        };
+        
+      case '7days':
+        // Slightly different values for 7-day view
+        return {
+          ...baseParam,
+          value: Number((param.value * (0.95 + Math.random() * 0.1)).toFixed(1)),
+          trend: Number((param.trend + (Math.random() - 0.5) * 2).toFixed(1)),
+          lastUpdated: '1 week average',
+          sparklineData: Array.from({ length: 7 }, () => 
+            param.value * (0.9 + Math.random() * 0.2)
+          )
+        };
+        
+      case '30days':
+        // Monthly averages with more variation
+        return {
+          ...baseParam,
+          value: Number((param.value * (0.9 + Math.random() * 0.2)).toFixed(1)),
+          trend: Number((param.trend + (Math.random() - 0.5) * 4).toFixed(1)),
+          lastUpdated: '30 day average',
+          sparklineData: Array.from({ length: 10 }, () => 
+            param.value * (0.85 + Math.random() * 0.3)
+          )
+        };
+        
+      default:
+        return baseParam;
+    }
+  });
+};
+
 
 const sampleDevices: DeviceStatus[] = [
   {
@@ -566,9 +605,9 @@ const AlertCard: React.FC<{ alert: Alert; index: number }> = ({ alert, index }) 
 // Time Range Selector Component
 const TimeRangeSelector: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => {
   const ranges = [
-    { value: '1day', label: '24 Hours' },
-    { value: '7days', label: '7 Days' },
-    { value: '30days', label: '30 Days' },
+    { value: '1day', label: '24 Hours', description: 'Real-time data' },
+    { value: '7days', label: '7 Days', description: 'Weekly trends' },
+    { value: '30days', label: '30 Days', description: 'Monthly averages' },
   ];
 
   return (
@@ -582,6 +621,7 @@ const TimeRangeSelector: React.FC<{ value: string; onChange: (value: string) => 
               ? 'bg-white text-aqua-600 shadow-sm font-semibold'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
           }`}
+          title={range.description}
         >
           {range.label}
         </button>
@@ -712,9 +752,11 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
   const [activeRole, setActiveRole] = useState<'citizen' | 'field-technician' | 'lab-analyst' | 'auditor'>('citizen');
   const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'alerts'>('overview');
   const [timeRange, setTimeRange] = useState('1day');
+  const [currentData, setCurrentData] = useState<WaterQualityData[]>([]);
   const [updatedCells, setUpdatedCells] = useState(new Set<string>());
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [scrollY, setScrollY] = useState(0);
+  const [isDataLoading, setIsDataLoading] = useState(false);
 
   // Reset to default state when opening
   useEffect(() => {
@@ -725,16 +767,47 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
     }
   }, [isOpen]);
 
+  // Update data when time range changes
+  useEffect(() => {
+    if (isOpen) {
+      setIsDataLoading(true);
+      
+      // Simulate API call delay
+      const timer = setTimeout(() => {
+        const newData = generateTimeBasedData(timeRange);
+        setCurrentData(newData);
+        setIsDataLoading(false);
+      }, 300);
+
+      return () => clearTimeout(timer);
+    }
+  }, [timeRange, isOpen]);
+
   // Simulate real-time data updates
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || timeRange !== '1day') return; // Only update for real-time data
 
     const interval = setInterval(() => {
       // Simulate random parameter updates
-      const randomIndex = Math.floor(Math.random() * sampleWaterQualityData.length);
+      const randomIndex = Math.floor(Math.random() * currentData.length);
       const cellId = `${randomIndex}-value`;
       
       setUpdatedCells(prev => new Set(prev).add(cellId));
+      
+      // Update the actual data slightly for real-time effect
+      if (timeRange === '1day') {
+        setCurrentData(prev => prev.map((item, index) => {
+          if (index === randomIndex) {
+            const variation = (Math.random() - 0.5) * 0.1;
+            return {
+              ...item,
+              value: Number((item.value * (1 + variation)).toFixed(1)),
+              lastUpdated: 'Just now'
+            };
+          }
+          return item;
+        }));
+      }
       
       setTimeout(() => {
         setUpdatedCells(prev => {
@@ -746,7 +819,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [isOpen]);
+  }, [isOpen, timeRange, currentData.length]);
 
   // Handle scroll events for scroll indicator
   useEffect(() => {
@@ -861,7 +934,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
               ].map(({ id, label, desc, icon: Icon, color }) => (
                 <button
                   key={id}
-                  onClick={() => setActiveRole(id as any)}
+                  onClick={() => setActiveRole(id as 'citizen' | 'field-technician' | 'lab-analyst' | 'auditor')}
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 group
                     ${activeRole === id 
@@ -956,7 +1029,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
             })().map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => setActiveTab(id as any)}
+                onClick={() => setActiveTab(id as 'overview' | 'devices' | 'alerts')}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 font-medium
                   ${activeTab === id 
@@ -1057,20 +1130,41 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                       {activeRole === 'auditor' && 'Compliance Monitoring Overview'}
                     </h2>
                     <p className="text-sm text-gray-600">
-                      Real-time parameter tracking for {activeRole.replace('-', ' ')}
+                      {timeRange === '1day' && 'Real-time parameter tracking'}
+                      {timeRange === '7days' && 'Weekly trend analysis'}
+                      {timeRange === '30days' && 'Monthly performance overview'}
+                      {' '}for {activeRole.replace('-', ' ')}
                     </p>
                   </div>
                   
-                  <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
+                  <div className="flex items-center gap-4">
+                    <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
+                    {isDataLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <div className="w-4 h-4 border-2 border-aqua-200 border-t-aqua-500 rounded-full animate-spin" />
+                        <span>Updating data...</span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500">
+                        {timeRange === '1day' && 'Updated just now'}
+                        {timeRange === '7days' && 'Data from last 7 days'}
+                        {timeRange === '30days' && 'Data from last 30 days'}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Hero WQI Card for Citizens */}
                 {activeRole === 'citizen' && (
                   <div className="mb-8">
                     <AnimatedStatusCard 
-                      wqi={85.3} 
+                      wqi={currentData.find(d => d.id === 'wqi')?.value || 85.3} 
                       location="Downtown District" 
-                      lastUpdate="2 minutes ago" 
+                      lastUpdate={
+                        timeRange === '1day' ? '2 minutes ago' :
+                        timeRange === '7days' ? '7-day average' :
+                        '30-day average'
+                      } 
                     />
                   </div>
                 )}
@@ -1081,25 +1175,32 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                     // Filter data based on role following style guide
                     if (activeRole === 'citizen') {
                       // Citizens see basic quality parameters
-                      return sampleWaterQualityData.filter(d => 
+                      return currentData.filter(d => 
                         ['pH Level', 'Chlorine', 'Turbidity', 'Dissolved Oxygen'].includes(d.parameter)
                       );
                     } else if (activeRole === 'field-technician') {
                       // Field technicians see real-time operational data
-                      return sampleWaterQualityData.filter(d => 
+                      return currentData.filter(d => 
                         ['Water Quality Index', 'pH Level', 'Turbidity', 'Dissolved Oxygen', 'Chlorine'].includes(d.parameter)
                       );
                     } else if (activeRole === 'lab-analyst') {
                       // Lab analysts see all technical data
-                      return sampleWaterQualityData;
+                      return currentData;
                     } else {
                       // Auditors see compliance-focused data
-                      return sampleWaterQualityData.filter(d => 
+                      return currentData.filter(d => 
                         ['Water Quality Index', 'pH Level', 'Dissolved Oxygen', 'Total Dissolved Solids'].includes(d.parameter)
                       );
                     }
                   })().map((data, index) => (
-                    <WaterQualityCard key={data.parameter} data={data} index={index} />
+                    <motion.div
+                      key={`${data.parameter}-${timeRange}`}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: index * 0.05, duration: 0.3 }}
+                    >
+                      <WaterQualityCard data={data} index={0} />
+                    </motion.div>
                   ))}
                 </div>
 
@@ -1136,7 +1237,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {sampleWaterQualityData.map((param, index) => (
+                          {currentData.map((param, index) => (
                             <motion.tr
                               key={param.id}
                               initial={{ opacity: 0, x: -20 }}
