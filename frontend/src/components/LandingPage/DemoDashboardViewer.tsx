@@ -8,8 +8,24 @@ import {
   ClockIcon,
   MapPinIcon,
   ChartBarIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  BellIcon,
+  UserIcon,
+  BuildingOfficeIcon,
+  WrenchScrewdriverIcon
 } from '@heroicons/react/24/outline';
+import {
+  CheckCircleIcon as CheckCircleSolid,
+  ExclamationTriangleIcon as ExclamationTriangleSolid
+} from '@heroicons/react/20/solid';
+import {
+  Droplet,
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  AlertCircle,
+  Minus
+} from 'lucide-react';
 
 interface DemoDashboardViewerProps {
   isOpen: boolean;
@@ -285,7 +301,16 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
   onClose,
   onBackToLanding
 }) => {
+  const [activeRole, setActiveRole] = useState<'citizen' | 'authority' | 'operator'>('citizen');
   const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'alerts'>('overview');
+
+  // Reset to default state when opening
+  useEffect(() => {
+    if (isOpen) {
+      setActiveRole('citizen');
+      setActiveTab('overview');
+    }
+  }, [isOpen]);
 
   // Simulate real-time data updates
   useEffect(() => {
@@ -316,6 +341,34 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
           </div>
         </div>
 
+        {/* Role Selector */}
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-10">
+          <div className="bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl p-2">
+            <div className="flex space-x-2">
+              {[
+                { id: 'citizen', label: '👤 Citizen View', desc: 'Public water quality info' },
+                { id: 'authority', label: '🏛️ Authority View', desc: 'Regulatory oversight' },
+                { id: 'operator', label: '⚙️ Operator View', desc: 'Technical management' }
+              ].map(({ id, label, desc }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveRole(id as any)}
+                  className={`
+                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 group
+                    ${activeRole === id 
+                      ? 'bg-aqua-600 text-white' 
+                      : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
+                    }
+                  `}
+                  title={desc}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* Header */}
         <header className="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700/50 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -329,7 +382,13 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                 <span>Back to AquaChain</span>
               </button>
               <div className="h-6 w-px bg-slate-600" />
-              <h1 className="text-xl font-bold text-white">AquaChain Dashboard Demo</h1>
+              <h1 className="text-xl font-bold text-white">
+                AquaChain Dashboard Demo - {
+                  activeRole === 'citizen' ? '👤 Citizen View' :
+                  activeRole === 'authority' ? '🏛️ Authority View' :
+                  '⚙️ Operator View'
+                }
+              </h1>
             </div>
             
             <button
@@ -343,11 +402,25 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
 
           {/* Navigation Tabs */}
           <nav className="flex space-x-8 mt-4">
-            {[
-              { id: 'overview', label: 'Overview', icon: ChartBarIcon },
-              { id: 'devices', label: 'Devices', icon: Cog6ToothIcon },
-              { id: 'alerts', label: 'Alerts', icon: ExclamationTriangleIcon }
-            ].map(({ id, label, icon: Icon }) => (
+            {(() => {
+              const tabs = {
+                citizen: [
+                  { id: 'overview', label: 'Water Quality', icon: ChartBarIcon },
+                  { id: 'alerts', label: 'Public Alerts', icon: ExclamationTriangleIcon }
+                ],
+                authority: [
+                  { id: 'overview', label: 'Regional Overview', icon: ChartBarIcon },
+                  { id: 'devices', label: 'Infrastructure', icon: Cog6ToothIcon },
+                  { id: 'alerts', label: 'Compliance Alerts', icon: ExclamationTriangleIcon }
+                ],
+                operator: [
+                  { id: 'overview', label: 'System Overview', icon: ChartBarIcon },
+                  { id: 'devices', label: 'Device Management', icon: Cog6ToothIcon },
+                  { id: 'alerts', label: 'Technical Alerts', icon: ExclamationTriangleIcon }
+                ]
+              };
+              return tabs[activeRole];
+            })().map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id as any)}
@@ -367,30 +440,61 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-6 pt-32">
           <div className="max-w-7xl mx-auto">
+            {/* Role Description */}
+            <div className="mb-6 p-4 bg-slate-800/30 border border-slate-700/50 rounded-xl">
+              <p className="text-gray-300">
+                {activeRole === 'citizen' && "👤 Citizen View: Access public water quality information for your area, view safety alerts, and understand water quality metrics that affect your daily life."}
+                {activeRole === 'authority' && "🏛️ Authority View: Monitor regional water quality compliance, oversee infrastructure status, and manage regulatory alerts across multiple districts."}
+                {activeRole === 'operator' && "⚙️ Operator View: Technical dashboard for water system operators with detailed device management, maintenance alerts, and system diagnostics."}
+              </p>
+            </div>
+
             {activeTab === 'overview' && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
               >
-                <h2 className="text-2xl font-bold text-white mb-6">Water Quality Overview</h2>
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  {activeRole === 'citizen' && 'Your Local Water Quality'}
+                  {activeRole === 'authority' && 'Regional Water Quality Overview'}
+                  {activeRole === 'operator' && 'System Performance Overview'}
+                </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {sampleWaterQualityData.map((data, index) => (
+                  {(() => {
+                    // Filter data based on role
+                    if (activeRole === 'citizen') {
+                      // Citizens see basic quality parameters
+                      return sampleWaterQualityData.filter(d => 
+                        ['pH Level', 'Chlorine', 'Temperature', 'Turbidity'].includes(d.parameter)
+                      );
+                    } else if (activeRole === 'authority') {
+                      // Authorities see compliance-focused data
+                      return sampleWaterQualityData.filter(d => 
+                        ['pH Level', 'Dissolved Oxygen', 'Chlorine', 'Total Dissolved Solids'].includes(d.parameter)
+                      );
+                    } else {
+                      // Operators see all technical data
+                      return sampleWaterQualityData;
+                    }
+                  })().map((data, index) => (
                     <WaterQualityCard key={data.parameter} data={data} index={index} />
                   ))}
                 </div>
               </motion.div>
             )}
 
-            {activeTab === 'devices' && (
+            {activeTab === 'devices' && (activeRole === 'authority' || activeRole === 'operator') && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
               >
-                <h2 className="text-2xl font-bold text-white mb-6">Device Status</h2>
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  {activeRole === 'authority' ? 'Infrastructure Status' : 'Device Management'}
+                </h2>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {sampleDevices.map((device, index) => (
                     <DeviceCard key={device.id} device={device} index={index} />
@@ -405,9 +509,24 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4 }}
               >
-                <h2 className="text-2xl font-bold text-white mb-6">Active Alerts</h2>
+                <h2 className="text-2xl font-bold text-white mb-6">
+                  {activeRole === 'citizen' && 'Public Safety Alerts'}
+                  {activeRole === 'authority' && 'Compliance & Safety Alerts'}
+                  {activeRole === 'operator' && 'Technical & Maintenance Alerts'}
+                </h2>
                 <div className="space-y-4">
-                  {sampleAlerts.map((alert, index) => (
+                  {(() => {
+                    // Filter alerts based on role
+                    if (activeRole === 'citizen') {
+                      // Citizens see only public safety alerts
+                      return sampleAlerts.filter(alert => 
+                        alert.message.includes('Turbidity') || alert.message.includes('quality')
+                      );
+                    } else {
+                      // Authorities and operators see all alerts
+                      return sampleAlerts;
+                    }
+                  })().map((alert, index) => (
                     <AlertCard key={alert.id} alert={alert} index={index} />
                   ))}
                 </div>

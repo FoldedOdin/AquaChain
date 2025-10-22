@@ -5,7 +5,7 @@ import { LoginCredentials, SignupData } from './AuthModal';
 
 interface LandingPageWithAnalyticsProps {
   onGetStartedClick?: () => void;
-  onViewDashboardsClick: () => void;
+  onViewDashboardsClick?: () => void;
   onContactClick?: () => void;
   onTechnicianClick?: () => void;
   onContactFormSubmit?: (data: any) => Promise<void>;

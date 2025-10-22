@@ -585,11 +585,6 @@ def create_email_content(content: Dict[str, Any], notification_type: str) -> Dic
                  else 'Please monitor your water quality closely.'}
             </p>
             
-            <p>
-                <a href="https://app.aquachain.io/dashboard" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
-                    View Dashboard
-                </a>
-            </p>
         </body>
         </html>
         """

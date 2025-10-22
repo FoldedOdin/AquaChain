@@ -57,7 +57,7 @@ const LandingPageHeader: React.FC<LandingPageHeaderProps> = ({
                 onClick={() => handleNavClick(onViewDashboardsClick)}
                 className="text-aqua-100 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-aqua-800"
               >
-                View Dashboards
+                View Demo
               </button>
               <a
                 href="#features"
@@ -115,7 +115,7 @@ const LandingPageHeader: React.FC<LandingPageHeaderProps> = ({
               onClick={() => handleNavClick(onViewDashboardsClick)}
               className="text-aqua-100 hover:text-white block px-3 py-2 rounded-md text-base font-medium w-full text-left transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-aqua-500"
             >
-              View Dashboards
+              View Demo
             </button>
             <a
               href="#features"

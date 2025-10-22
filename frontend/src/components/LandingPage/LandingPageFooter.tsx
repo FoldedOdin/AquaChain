@@ -116,13 +116,14 @@ const LandingPageFooter: React.FC<LandingPageFooterProps> = ({ onContactClick })
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 }}
               viewport={{ once: true }}
+              className="text-center"
             >
               <h3 className="text-white font-semibold text-lg mb-6">Quick Links</h3>
-              <nav className="space-y-3" role="navigation" aria-label="Footer navigation">
+              <nav className="space-y-4" role="navigation" aria-label="Footer navigation">
                 <button
                   onClick={() => scrollToSection('features')}
                   onKeyDown={(e) => handleKeyDown(e, () => scrollToSection('features'))}
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-center w-full text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="Navigate to features section"
                 >
                   Features
@@ -130,7 +131,7 @@ const LandingPageFooter: React.FC<LandingPageFooterProps> = ({ onContactClick })
                 <button
                   onClick={() => scrollToSection('roles')}
                   onKeyDown={(e) => handleKeyDown(e, () => scrollToSection('roles'))}
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-center w-full text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="Navigate to user roles section"
                 >
                   For You
@@ -138,21 +139,21 @@ const LandingPageFooter: React.FC<LandingPageFooterProps> = ({ onContactClick })
                 <button
                   onClick={onContactClick || (() => scrollToSection('contact'))}
                   onKeyDown={(e) => handleKeyDown(e, onContactClick || (() => scrollToSection('contact')))}
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-center w-full text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="Navigate to contact section"
                 >
                   Contact
                 </button>
                 <a
                   href="/privacy"
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-center text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="View privacy policy"
                 >
                   Privacy Policy
                 </a>
                 <a
                   href="/terms"
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-center text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="View terms of service"
                 >
                   Terms of Service
@@ -207,24 +208,24 @@ const LandingPageFooter: React.FC<LandingPageFooterProps> = ({ onContactClick })
               </div>
 
               {/* Additional Resources */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <a
                   href="/docs"
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="View documentation"
                 >
                   Documentation
                 </a>
                 <a
                   href="/support"
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="Get support"
                 >
                   Support Center
                 </a>
                 <a
                   href="/status"
-                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded px-1 py-1"
+                  className="block text-gray-300 hover:text-aqua-300 transition-colors duration-200 text-sm focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded py-1"
                   aria-label="Check system status"
                 >
                   System Status

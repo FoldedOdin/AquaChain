@@ -33,10 +33,10 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="mb-8 lg:mb-12">
           <AnimatedLogo />
         </div>
-        
+
         {/* Main Heading with Typewriter Effect */}
-        <div className="mb-6 lg:mb-8">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-display font-bold leading-tight">
+        <div className="mb-6 lg:mb-8 overflow-x-auto">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-4xl xl:text-4xl font-display font-bold leading-tight whitespace-nowrap">
             <TypewriterText
               text="Real-Time Water Quality You Can Trust"
               className="inline-block"

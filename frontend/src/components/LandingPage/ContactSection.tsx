@@ -95,7 +95,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ onFormSubmit }) => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
                   transition={{ duration: 0.4, delay: 0.3 + (index * 0.1), ease: "easeOut" }}
-                  className="flex items-start space-x-4"
+                  className="flex flex-col items-center text-center space-y-4"
                 >
                   <div className={`flex-shrink-0 w-12 h-12 rounded-xl bg-slate-700/50 flex items-center justify-center ${info.color}`}>
                     <info.icon className="w-6 h-6" />

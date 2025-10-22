@@ -190,8 +190,13 @@ const LandingPage: React.FC<LandingPageProps> = ({
   // Handle back to landing from demo
   const handleBackToLanding = () => {
     setIsDemoDashboardOpen(false);
-    // Scroll to top of landing page
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll to hero section
+    const heroSection = document.getElementById('hero');
+    if (heroSection) {
+      heroSection.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
   // Initialize performance optimizations and analytics tracking
   useEffect(() => {
