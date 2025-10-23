@@ -5,6 +5,7 @@ import './styles/animations.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { initializeRUM } from './services/rumService';
+import { AuthProvider } from './contexts/AuthContext';
 
 // Debug initial state (development only)
 if (process.env.NODE_ENV === 'development') {
@@ -37,7 +38,9 @@ const root = ReactDOM.createRoot(
 
 root.render(
   <React.StrictMode>
-    <App />
+    <AuthProvider>
+      <App />
+    </AuthProvider>
   </React.StrictMode>
 );
 

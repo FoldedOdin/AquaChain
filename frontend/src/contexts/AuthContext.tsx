@@ -74,6 +74,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       }
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.log('No authenticated user found');
       setIsAuthenticated(false);
     } finally {
@@ -136,6 +137,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Logout error:', error);
     }
   };
@@ -145,6 +147,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const session = await fetchAuthSession();
       return session.tokens?.idToken?.toString() || null;
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Error getting auth token:', error);
       return null;
     }
