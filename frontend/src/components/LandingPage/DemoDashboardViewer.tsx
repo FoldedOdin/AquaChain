@@ -109,28 +109,16 @@ const generateTimeBasedData = (timeRange: string): WaterQualityData[] => {
       sparklineData: [3.9, 3.8, 3.7, 3.8, 3.9, 3.8, 3.7, 3.8, 3.8, 3.8]
     },
     {
-      id: 'do',
-      parameter: 'Dissolved Oxygen',
-      value: 8.5,
-      unit: 'mg/L',
+      id: 'temperature',
+      parameter: 'Temperature',
+      value: 22.5,
+      unit: '°C',
       status: 'excellent' as const,
-      threshold: 6.0,
-      trend: 1.2,
-      color: '#10b981',
+      threshold: 25.0,
+      trend: 0.2,
+      color: '#f59e0b',
       lastUpdated: '1 minute ago',
-      sparklineData: [8.2, 8.3, 8.4, 8.5, 8.6, 8.5, 8.4, 8.5, 8.6, 8.5]
-    },
-    {
-      id: 'chlorine',
-      parameter: 'Chlorine',
-      value: 0.8,
-      unit: 'mg/L',
-      status: 'good' as const,
-      threshold: 1.0,
-      trend: -0.5,
-      color: '#06b6d4',
-      lastUpdated: '2 minutes ago',
-      sparklineData: [0.9, 0.8, 0.7, 0.8, 0.9, 0.8, 0.7, 0.8, 0.8, 0.8]
+      sparklineData: [22.1, 22.3, 22.4, 22.5, 22.6, 22.5, 22.4, 22.5, 22.6, 22.5]
     },
     {
       id: 'tds',
@@ -149,7 +137,7 @@ const generateTimeBasedData = (timeRange: string): WaterQualityData[] => {
   // Modify data based on time range
   return baseData.map(param => {
     const baseParam = { ...param };
-    
+
     switch (timeRange) {
       case '1day':
         // Current data (no changes)
@@ -157,7 +145,7 @@ const generateTimeBasedData = (timeRange: string): WaterQualityData[] => {
           ...baseParam,
           lastUpdated: 'Just now'
         };
-        
+
       case '7days':
         // Slightly different values for 7-day view
         return {
@@ -165,11 +153,11 @@ const generateTimeBasedData = (timeRange: string): WaterQualityData[] => {
           value: Number((param.value * (0.95 + Math.random() * 0.1)).toFixed(1)),
           trend: Number((param.trend + (Math.random() - 0.5) * 2).toFixed(1)),
           lastUpdated: '1 week average',
-          sparklineData: Array.from({ length: 7 }, () => 
+          sparklineData: Array.from({ length: 7 }, () =>
             param.value * (0.9 + Math.random() * 0.2)
           )
         };
-        
+
       case '30days':
         // Monthly averages with more variation
         return {
@@ -177,11 +165,11 @@ const generateTimeBasedData = (timeRange: string): WaterQualityData[] => {
           value: Number((param.value * (0.9 + Math.random() * 0.2)).toFixed(1)),
           trend: Number((param.trend + (Math.random() - 0.5) * 4).toFixed(1)),
           lastUpdated: '30 day average',
-          sparklineData: Array.from({ length: 10 }, () => 
+          sparklineData: Array.from({ length: 10 }, () =>
             param.value * (0.85 + Math.random() * 0.3)
           )
         };
-        
+
       default:
         return baseParam;
     }
@@ -200,7 +188,7 @@ const sampleDevices: DeviceStatus[] = [
     coordinates: { lat: 40.7128, lng: -74.0060 }
   },
   {
-    id: 'AQ-002', 
+    id: 'AQ-002',
     name: 'Distribution Point A',
     location: 'Downtown District',
     status: 'online',
@@ -266,7 +254,7 @@ const StatusBadge: React.FC<{ status: string; children: React.ReactNode }> = ({ 
     fair: 'bg-amber-100 text-amber-800 border-amber-200',
     poor: 'bg-red-100 text-red-800 border-red-200',
   };
-  
+
   return (
     <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${styles[status as keyof typeof styles] || styles.good}`}>
       {children}
@@ -282,11 +270,10 @@ const TrendIndicator: React.FC<{ value: number; compact?: boolean }> = ({ value,
 
   if (compact) {
     return (
-      <div className={`inline-flex items-center gap-1 text-xs font-semibold ${
-        isPositive ? 'text-green-600' :
+      <div className={`inline-flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green-600' :
         isNegative ? 'text-red-600' :
-        'text-gray-600'
-      }`}>
+          'text-gray-600'
+        }`}>
         {isPositive && <TrendingUp className="w-3 h-3" />}
         {isNegative && <TrendingDown className="w-3 h-3" />}
         {isStable && <Minus className="w-3 h-3" />}
@@ -296,11 +283,10 @@ const TrendIndicator: React.FC<{ value: number; compact?: boolean }> = ({ value,
   }
 
   return (
-    <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold ${
-      isPositive ? 'bg-green-100 text-green-700' :
+    <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold ${isPositive ? 'bg-green-100 text-green-700' :
       isNegative ? 'bg-red-100 text-red-700' :
-      'bg-gray-100 text-gray-700'
-    }`}>
+        'bg-gray-100 text-gray-700'
+      }`}>
       {isPositive && <TrendingUp className="w-4 h-4" />}
       {isNegative && <TrendingDown className="w-4 h-4" />}
       {isStable && <Minus className="w-4 h-4" />}
@@ -354,16 +340,16 @@ const WaterQualityCard: React.FC<{ data: WaterQualityData; index: number }> = ({
       <svg className="w-full h-16 mb-3" viewBox="0 0 200 60" preserveAspectRatio="none">
         <defs>
           <linearGradient id={`gradient-${data.id}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={data.color} stopOpacity="0.3"/>
-            <stop offset="100%" stopColor={data.color} stopOpacity="0"/>
+            <stop offset="0%" stopColor={data.color} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={data.color} stopOpacity="0" />
           </linearGradient>
         </defs>
-        
+
         <path
           d="M0,40 L20,35 L40,38 L60,32 L80,30 L100,28 L120,25 L140,27 L160,24 L180,20 L200,18 L200,60 L0,60 Z"
           fill={`url(#gradient-${data.id})`}
         />
-        
+
         <path
           d="M0,40 L20,35 L40,38 L60,32 L80,30 L100,28 L120,25 L140,27 L160,24 L180,20 L200,18"
           stroke={data.color}
@@ -372,7 +358,7 @@ const WaterQualityCard: React.FC<{ data: WaterQualityData; index: number }> = ({
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        
+
         <circle cx="200" cy="18" r="4" fill={data.color} />
       </svg>
 
@@ -443,7 +429,7 @@ const DeviceCard: React.FC<{ device: DeviceStatus; index: number }> = ({ device,
             </div>
           </div>
         </div>
-        
+
         <div className="flex flex-col items-end gap-2">
           <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${statusStyles.badge}`}>
             <div className={`w-2 h-2 rounded-full ${statusStyles.indicator} ${statusStyles.animation}`} />
@@ -478,9 +464,8 @@ const DeviceCard: React.FC<{ device: DeviceStatus; index: number }> = ({ device,
           {[1, 2, 3, 4, 5].map((bar) => (
             <div
               key={bar}
-              className={`h-2 flex-1 rounded-sm ${
-                bar <= 4 ? 'bg-green-500' : 'bg-gray-200'
-              }`}
+              className={`h-2 flex-1 rounded-sm ${bar <= 4 ? 'bg-green-500' : 'bg-gray-200'
+                }`}
             />
           ))}
         </div>
@@ -535,7 +520,7 @@ const AlertCard: React.FC<{ alert: Alert; index: number }> = ({ alert, index }) 
 
   const getAlertIcon = (type: string, resolved: boolean) => {
     if (resolved) return <CheckCircleSolid className="w-5 h-5" />;
-    
+
     switch (type) {
       case 'critical': return <ExclamationTriangleSolid className="w-5 h-5" />;
       case 'warning': return <ExclamationTriangleSolid className="w-5 h-5" />;
@@ -568,7 +553,7 @@ const AlertCard: React.FC<{ alert: Alert; index: number }> = ({ alert, index }) 
             {getAlertIcon(alert.type, alert.resolved)}
           </div>
         </div>
-        
+
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3 mb-2">
             <p className={`font-medium ${alertStyles.title}`}>
@@ -585,7 +570,7 @@ const AlertCard: React.FC<{ alert: Alert; index: number }> = ({ alert, index }) 
               )}
             </div>
           </div>
-          
+
           <div className="flex items-center gap-4 text-sm text-gray-600">
             <span className="flex items-center gap-1">
               <Activity className="w-4 h-4" />
@@ -616,11 +601,10 @@ const TimeRangeSelector: React.FC<{ value: string; onChange: (value: string) => 
         <button
           key={range.value}
           onClick={() => onChange(range.value)}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-            value === range.value
-              ? 'bg-white text-aqua-600 shadow-sm font-semibold'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-          }`}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${value === range.value
+            ? 'bg-white text-aqua-600 shadow-sm font-semibold'
+            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
           title={range.description}
         >
           {range.label}
@@ -718,7 +702,7 @@ const AnimatedStatusCard: React.FC<{ wqi: number; location: string; lastUpdate: 
           >
             {displayValue}
           </motion.div>
-          
+
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -771,7 +755,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
   useEffect(() => {
     if (isOpen) {
       setIsDataLoading(true);
-      
+
       // Simulate API call delay
       const timer = setTimeout(() => {
         const newData = generateTimeBasedData(timeRange);
@@ -791,9 +775,9 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
       // Simulate random parameter updates
       const randomIndex = Math.floor(Math.random() * currentData.length);
       const cellId = `${randomIndex}-value`;
-      
+
       setUpdatedCells(prev => new Set(prev).add(cellId));
-      
+
       // Update the actual data slightly for real-time effect
       if (timeRange === '1day') {
         setCurrentData(prev => prev.map((item, index) => {
@@ -808,7 +792,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
           return item;
         }));
       }
-      
+
       setTimeout(() => {
         setUpdatedCells(prev => {
           const newSet = new Set(prev);
@@ -831,9 +815,9 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
         const scrollTop = target.scrollTop;
         const scrollHeight = target.scrollHeight;
         const clientHeight = target.clientHeight;
-        
+
         setScrollY(scrollTop);
-        
+
         // Hide scroll indicator after scrolling down 200px or reaching near bottom
         const shouldHideIndicator = scrollTop > 200 || (scrollTop + clientHeight >= scrollHeight - 100);
         setShowScrollIndicator(!shouldHideIndicator);
@@ -901,7 +885,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
         className="fixed inset-0 z-50 bg-gray-50 flex flex-col"
       >
         {/* Demo Watermark */}
-        <motion.div 
+        <motion.div
           className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10"
           style={{ y: scrollY * 0.1 }}
         >
@@ -915,7 +899,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
         </motion.div>
 
         {/* Role Selector */}
-        <motion.div 
+        <motion.div
           className="absolute top-20 left-1/2 transform -translate-x-1/2 z-10"
           style={{ y: scrollY * 0.05 }}
         >
@@ -937,8 +921,8 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                   onClick={() => setActiveRole(id as 'citizen' | 'field-technician' | 'lab-analyst' | 'auditor')}
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 group
-                    ${activeRole === id 
-                      ? `bg-${color}-500 text-white shadow-md` 
+                    ${activeRole === id
+                      ? `bg-${color}-500 text-white shadow-md`
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                     }
                   `}
@@ -982,7 +966,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                 </div>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1.5 rounded-full text-sm font-medium">
                 <div className="relative flex h-2 w-2">
@@ -1032,8 +1016,8 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                 onClick={() => setActiveTab(id as 'overview' | 'devices' | 'alerts')}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 font-medium
-                  ${activeTab === id 
-                    ? 'bg-aqua-500 text-white shadow-md' 
+                  ${activeTab === id
+                    ? 'bg-aqua-500 text-white shadow-md'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                   }
                 `}
@@ -1082,7 +1066,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
           <motion.div
             className="h-full bg-gradient-to-r from-aqua-500 to-aqua-600 shadow-sm"
             initial={{ scaleX: 0 }}
-            animate={{ 
+            animate={{
               scaleX: Math.min(1, scrollY / Math.max(1, 2000)) // Approximate scroll height
             }}
             transition={{ duration: 0.1, ease: "easeOut" }}
@@ -1136,7 +1120,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                       {' '}for {activeRole.replace('-', ' ')}
                     </p>
                   </div>
-                  
+
                   <div className="flex items-center gap-4">
                     <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
                     {isDataLoading ? (
@@ -1157,14 +1141,14 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                 {/* Hero WQI Card for Citizens */}
                 {activeRole === 'citizen' && (
                   <div className="mb-8">
-                    <AnimatedStatusCard 
-                      wqi={currentData.find(d => d.id === 'wqi')?.value || 85.3} 
-                      location="Downtown District" 
+                    <AnimatedStatusCard
+                      wqi={currentData.find(d => d.id === 'wqi')?.value || 85.3}
+                      location="Downtown District"
                       lastUpdate={
                         timeRange === '1day' ? '2 minutes ago' :
-                        timeRange === '7days' ? '7-day average' :
-                        '30-day average'
-                      } 
+                          timeRange === '7days' ? '7-day average' :
+                            '30-day average'
+                      }
                     />
                   </div>
                 )}
@@ -1175,21 +1159,21 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                     // Filter data based on role following style guide
                     if (activeRole === 'citizen') {
                       // Citizens see basic quality parameters
-                      return currentData.filter(d => 
-                        ['pH Level', 'Chlorine', 'Turbidity', 'Dissolved Oxygen'].includes(d.parameter)
+                      return currentData.filter(d =>
+                        ['pH Level', 'Turbidity', 'Total Dissolved Solids', 'Temperature'].includes(d.parameter)
                       );
                     } else if (activeRole === 'field-technician') {
                       // Field technicians see real-time operational data
-                      return currentData.filter(d => 
-                        ['Water Quality Index', 'pH Level', 'Turbidity', 'Dissolved Oxygen', 'Chlorine'].includes(d.parameter)
+                      return currentData.filter(d =>
+                        ['Water Quality Index', 'pH Level', 'Turbidity', 'Total Dissolved Solids', 'Temperature'].includes(d.parameter)
                       );
                     } else if (activeRole === 'lab-analyst') {
                       // Lab analysts see all technical data
                       return currentData;
                     } else {
                       // Auditors see compliance-focused data
-                      return currentData.filter(d => 
-                        ['Water Quality Index', 'pH Level', 'Dissolved Oxygen', 'Total Dissolved Solids'].includes(d.parameter)
+                      return currentData.filter(d =>
+                        ['Water Quality Index', 'pH Level', 'Total Dissolved Solids', 'Temperature'].includes(d.parameter)
                       );
                     }
                   })().map((data, index) => (
@@ -1224,7 +1208,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                         </span>
                       </h3>
                     </div>
-                    
+
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead className="bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-200">
@@ -1248,9 +1232,8 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                               <td className="px-6 py-4 text-sm font-medium text-gray-900">
                                 {param.parameter}
                               </td>
-                              <td className={`px-6 py-4 text-sm text-gray-700 font-mono tabular-nums ${
-                                updatedCells.has(`${index}-value`) ? 'animate-data-update' : ''
-                              }`}>
+                              <td className={`px-6 py-4 text-sm text-gray-700 font-mono tabular-nums ${updatedCells.has(`${index}-value`) ? 'animate-data-update' : ''
+                                }`}>
                                 {param.value}
                               </td>
                               <td className="px-6 py-4 text-sm text-gray-600">
@@ -1292,7 +1275,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                       Monitor device health, battery levels, and connectivity status
                     </p>
                   </div>
-                  
+
                   <div className="flex items-center gap-4">
                     <div className="text-sm text-gray-600">
                       <span className="font-medium text-green-600">{sampleDevices.filter(d => d.status === 'online').length}</span> Online
@@ -1328,7 +1311,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                         </div>
                         <div className="text-sm text-green-700">Operating within standards</div>
                       </div>
-                      
+
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <ExclamationTriangleSolid className="w-5 h-5 text-amber-600" />
@@ -1339,7 +1322,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                         </div>
                         <div className="text-sm text-amber-700">Maintenance scheduled</div>
                       </div>
-                      
+
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <ChartBarIcon className="w-5 h-5 text-blue-600" />
@@ -1373,7 +1356,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                       Monitor system alerts and notifications relevant to your role
                     </p>
                   </div>
-                  
+
                   <div className="flex items-center gap-4">
                     <div className="text-sm text-gray-600">
                       <span className="font-medium text-red-600">
@@ -1392,7 +1375,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                     // Filter alerts based on role
                     if (activeRole === 'citizen') {
                       // Citizens see only public safety alerts
-                      return sampleAlerts.filter(alert => 
+                      return sampleAlerts.filter(alert =>
                         alert.message.includes('Turbidity') || alert.message.includes('quality') || alert.priority === 'high'
                       );
                     } else if (activeRole === 'field-technician') {
@@ -1483,9 +1466,8 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                   ].map((activity, index) => (
                     <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
                       <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${
-                          activity.status === 'success' ? 'bg-green-500' : 'bg-blue-500'
-                        }`} />
+                        <div className={`w-2 h-2 rounded-full ${activity.status === 'success' ? 'bg-green-500' : 'bg-blue-500'
+                          }`} />
                         <span className="text-sm text-gray-700">{activity.action}</span>
                       </div>
                       <span className="text-xs text-gray-500">{activity.time}</span>

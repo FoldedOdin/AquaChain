@@ -34,7 +34,7 @@ const features: FeatureCard[] = [
     title: 'Real-Time Monitoring',
     description: 'Continuous water quality tracking with instant alerts and multi-parameter sensing capabilities.',
     benefits: [
-      'Multi-parameter sensing (pH, turbidity, chlorine)',
+      'Multi-parameter sensing (pH, turbidity, TDS, temperature)',
       'Cloud-based analytics and data processing',
       'Instant notifications for quality issues',
       'Historical trend analysis and reporting'
