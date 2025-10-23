@@ -48,6 +48,7 @@ export interface SessionInfo {
 interface AnalyticsConfig {
   applicationId: string;
   region: string;
+  mockMode?: boolean;
   credentials?: {
     accessKeyId: string;
     secretAccessKey: string;
@@ -78,12 +79,15 @@ class AnalyticsService {
         ...config
       };
 
-      // Check if credentials are provided
-      if (!this.config.credentials || !this.config.credentials.accessKeyId) {
+      // Check if running in mock mode or credentials are missing
+      if (this.config.mockMode || !this.config.credentials || !this.config.credentials.accessKeyId) {
         if (this.config.enableDebugMode) {
-          console.warn('Analytics service: No AWS credentials provided, running in mock mode');
+          console.log('Analytics service: Running in mock mode (development)');
         }
-        this.isInitialized = true; // Allow the service to work without Pinpoint
+        // Initialize session even in mock mode
+        await this.startSession();
+        this.setupAutoFlush();
+        this.isInitialized = true;
         return;
       }
 

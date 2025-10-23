@@ -4,6 +4,7 @@ import { EyeIcon, EyeSlashIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/
 import DOMPurify from 'dompurify';
 import { LoginCredentials, SignupData } from './AuthModal';
 import GoogleOAuthButton from './GoogleOAuthButton';
+import EmailVerificationStatus from './EmailVerificationStatus';
 import authService from '../../services/authService';
 import { InputSanitizer, RateLimiter, RecaptchaService, csrfTokenManager } from '../../utils/security';
 
@@ -638,8 +639,16 @@ export const SignupForm: React.FC<SignupFormProps> = ({
         <div className="rounded-md bg-green-50 p-4" role="alert">
           <div className="flex">
             <CheckCircleIcon className="h-5 w-5 text-green-400" aria-hidden="true" />
-            <div className="ml-3">
+            <div className="ml-3 space-y-2">
               <p className="text-sm text-green-800">{success}</p>
+              {formData.email && (
+                <EmailVerificationStatus 
+                  email={formData.email}
+                  onVerified={() => {
+                    setSuccess('Email verified! You can now sign in with your credentials.');
+                  }}
+                />
+              )}
             </div>
           </div>
         </div>

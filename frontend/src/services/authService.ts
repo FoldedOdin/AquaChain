@@ -1,5 +1,21 @@
 import { LoginCredentials, SignupData } from '../components/LandingPage/AuthModal';
 
+// AWS Amplify imports (loaded dynamically for production)
+let amplifyAuth: any = null;
+
+// Lazy load AWS Amplify Auth for production
+const loadAmplifyAuth = async () => {
+  if (!amplifyAuth && process.env.NODE_ENV === 'production') {
+    try {
+      const { signIn, signUp, confirmSignUp, getCurrentUser, signOut } = await import('aws-amplify/auth');
+      amplifyAuth = { signIn, signUp, confirmSignUp, getCurrentUser, signOut };
+    } catch (error) {
+      console.warn('AWS Amplify not available:', error);
+    }
+  }
+  return amplifyAuth;
+};
+
 // User role types
 export type UserRole = 'consumer' | 'technician' | 'admin';
 
@@ -42,9 +58,32 @@ class AuthService {
    * Initialize authentication service
    */
   async initialize(): Promise<void> {
-    // TODO: Implement with AWS Amplify v6
-    this.currentUser = null;
-    this.currentSession = null;
+    try {
+      if (process.env.NODE_ENV === 'production') {
+        // Load AWS Amplify for production
+        await loadAmplifyAuth();
+        
+        // Try to get current authenticated user
+        if (amplifyAuth) {
+          try {
+            this.currentUser = await amplifyAuth.getCurrentUser();
+            this.currentSession = { isValid: () => true };
+          } catch (error) {
+            // User not authenticated, which is fine
+            this.currentUser = null;
+            this.currentSession = null;
+          }
+        }
+      } else {
+        // Development mode - no initialization needed
+        this.currentUser = null;
+        this.currentSession = null;
+      }
+    } catch (error) {
+      console.warn('Auth service initialization failed:', error);
+      this.currentUser = null;
+      this.currentSession = null;
+    }
   }
 
   /**
@@ -52,24 +91,78 @@ class AuthService {
    */
   async signIn(credentials: LoginCredentials): Promise<AuthResult> {
     try {
-      // TODO: Implement with AWS Amplify v6
-      const user = { email: credentials.email };
-      const session = { isValid: () => true };
-      const userRole: UserRole = 'consumer';
-      const redirectPath = this.getRedirectPath(userRole);
+      // In development, use the dev server
+      if (process.env.NODE_ENV === 'development') {
+        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(credentials),
+        });
 
-      this.currentUser = user;
-      this.currentSession = session;
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new AuthError(result.error || 'Sign in failed', 'SIGNIN_FAILED');
+        }
 
-      // Track login event
-      await this.trackAuthEvent('login', userRole);
+        const user = result.user;
+        const session = { isValid: () => true, token: result.token };
+        const userRole: UserRole = user.role || 'consumer';
+        const redirectPath = this.getRedirectPath(userRole);
 
-      return {
-        user,
-        session,
-        userRole,
-        redirectPath
-      };
+        this.currentUser = user;
+        this.currentSession = session;
+
+        // Track login event
+        await this.trackAuthEvent('login', userRole);
+
+        return {
+          user,
+          session,
+          userRole,
+          redirectPath
+        };
+      }
+
+      // Production: Use AWS Amplify Cognito
+      const auth = await loadAmplifyAuth();
+      if (auth) {
+        try {
+          const result = await auth.signIn({
+            username: credentials.email,
+            password: credentials.password
+          });
+
+          const user = result.user || await auth.getCurrentUser();
+          const session = { isValid: () => true, ...result };
+          const userRole: UserRole = user.attributes?.['custom:role'] || 'consumer';
+          const redirectPath = this.getRedirectPath(userRole);
+
+          this.currentUser = user;
+          this.currentSession = session;
+
+          // Track login event
+          await this.trackAuthEvent('login', userRole);
+
+          return {
+            user,
+            session,
+            userRole,
+            redirectPath
+          };
+        } catch (error: any) {
+          throw new AuthError(
+            error.message || 'Sign in failed',
+            error.code || 'SIGNIN_FAILED',
+            error
+          );
+        }
+      }
+
+      // Fallback if Amplify not available
+      throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -80,16 +173,112 @@ class AuthService {
    */
   async signUp(userData: SignupData): Promise<{ user: any; confirmationRequired: boolean }> {
     try {
-      // TODO: Implement with AWS Amplify v6
-      const user = { email: userData.email };
+      // In development, use the dev server
+      if (process.env.NODE_ENV === 'development') {
+        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signup`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(userData),
+        });
 
-      // Track signup event
-      await this.trackAuthEvent('signup', userData.role);
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new AuthError(result.error || 'Signup failed', 'SIGNUP_FAILED');
+        }
 
-      return {
-        user,
-        confirmationRequired: true
-      };
+        // Track signup event
+        await this.trackAuthEvent('signup', userData.role);
+
+        return {
+          user: { email: userData.email, userId: result.userId },
+          confirmationRequired: result.confirmationRequired
+        };
+      }
+
+      // Production: Use AWS Amplify Cognito
+      const auth = await loadAmplifyAuth();
+      if (auth) {
+        try {
+          const result = await auth.signUp({
+            username: userData.email,
+            password: userData.password,
+            attributes: {
+              email: userData.email,
+              name: userData.name,
+              'custom:role': userData.role
+            }
+          });
+
+          // Track signup event
+          await this.trackAuthEvent('signup', userData.role);
+
+          return {
+            user: result.user,
+            confirmationRequired: !result.isSignUpComplete
+          };
+        } catch (error: any) {
+          throw new AuthError(
+            error.message || 'Signup failed',
+            error.code || 'SIGNUP_FAILED',
+            error
+          );
+        }
+      }
+
+      // Fallback if Amplify not available
+      throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
+    } catch (error: any) {
+      throw this.handleAuthError(error);
+    }
+  }
+
+  /**
+   * Confirm email verification with code
+   */
+  async confirmSignUp(email: string, confirmationCode: string): Promise<void> {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - auto-confirm
+        console.log(`Development: Auto-confirming signup for ${email}`);
+        return;
+      }
+
+      // Production: Use AWS Amplify Cognito
+      const auth = await loadAmplifyAuth();
+      if (auth) {
+        await auth.confirmSignUp({
+          username: email,
+          confirmationCode
+        });
+      } else {
+        throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
+      }
+    } catch (error: any) {
+      throw this.handleAuthError(error);
+    }
+  }
+
+  /**
+   * Resend confirmation code
+   */
+  async resendConfirmationCode(email: string): Promise<void> {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - simulate resend
+        console.log(`Development: Simulating resend confirmation for ${email}`);
+        return;
+      }
+
+      // Production: Use AWS Amplify Cognito
+      const auth = await loadAmplifyAuth();
+      if (auth) {
+        await auth.resendSignUp({ username: email });
+      } else {
+        throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
+      }
     } catch (error: any) {
       throw this.handleAuthError(error);
     }

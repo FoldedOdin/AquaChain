@@ -345,7 +345,7 @@ class RUMService {
 
         // If we get a 404, it means the backend isn't running - fail silently in development
         if (response.status === 404 && process.env.NODE_ENV === 'development') {
-          // Don't re-queue events for 404s in development
+          console.warn('RUM: Development server not running. Start with: npm run dev-server');
           return;
         }
 

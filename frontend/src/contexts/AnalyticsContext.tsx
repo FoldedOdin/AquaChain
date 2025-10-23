@@ -66,10 +66,16 @@ export const AnalyticsProvider: React.FC<AnalyticsProviderProps> = ({
           } : undefined
         };
 
-        // Initialize AWS Pinpoint only if analytics is enabled
-        const analyticsEnabled = process.env.REACT_APP_ENABLE_ANALYTICS !== 'false';
+        // Initialize AWS Pinpoint only if analytics is enabled and credentials are available
+        const analyticsEnabled = process.env.REACT_APP_ENABLE_ANALYTICS === 'true';
         if (analyticsEnabled && analyticsConfig.credentials) {
           await analyticsService.initialize(analyticsConfig);
+        } else if (process.env.NODE_ENV === 'development') {
+          // In development, initialize with mock mode
+          await analyticsService.initialize({
+            ...analyticsConfig,
+            mockMode: true
+          });
         }
 
         // Initialize Google Analytics 4
