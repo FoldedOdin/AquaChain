@@ -733,7 +733,7 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
   onClose,
   onBackToLanding
 }) => {
-  const [activeRole, setActiveRole] = useState<'citizen' | 'field-technician' | 'lab-analyst' | 'auditor'>('citizen');
+  const [activeRole, setActiveRole] = useState<'citizen' | 'field-technician' | 'auditor'>('citizen');
   const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'alerts'>('overview');
   const [timeRange, setTimeRange] = useState('1day');
   const [currentData, setCurrentData] = useState<WaterQualityData[]>([]);
@@ -913,12 +913,11 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
               {[
                 { id: 'citizen', label: '👤 Citizen', desc: 'Public water quality info', icon: UserIcon, color: 'aqua' },
                 { id: 'field-technician', label: '🔧 Field Tech', desc: 'Real-time monitoring', icon: WrenchScrewdriverIcon, color: 'cyan' },
-                { id: 'lab-analyst', label: '🧪 Lab Analyst', desc: 'Detailed analysis', icon: ChartBarIcon, color: 'green' },
                 { id: 'auditor', label: '🏛️ Auditor', desc: 'Compliance tracking', icon: BuildingOfficeIcon, color: 'purple' }
               ].map(({ id, label, desc, icon: Icon, color }) => (
                 <button
                   key={id}
-                  onClick={() => setActiveRole(id as 'citizen' | 'field-technician' | 'lab-analyst' | 'auditor')}
+                  onClick={() => setActiveRole(id as 'citizen' | 'field-technician' | 'auditor')}
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 group
                     ${activeRole === id
@@ -960,7 +959,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                   <p className="text-sm text-gray-600">
                     {activeRole === 'citizen' && '👤 Citizen View - Public water quality information'}
                     {activeRole === 'field-technician' && '🔧 Field Technician - Real-time monitoring dashboard'}
-                    {activeRole === 'lab-analyst' && '🧪 Laboratory Analyst - Detailed analysis and reports'}
                     {activeRole === 'auditor' && '🏛️ Regulatory Auditor - Compliance tracking and oversight'}
                   </p>
                 </div>
@@ -997,11 +995,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                   { id: 'overview', label: 'Real-Time Data', icon: Activity },
                   { id: 'devices', label: 'Equipment Status', icon: Cog6ToothIcon },
                   { id: 'alerts', label: 'Field Alerts', icon: ExclamationTriangleIcon }
-                ],
-                'lab-analyst': [
-                  { id: 'overview', label: 'Analysis Dashboard', icon: ChartBarIcon },
-                  { id: 'devices', label: 'Lab Equipment', icon: Cog6ToothIcon },
-                  { id: 'alerts', label: 'Quality Alerts', icon: ExclamationTriangleIcon }
                 ],
                 auditor: [
                   { id: 'overview', label: 'Compliance Overview', icon: ChartBarIcon },
@@ -1093,7 +1086,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
               <p className="text-gray-700">
                 {activeRole === 'citizen' && "👤 Citizen View: Access public water quality information for your area, view safety alerts, and understand water quality metrics that affect your daily life."}
                 {activeRole === 'field-technician' && "🔧 Field Technician View: Real-time monitoring dashboard with live sensor data, equipment status, and field maintenance alerts for water system operations."}
-                {activeRole === 'lab-analyst' && "🧪 Laboratory Analyst View: Detailed analysis dashboard with precision measurements, historical comparisons, and comprehensive reporting tools for water quality assessment."}
                 {activeRole === 'auditor' && "🏛️ Regulatory Auditor View: Compliance tracking dashboard with audit trails, violation alerts, and regulatory oversight tools for water quality standards."}
               </p>
             </motion.div>
@@ -1110,7 +1102,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                     <h2 className="text-2xl font-display font-bold text-gray-900 mb-1">
                       {activeRole === 'citizen' && 'Your Local Water Quality'}
                       {activeRole === 'field-technician' && 'Real-Time Water Quality Monitoring'}
-                      {activeRole === 'lab-analyst' && 'Laboratory Analysis Dashboard'}
                       {activeRole === 'auditor' && 'Compliance Monitoring Overview'}
                     </h2>
                     <p className="text-sm text-gray-600">
@@ -1167,9 +1158,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                       return currentData.filter(d =>
                         ['Water Quality Index', 'pH Level', 'Turbidity', 'Total Dissolved Solids', 'Temperature'].includes(d.parameter)
                       );
-                    } else if (activeRole === 'lab-analyst') {
-                      // Lab analysts see all technical data
-                      return currentData;
                     } else {
                       // Auditors see compliance-focused data
                       return currentData.filter(d =>
@@ -1188,76 +1176,11 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                   ))}
                 </div>
 
-                {/* Real-time Data Table for Lab Analysts */}
-                {activeRole === 'lab-analyst' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
-                  >
-                    <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                      <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                        Precision Measurements
-                        <span className="inline-flex items-center gap-1.5 text-xs font-normal bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                          <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                          </span>
-                          Live
-                        </span>
-                      </h3>
-                    </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead className="bg-gradient-to-b from-gray-50 to-gray-100 border-b border-gray-200">
-                          <tr>
-                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Parameter</th>
-                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Current Value</th>
-                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Unit</th>
-                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Status</th>
-                            <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">Trend</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {currentData.map((param, index) => (
-                            <motion.tr
-                              key={param.id}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="hover:bg-gray-50 transition-colors"
-                            >
-                              <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                                {param.parameter}
-                              </td>
-                              <td className={`px-6 py-4 text-sm text-gray-700 font-mono tabular-nums ${updatedCells.has(`${index}-value`) ? 'animate-data-update' : ''
-                                }`}>
-                                {param.value}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-600">
-                                {param.unit}
-                              </td>
-                              <td className="px-6 py-4">
-                                <StatusBadge status={param.status}>
-                                  <span className="capitalize">{param.status}</span>
-                                </StatusBadge>
-                              </td>
-                              <td className="px-6 py-4">
-                                <TrendIndicator value={param.trend} compact />
-                              </td>
-                            </motion.tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </motion.div>
-                )}
               </motion.div>
             )}
 
-            {activeTab === 'devices' && (activeRole === 'field-technician' || activeRole === 'lab-analyst' || activeRole === 'auditor') && (
+            {activeTab === 'devices' && (activeRole === 'field-technician' || activeRole === 'auditor') && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1268,7 +1191,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                   <div>
                     <h2 className="text-2xl font-display font-bold text-gray-900 mb-1">
                       {activeRole === 'field-technician' && 'Equipment Status & Maintenance'}
-                      {activeRole === 'lab-analyst' && 'Laboratory Equipment Management'}
                       {activeRole === 'auditor' && 'Infrastructure Audit & Compliance'}
                     </h2>
                     <p className="text-sm text-gray-600">
@@ -1349,7 +1271,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                     <h2 className="text-2xl font-display font-bold text-gray-900 mb-1">
                       {activeRole === 'citizen' && 'Public Safety Alerts'}
                       {activeRole === 'field-technician' && 'Field Operations Alerts'}
-                      {activeRole === 'lab-analyst' && 'Quality Control Alerts'}
                       {activeRole === 'auditor' && 'Compliance & Regulatory Alerts'}
                     </h2>
                     <p className="text-sm text-gray-600">
@@ -1382,11 +1303,6 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
                       // Field technicians see operational and maintenance alerts
                       return sampleAlerts.filter(alert =>
                         alert.message.includes('maintenance') || alert.message.includes('battery') || alert.type === 'critical'
-                      );
-                    } else if (activeRole === 'lab-analyst') {
-                      // Lab analysts see quality-related alerts
-                      return sampleAlerts.filter(alert =>
-                        alert.message.includes('Turbidity') || alert.message.includes('quality') || alert.message.includes('maintenance')
                       );
                     } else {
                       // Auditors see all alerts for compliance tracking
