@@ -19,7 +19,6 @@ import {
   LazyRoleSelectionSection,
   LazyContactSection,
   LazyAuthModal,
-  LazyDemoDashboardViewer,
   preloadCriticalComponents
 } from '../../utils/codeSplitting';
 import { 
@@ -56,7 +55,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
 }) => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'signup'>('login');
-  const [isDemoDashboardOpen, setIsDemoDashboardOpen] = useState(false);
+
   
   // Animation settings based on user preferences and performance
   const [animationSettings] = useState({
@@ -170,34 +169,18 @@ const LandingPage: React.FC<LandingPageProps> = ({
 
   // Handle view dashboards click
   const handleViewDashboardsClick = () => {
-    // Track demo view conversion
-    trackConversion('demo_view', 3, { // Assign $3 value to demo view
-      demo_source: 'landing_page',
+    // Track dashboard access
+    trackConversion('dashboard_access', 5, {
+      access_source: 'landing_page',
       section: 'hero'
     });
 
     if (onViewDashboardsClick) {
       onViewDashboardsClick();
     } else {
-      // Open demo dashboard viewer
-      setIsDemoDashboardOpen(true);
-    }
-  };
-
-  // Handle demo dashboard close
-  const handleDemoDashboardClose = () => {
-    setIsDemoDashboardOpen(false);
-  };
-
-  // Handle back to landing from demo
-  const handleBackToLanding = () => {
-    setIsDemoDashboardOpen(false);
-    // Scroll to hero section
-    const heroSection = document.getElementById('hero');
-    if (heroSection) {
-      heroSection.scrollIntoView({ behavior: 'smooth' });
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // Redirect to login for dashboard access
+      setAuthModalTab('login');
+      setIsAuthModalOpen(true);
     }
   };
   // Initialize performance optimizations and analytics tracking
@@ -346,16 +329,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
         </Suspense>
       )}
 
-      {/* Demo Dashboard Viewer - Lazy Loaded */}
-      {isDemoDashboardOpen && (
-        <Suspense fallback={<div className="fixed inset-0 bg-white z-modal flex items-center justify-center">Loading...</div>}>
-          <LazyDemoDashboardViewer
-            isOpen={isDemoDashboardOpen}
-            onClose={handleDemoDashboardClose}
-            onBackToLanding={handleBackToLanding}
-          />
-        </Suspense>
-      )}
+
     </LandingPageLayout>
   );
 };

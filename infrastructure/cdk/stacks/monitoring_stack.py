@@ -6,6 +6,7 @@ CloudWatch dashboards, alarms, X-Ray tracing, and PagerDuty integration
 from aws_cdk import (
     Stack,
     aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cloudwatch_actions,
     aws_logs as logs,
     aws_sns as sns,
     aws_sns_subscriptions as subscriptions,
@@ -95,7 +96,7 @@ class AquaChainMonitoringStack(Stack):
                                 namespace="AWS/Lambda",
                                 metric_name="Invocations",
                                 dimensions_map={
-                                    "FunctionName": self.compute_resources.get("data_processing_function", {}).get("function_name", "")
+                                    "FunctionName": self.compute_resources.get("data_processing_function", {}).get("function_name", "placeholder-function")
                                 },
                                 statistic="Sum"
                             )
@@ -105,7 +106,7 @@ class AquaChainMonitoringStack(Stack):
                                 namespace="AWS/Lambda",
                                 metric_name="Duration",
                                 dimensions_map={
-                                    "FunctionName": self.compute_resources.get("data_processing_function", {}).get("function_name", "")
+                                    "FunctionName": self.compute_resources.get("data_processing_function", {}).get("function_name", "placeholder-function")
                                 },
                                 statistic="Average"
                             )
@@ -123,7 +124,7 @@ class AquaChainMonitoringStack(Stack):
                                 namespace="AWS/DynamoDB",
                                 metric_name="ConsumedReadCapacityUnits",
                                 dimensions_map={
-                                    "TableName": self.data_resources["readings_table"].table_name
+                                    "TableName": get_resource_name(self.config, "table", "readings")
                                 },
                                 statistic="Sum"
                             ),
@@ -131,7 +132,7 @@ class AquaChainMonitoringStack(Stack):
                                 namespace="AWS/DynamoDB",
                                 metric_name="ConsumedWriteCapacityUnits",
                                 dimensions_map={
-                                    "TableName": self.data_resources["readings_table"].table_name
+                                    "TableName": get_resource_name(self.config, "table", "readings")
                                 },
                                 statistic="Sum"
                             )
@@ -290,7 +291,7 @@ class AquaChainMonitoringStack(Stack):
                 namespace="AWS/DynamoDB",
                 metric_name="ThrottledRequests",
                 dimensions_map={
-                    "TableName": self.data_resources["readings_table"].table_name
+                    "TableName": get_resource_name(self.config, "table", "readings")
                 },
                 statistic="Sum",
                 period=Duration.minutes(5)
@@ -393,27 +394,27 @@ class AquaChainMonitoringStack(Stack):
         
         # Connect alarms to appropriate topics
         self.api_error_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.warning_alerts_topic)
+            cloudwatch_actions.SnsAction(self.warning_alerts_topic)
         )
         
         self.lambda_error_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.warning_alerts_topic)
+            cloudwatch_actions.SnsAction(self.warning_alerts_topic)
         )
         
         self.dynamodb_throttle_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.critical_alerts_topic)
+            cloudwatch_actions.SnsAction(self.critical_alerts_topic)
         )
         
         self.alert_latency_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.critical_alerts_topic)
+            cloudwatch_actions.SnsAction(self.critical_alerts_topic)
         )
         
         self.uptime_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.critical_alerts_topic)
+            cloudwatch_actions.SnsAction(self.critical_alerts_topic)
         )
         
         self.device_offline_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.warning_alerts_topic)
+            cloudwatch_actions.SnsAction(self.warning_alerts_topic)
         )
         
         self.monitoring_resources.update({
@@ -439,6 +440,7 @@ class AquaChainMonitoringStack(Stack):
                 host="*",
                 http_method="*",
                 url_path="*",
+                resource_arn="*",
                 version=1
             )
         )
@@ -456,6 +458,7 @@ class AquaChainMonitoringStack(Stack):
                 host="*",
                 http_method="*",
                 url_path="/api/v1/readings*",  # Critical data path
+                resource_arn="*",
                 version=1
             )
         )

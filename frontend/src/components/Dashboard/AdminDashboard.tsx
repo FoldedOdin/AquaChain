@@ -9,13 +9,13 @@ import {
   PowerIcon,
   UsersIcon,
   ChartBarIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  ExclamationTriangleIcon,
+  CheckCircleIcon
 } from '@heroicons/react/24/outline';
-import { Activity, Users, Database } from 'lucide-react';
+import { Activity, Users, Database, Droplet, TrendingUp, TrendingDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-
-// Import the existing dashboard components from DemoDashboardViewer
-import DemoDashboardViewer from '../LandingPage/DemoDashboardViewer';
+import { useRealTimeData } from '../../hooks/useRealTimeData';
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
 
@@ -26,8 +26,26 @@ interface AdminDashboardProps {
 const AdminDashboard: React.FC<AdminDashboardProps> = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [showDemoViewer, setShowDemoViewer] = useState(true);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [selectedTimeRange, setSelectedTimeRange] = useState('24h');
+  
+  // Use real-time data hook instead of demo data
+  const {
+    waterQuality,
+    latestReading,
+    devices,
+    alerts,
+    stats,
+    isLoading,
+    isConnected,
+    lastUpdated,
+    error,
+    refresh
+  } = useRealTimeData({
+    enableRealTime: true,
+    refreshInterval: 30000,
+    autoReconnect: true
+  });
 
   // Redirect to login if not authenticated or not admin
   useEffect(() => {

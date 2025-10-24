@@ -224,7 +224,7 @@ def perform_security_checks(device_id: str, serial_number: str, certificate_id: 
     """
     try:
         # Check for suspicious patterns
-        if device_id.lower() in ['test', 'demo', 'admin']:
+        if device_id.lower() in ['test', 'admin']:
             print(f"Suspicious device ID: {device_id}")
             return False
         

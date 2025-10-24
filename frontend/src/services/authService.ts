@@ -358,7 +358,15 @@ class AuthService {
    * Get current user role
    */
   getCurrentUserRole(): UserRole | null {
-    return 'consumer'; // Default for now
+    if (this.currentUser) {
+      // In development mode, get role from user object
+      if (process.env.NODE_ENV === 'development') {
+        return this.currentUser.role || 'consumer';
+      }
+      // In production, get role from Cognito attributes
+      return this.currentUser.attributes?.['custom:role'] || 'consumer';
+    }
+    return null;
   }
 
   /**

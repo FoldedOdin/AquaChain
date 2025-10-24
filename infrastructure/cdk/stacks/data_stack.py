@@ -260,7 +260,6 @@ class AquaChainDataStack(Stack):
         self.device_thing_type = iot.CfnThingType(
             self, "DeviceThingType",
             thing_type_name=get_resource_name(self.config, "thing-type", "device"),
-            thing_type_description="AquaChain water quality monitoring device",
             thing_type_properties=iot.CfnThingType.ThingTypePropertiesProperty(
                 thing_type_description="ESP32-based water quality sensor",
                 searchable_attributes=["deviceModel", "firmwareVersion", "location"]
@@ -365,7 +364,7 @@ class AquaChainDataStack(Stack):
         )
         
         CfnOutput(
-            self, "DataLakeBucket",
+            self, "DataLakeBucketName",
             value=self.data_lake_bucket.bucket_name,
             description="S3 bucket for raw data storage"
         )

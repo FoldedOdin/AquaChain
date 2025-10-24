@@ -82,29 +82,31 @@ def main():
     compute_stack.add_dependency(data_stack)
     
     # 5. API Stack (API Gateway, Cognito)
-    api_stack = AquaChainApiStack(
-        app, 
-        f"AquaChain-API-{env_name}",
-        config=config,
-        lambda_functions=compute_stack.lambda_functions,
-        security_resources=security_stack.security_resources,
-        env=aws_env,
-        description=f"AquaChain API Layer - {env_name}"
-    )
-    api_stack.add_dependency(compute_stack)
+    # Temporarily disabled due to cyclic dependency with WebSocketAPI
+    # api_stack = AquaChainApiStack(
+    #     app, 
+    #     f"AquaChain-API-{env_name}",
+    #     config=config,
+    #     lambda_functions=compute_stack.lambda_functions,
+    #     security_resources=security_stack.security_resources,
+    #     env=aws_env,
+    #     description=f"AquaChain API Layer - {env_name}"
+    # )
+    # api_stack.add_dependency(compute_stack)
     
     # 6. Monitoring Stack (CloudWatch, X-Ray, PagerDuty)
-    monitoring_stack = AquaChainMonitoringStack(
-        app, 
-        f"AquaChain-Monitoring-{env_name}",
-        config=config,
-        data_resources=data_stack.data_resources,
-        compute_resources=compute_stack.compute_resources,
-        api_resources=api_stack.api_resources,
-        env=aws_env,
-        description=f"AquaChain Monitoring Layer - {env_name}"
-    )
-    monitoring_stack.add_dependency(api_stack)
+    # Temporarily disabled to isolate cyclic dependency
+    # monitoring_stack = AquaChainMonitoringStack(
+    #     app, 
+    #     f"AquaChain-Monitoring-{env_name}",
+    #     config=config,
+    #     data_resources=data_stack.data_resources,
+    #     compute_resources=compute_stack.compute_resources,
+    #     api_resources=api_stack.api_resources,
+    #     env=aws_env,
+    #     description=f"AquaChain Monitoring Layer - {env_name}"
+    # )
+    # monitoring_stack.add_dependency(api_stack)
     
     # 7. Disaster Recovery Stack (Backup, Cross-region replication, DR automation)
     dr_stack = AquaChainDisasterRecoveryStack(

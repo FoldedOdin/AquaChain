@@ -1,0 +1,35 @@
+{
+  "platform": "netlify",
+  "environment": "production",
+  "buildCommand": "npm run build",
+  "outputDir": "build",
+  "enableAnalytics": true,
+  "enableMockData": false,
+  "features": {
+    "authentication": "production",
+    "realTimeData": "live",
+    "notifications": "mock",
+    "analytics": "enabled"
+  },
+  "platforms": {
+    "netlify": {
+      "buildCommand": "npm run build",
+      "publishDir": "build",
+      "nodeVersion": "18"
+    },
+    "vercel": {
+      "framework": "create-react-app",
+      "buildCommand": "npm run build",
+      "outputDirectory": "build"
+    },
+    "s3": {
+      "bucketName": "aquachain-frontend-production",
+      "region": "us-east-1",
+      "cloudFrontDistribution": true
+    },
+    "github-pages": {
+      "branch": "gh-pages",
+      "buildCommand": "npm run build"
+    }
+  }
+}

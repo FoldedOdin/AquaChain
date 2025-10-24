@@ -5,12 +5,13 @@ This guide helps you connect your AquaChain frontend to the deployed AWS infrast
 ## Prerequisites
 
 1. **AWS CLI installed and configured**
+
    ```bash
    # Install AWS CLI
    # Windows: Download from https://aws.amazon.com/cli/
    # macOS: brew install awscli
    # Linux: sudo apt install awscli
-   
+
    # Configure credentials
    aws configure
    ```
@@ -40,11 +41,12 @@ npm start
    - Go to CloudFormation → Find your AquaChain stacks → Outputs tab
    - Copy the values for:
      - RestAPIEndpoint
-     - WebSocketAPIEndpoint  
+     - WebSocketAPIEndpoint
      - UserPoolId
      - UserPoolClientId
 
 2. **Update `.env.production`:**
+
    ```bash
    REACT_APP_AWS_REGION=us-east-1
    REACT_APP_USER_POOL_ID=us-east-1_XXXXXXXXX
@@ -62,22 +64,24 @@ npm start
 
 ## Available Scripts
 
-| Script | Description |
-|--------|-------------|
+| Script                         | Description                                |
+| ------------------------------ | ------------------------------------------ |
 | `npm run get-aws-config [env]` | Fetch deployed AWS endpoints automatically |
-| `npm run switch-to-aws` | Switch to AWS infrastructure mode |
-| `npm run switch-to-dev` | Switch back to local development mode |
-| `npm run start:aws` | Switch to AWS and start the app |
+| `npm run switch-to-aws`        | Switch to AWS infrastructure mode          |
+| `npm run switch-to-dev`        | Switch back to local development mode      |
+| `npm run start:aws`            | Switch to AWS and start the app            |
 
 ## Authentication Differences
 
 ### Development Mode (Local Dev Server)
+
 - Uses in-memory user storage
 - Auto-creates test accounts
 - Email verification simulated (2 seconds)
 - Test credentials work immediately
 
 ### AWS Mode (Production Infrastructure)
+
 - Uses AWS Cognito for authentication
 - Real email verification required
 - Users must be created through:
@@ -88,12 +92,14 @@ npm start
 ## Creating Users in AWS Cognito
 
 ### Option 1: AWS Console
+
 1. Go to AWS Console → Cognito → User Pools
 2. Select your AquaChain user pool
 3. Users tab → Create user
 4. Set temporary password and require password change
 
 ### Option 2: AWS CLI
+
 ```bash
 # Create a user
 aws cognito-idp admin-create-user \
@@ -112,7 +118,9 @@ aws cognito-idp admin-set-user-password \
 ```
 
 ### Option 3: Signup Flow
+
 If your Cognito is configured to allow self-registration:
+
 1. Use the signup form in your app
 2. Check email for verification code
 3. Complete verification process
@@ -120,11 +128,13 @@ If your Cognito is configured to allow self-registration:
 ## User Roles and Groups
 
 The system supports three user roles:
+
 - **Consumer**: Monitor water quality data
-- **Technician**: Service devices and handle requests  
+- **Technician**: Service devices and handle requests
 - **Admin**: Full system access
 
 ### Assigning Roles in Cognito
+
 ```bash
 # Add user to a group
 aws cognito-idp admin-add-user-to-group \
@@ -138,6 +148,7 @@ aws cognito-idp admin-add-user-to-group \
 When connected to AWS, your app will use:
 
 ### REST API
+
 - **Base URL**: `https://your-api-id.execute-api.region.amazonaws.com/stage`
 - **Authentication**: Cognito JWT tokens
 - **Endpoints**:
@@ -147,6 +158,7 @@ When connected to AWS, your app will use:
   - `GET /api/v1/audit/hash-chain` - Get audit trail
 
 ### WebSocket API
+
 - **URL**: `wss://your-ws-api-id.execute-api.region.amazonaws.com/stage`
 - **Real-time updates**: Device status, alerts, notifications
 
@@ -172,11 +184,12 @@ When connected to AWS, your app will use:
 4. **Configuration not loading**
    - Restart React app after changing .env files
    - Check .env.local takes precedence over .env.development
-   - Verify environment variables start with REACT_APP_
+   - Verify environment variables start with REACT*APP*
 
 ### Debugging Steps
 
 1. **Check current configuration:**
+
    ```javascript
    // In browser console
    console.log('API Endpoint:', process.env.REACT_APP_API_ENDPOINT);
@@ -184,10 +197,11 @@ When connected to AWS, your app will use:
    ```
 
 2. **Verify AWS resources:**
+
    ```bash
    # Check if stacks exist
    aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE
-   
+
    # Get stack outputs
    aws cloudformation describe-stacks --stack-name AquaChain-API-dev
    ```
@@ -201,12 +215,14 @@ When connected to AWS, your app will use:
 ## Switching Between Modes
 
 ### Development Mode
+
 ```bash
 npm run switch-to-dev
 npm run start:full  # Starts both dev server and React app
 ```
 
-### AWS Mode  
+### AWS Mode
+
 ```bash
 npm run switch-to-aws
 npm start  # Uses AWS infrastructure
@@ -215,12 +231,14 @@ npm start  # Uses AWS infrastructure
 ## Security Considerations
 
 ### Development Mode
+
 - Uses test reCAPTCHA keys
 - No real email verification
 - In-memory data storage
 - Suitable for development only
 
 ### AWS Mode
+
 - Production reCAPTCHA keys required
 - Real email verification via SES
 - Encrypted data storage in DynamoDB/S3
@@ -238,6 +256,7 @@ npm start  # Uses AWS infrastructure
 ## Support
 
 If you encounter issues:
+
 1. Check the troubleshooting section above
 2. Verify your AWS permissions
 3. Review CloudWatch logs for API errors

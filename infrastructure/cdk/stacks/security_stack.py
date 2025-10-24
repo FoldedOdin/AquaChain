@@ -7,6 +7,8 @@ from aws_cdk import (
     Stack,
     aws_kms as kms,
     aws_iam as iam,
+    aws_sns as sns,
+    aws_location as location,
     RemovalPolicy,
     Duration
 )
@@ -31,6 +33,12 @@ class AquaChainSecurityStack(Stack):
         # Create IAM roles
         self._create_iam_roles()
         
+        # Create SNS topics for alerts
+        self._create_sns_topics()
+        
+        # Create location services
+        self._create_location_services()
+        
         # Create security policies
         self._create_security_policies()
     
@@ -46,8 +54,7 @@ class AquaChainSecurityStack(Stack):
             key_usage=kms.KeyUsage.ENCRYPT_DECRYPT,
             key_spec=kms.KeySpec.SYMMETRIC_DEFAULT,
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
-            enable_key_rotation=True,
-            rotation_schedule=Duration.days(365) if self.config["environment"] == "prod" else Duration.days(90)
+            enable_key_rotation=True
         )
         
         # Add alias for data key
@@ -124,7 +131,7 @@ class AquaChainSecurityStack(Stack):
                     "dynamodb:Scan"
                 ],
                 resources=[
-                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', '*')}"
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-*"
                 ]
             )
         )
@@ -139,7 +146,7 @@ class AquaChainSecurityStack(Stack):
                     "s3:PutObjectRetention"
                 ],
                 resources=[
-                    f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', '*')}/*"
+                    f"arn:aws:s3:::aquachain-*/*"
                 ]
             )
         )
@@ -175,7 +182,7 @@ class AquaChainSecurityStack(Stack):
                     "lambda:InvokeFunction"
                 ],
                 resources=[
-                    f"arn:aws:lambda:{self.region}:{self.account}:function:{get_resource_name(self.config, 'function', '*')}"
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:aquachain-*"
                 ]
             )
         )
@@ -209,7 +216,7 @@ class AquaChainSecurityStack(Stack):
                     "s3:DeleteObject"
                 ],
                 resources=[
-                    f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', 'ml-models')}/*"
+                    f"arn:aws:s3:::aquachain-*-ml-models-*/*"
                 ]
             )
         )
@@ -262,4 +269,79 @@ class AquaChainSecurityStack(Stack):
         self.security_resources.update({
             "device_policy": self.device_policy,
             "device_policy_document": self.device_policy_document
+        })
+    
+    def _create_sns_topics(self) -> None:
+        """Create SNS topics for alerts and notifications."""
+        
+        # Critical alerts topic
+        self.critical_alerts_topic = sns.Topic(
+            self, "CriticalAlertsTopic",
+            display_name="AquaChain Critical Alerts",
+            topic_name=get_resource_name(self.config, "topic", "critical-alerts")
+        )
+        
+        # Service updates topic
+        self.service_updates_topic = sns.Topic(
+            self, "ServiceUpdatesTopic",
+            display_name="AquaChain Service Request Updates",
+            topic_name=get_resource_name(self.config, "topic", "service-updates")
+        )
+        
+        # System alerts topic
+        self.system_alerts_topic = sns.Topic(
+            self, "SystemAlertsTopic",
+            display_name="AquaChain System Alerts",
+            topic_name=get_resource_name(self.config, "topic", "system-alerts")
+        )
+        
+        # General notifications topic
+        self.notifications_topic = sns.Topic(
+            self, "NotificationsTopic",
+            display_name="AquaChain Notifications",
+            topic_name=get_resource_name(self.config, "topic", "notifications")
+        )
+        
+        # Subscribe alert email to critical alerts
+        if self.config.get("alert_email"):
+            sns.Subscription(
+                self, "CriticalAlertsEmailSubscription",
+                topic=self.critical_alerts_topic,
+                endpoint=self.config["alert_email"],
+                protocol=sns.SubscriptionProtocol.EMAIL
+            )
+        
+        self.security_resources.update({
+            "critical_alerts_topic": self.critical_alerts_topic,
+            "service_updates_topic": self.service_updates_topic,
+            "system_alerts_topic": self.system_alerts_topic,
+            "notifications_topic": self.notifications_topic
+        })
+    
+    def _create_location_services(self) -> None:
+        """Create location services for routing and mapping."""
+        
+        # Location Service Map
+        self.location_map = location.CfnMap(
+            self, "LocationMap",
+            map_name=get_resource_name(self.config, "map", "service-areas"),
+            configuration=location.CfnMap.MapConfigurationProperty(
+                style="VectorEsriStreets"
+            ),
+            description="Map for AquaChain service area routing",
+            pricing_plan="RequestBasedUsage"
+        )
+        
+        # Location Service Route Calculator
+        self.route_calculator = location.CfnRouteCalculator(
+            self, "RouteCalculator",
+            calculator_name=get_resource_name(self.config, "route-calc", "service-routing"),
+            data_source="Esri",
+            description="Route calculator for technician ETA calculation",
+            pricing_plan="RequestBasedUsage"
+        )
+        
+        self.security_resources.update({
+            "location_map": self.location_map,
+            "route_calculator": self.route_calculator
         })

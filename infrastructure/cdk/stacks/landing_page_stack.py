@@ -37,8 +37,9 @@ class AquaChainLandingPageStack(Stack):
         # Create S3 bucket for static hosting
         self._create_s3_bucket()
         
-        # Create SSL certificate
-        self._create_ssl_certificate()
+        # Create SSL certificate (skip for now, use CloudFront default)
+        # self._create_ssl_certificate()
+        self.certificate = None
         
         # Create WAF for security
         self._create_waf()
@@ -46,8 +47,8 @@ class AquaChainLandingPageStack(Stack):
         # Create CloudFront distribution
         self._create_cloudfront_distribution()
         
-        # Create Route 53 DNS records
-        self._create_dns_records()
+        # Create Route 53 DNS records (skip for now due to permissions)
+        # self._create_dns_records()
         
         # Create deployment user for CI/CD
         self._create_deployment_user()
@@ -80,13 +81,15 @@ class AquaChainLandingPageStack(Stack):
         )
         
         # Create CloudFront Origin Access Control
-        self.oac = cloudfront.OriginAccessControl(
+        self.oac = cloudfront.CfnOriginAccessControl(
             self, "LandingPageOAC",
-            origin_access_control_name=f"{bucket_name}-oac",
-            description="Origin Access Control for AquaChain Landing Page",
-            origin_access_control_origin_type=cloudfront.OriginAccessControlOriginType.S3,
-            signing_behavior=cloudfront.OriginAccessControlSigningBehavior.ALWAYS,
-            signing_protocol=cloudfront.OriginAccessControlSigningProtocol.SIGV4
+            origin_access_control_config=cloudfront.CfnOriginAccessControl.OriginAccessControlConfigProperty(
+                name=f"{bucket_name}-oac",
+                description="Origin Access Control for AquaChain Landing Page",
+                origin_access_control_origin_type="s3",
+                signing_behavior="always",
+                signing_protocol="sigv4"
+            )
         )
     
     def _create_ssl_certificate(self) -> None:
@@ -287,7 +290,7 @@ class AquaChainLandingPageStack(Stack):
             default_behavior=cloudfront.BehaviorOptions(
                 origin=origins.S3Origin(
                     bucket=self.website_bucket,
-                    origin_access_control=self.oac
+                    origin_access_control_id=self.oac.attr_id
                 ),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
@@ -301,16 +304,17 @@ class AquaChainLandingPageStack(Stack):
                 "/static/*": cloudfront.BehaviorOptions(
                     origin=origins.S3Origin(
                         bucket=self.website_bucket,
-                        origin_access_control=self.oac
+                        origin_access_control_id=self.oac.attr_id
                     ),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
                     compress=True
                 )
             },
-            domain_names=[self.domain_name],
-            certificate=self.certificate,
-            minimum_protocol_version=cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
+            # Skip custom domain and certificate for now
+            # domain_names=[self.domain_name],
+            # certificate=self.certificate,
+            # minimum_protocol_version=cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
             error_responses=[
                 cloudfront.ErrorResponse(
                     http_status=404,

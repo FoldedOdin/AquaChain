@@ -1,0 +1,52 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CDKBootstrapPermissions",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:*",
+        "iam:*",
+        "s3:*",
+        "ssm:*",
+        "ecr:*",
+        "lambda:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CDKDeploymentPermissions",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:*",
+        "kms:*",
+        "iot:*",
+        "cognito-idp:*",
+        "cognito-identity:*",
+        "apigateway:*",
+        "logs:*",
+        "events:*",
+        "sns:*",
+        "sqs:*",
+        "backup:*",
+        "states:*",
+        "xray:*",
+        "cloudwatch:*",
+        "route53:*",
+        "cloudfront:*",
+        "wafv2:*",
+        "sagemaker:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AssumeRolePermissions",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 """
-Simulated ESP32 Device - Implements DeviceInterface for demo purposes
-This will be replaced by real ESP32 firmware when hardware is available
+Simulated ESP32 Device - Implements DeviceInterface for development and testing
+This provides a software simulation of ESP32 hardware for development purposes
 """
 
 import asyncio
@@ -187,7 +187,7 @@ class SimulatedDevice(DeviceInterface):
     def _estimate_wqi(self, readings: SensorReading) -> int:
         """Rough WQI estimation for logging purposes"""
         try:
-            # Simple WQI calculation for demo
+            # Simple WQI calculation for simulation
             ph_score = 100 if 6.5 <= readings.pH <= 8.5 else max(0, 100 - abs(readings.pH - 7.0) * 20)
             turbidity_score = max(0, 100 - readings.turbidity * 10)
             tds_score = max(0, 100 - max(0, readings.tds - 500) / 10)

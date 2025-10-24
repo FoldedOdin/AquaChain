@@ -170,14 +170,8 @@ class APIGatewaySetup:
     def _add_method_integration(self, api_id: str, resource_id: str, method: str, resource_type: str):
         """Add Lambda integration to method"""
         # This will be configured when Lambda functions are deployed
-        # For now, create mock integration
-        self.apigateway.put_integration(
-            restApiId=api_id,
-            resourceId=resource_id,
-            httpMethod=method,
-            type='MOCK',
-            requestTemplates={
-                'application/json': '{"statusCode": 200}'
+        # Production integration will be added during deployment
+        # Placeholder for Lambda integration configuration
             }
         )
         

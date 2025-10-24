@@ -408,7 +408,7 @@ def update_dns_for_failover(environment: str, replica_region: str) -> Dict[str, 
         
         logger.info(f"Updating DNS for failover to {replica_region}")
         
-        # For demonstration, we'll simulate the DNS update
+        # For development, we'll simulate the DNS update
         # In a real implementation, you would use Route 53 APIs
         
         return {

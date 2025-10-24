@@ -6,10 +6,12 @@ API Gateway, Cognito, and authentication infrastructure
 from aws_cdk import (
     Stack,
     aws_apigateway as apigateway,
+    aws_apigatewayv2 as apigatewayv2,
     aws_cognito as cognito,
     aws_wafv2 as waf,
     aws_certificatemanager as acm,
     aws_route53 as route53,
+    aws_iam as iam,
     Duration,
     CfnOutput
 )
@@ -311,7 +313,7 @@ class AquaChainApiStack(Stack):
         """
         
         # WebSocket API
-        self.websocket_api = apigateway.CfnApi(
+        self.websocket_api = apigatewayv2.CfnApi(
             self, "WebSocketAPI",
             name=get_resource_name(self.config, "api", "websocket"),
             protocol_type="WEBSOCKET",
@@ -320,19 +322,19 @@ class AquaChainApiStack(Stack):
         )
         
         # WebSocket Stage
-        self.websocket_stage = apigateway.CfnStage(
+        self.websocket_stage = apigatewayv2.CfnStage(
             self, "WebSocketStage",
             api_id=self.websocket_api.ref,
             stage_name=self.config["environment"],
             auto_deploy=True,
-            throttle_settings=apigateway.CfnStage.ThrottleSettingsProperty(
-                rate_limit=self.config["api_throttle_rate_limit"],
-                burst_limit=self.config["api_throttle_burst_limit"]
+            default_route_settings=apigatewayv2.CfnStage.RouteSettingsProperty(
+                throttling_rate_limit=self.config["api_throttle_rate_limit"],
+                throttling_burst_limit=self.config["api_throttle_burst_limit"]
             )
         )
         
         # WebSocket Integration
-        self.websocket_integration = apigateway.CfnIntegration(
+        self.websocket_integration = apigatewayv2.CfnIntegration(
             self, "WebSocketIntegration",
             api_id=self.websocket_api.ref,
             integration_type="AWS_PROXY",
@@ -340,21 +342,21 @@ class AquaChainApiStack(Stack):
         )
         
         # WebSocket Routes
-        connect_route = apigateway.CfnRoute(
+        connect_route = apigatewayv2.CfnRoute(
             self, "ConnectRoute",
             api_id=self.websocket_api.ref,
             route_key="$connect",
             target=f"integrations/{self.websocket_integration.ref}"
         )
         
-        disconnect_route = apigateway.CfnRoute(
+        disconnect_route = apigatewayv2.CfnRoute(
             self, "DisconnectRoute",
             api_id=self.websocket_api.ref,
             route_key="$disconnect",
             target=f"integrations/{self.websocket_integration.ref}"
         )
         
-        default_route = apigateway.CfnRoute(
+        default_route = apigatewayv2.CfnRoute(
             self, "DefaultRoute",
             api_id=self.websocket_api.ref,
             route_key="$default",
@@ -364,7 +366,7 @@ class AquaChainApiStack(Stack):
         # Grant API Gateway permission to invoke Lambda
         self.lambda_functions["websocket"].add_permission(
             "WebSocketAPIPermission",
-            principal=apigateway.ServicePrincipal("apigateway.amazonaws.com"),
+            principal=iam.ServicePrincipal("apigateway.amazonaws.com"),
             source_arn=f"arn:aws:execute-api:{self.region}:{self.account}:{self.websocket_api.ref}/*/*"
         )
         

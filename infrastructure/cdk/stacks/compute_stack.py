@@ -58,14 +58,14 @@ class AquaChainComputeStack(Stack):
             "environment": {
                 "ENVIRONMENT": self.config["environment"],
                 "REGION": self.region,
-                "READINGS_TABLE": self.data_resources["readings_table"].table_name,
-                "LEDGER_TABLE": self.data_resources["ledger_table"].table_name,
-                "SEQUENCE_TABLE": self.data_resources["sequence_table"].table_name,
-                "USERS_TABLE": self.data_resources["users_table"].table_name,
-                "SERVICE_REQUESTS_TABLE": self.data_resources["service_requests_table"].table_name,
-                "DATA_LAKE_BUCKET": self.data_resources["data_lake_bucket"].bucket_name,
-                "AUDIT_BUCKET": self.data_resources["audit_bucket"].bucket_name,
-                "ML_MODELS_BUCKET": self.data_resources["ml_models_bucket"].bucket_name,
+                "READINGS_TABLE": get_resource_name(self.config, "table", "readings"),
+                "LEDGER_TABLE": get_resource_name(self.config, "table", "ledger"),
+                "SEQUENCE_TABLE": get_resource_name(self.config, "table", "sequence"),
+                "USERS_TABLE": get_resource_name(self.config, "table", "users"),
+                "SERVICE_REQUESTS_TABLE": get_resource_name(self.config, "table", "service-requests"),
+                "DATA_LAKE_BUCKET": get_resource_name(self.config, "bucket", f"data-lake-{self.account}"),
+                "AUDIT_BUCKET": get_resource_name(self.config, "bucket", f"audit-trail-{self.account}"),
+                "ML_MODELS_BUCKET": get_resource_name(self.config, "bucket", f"ml-models-{self.account}"),
                 "DATA_KEY_ID": self.security_resources["data_key"].key_id,
                 "SIGNING_KEY_ID": self.security_resources["ledger_signing_key"].key_id
             },
@@ -84,14 +84,40 @@ class AquaChainComputeStack(Stack):
             **common_lambda_config
         )
         
-        # Grant permissions to DynamoDB tables
-        self.data_resources["readings_table"].grant_read_write_data(self.data_processing_function)
-        self.data_resources["ledger_table"].grant_read_write_data(self.data_processing_function)
-        self.data_resources["sequence_table"].grant_read_write_data(self.data_processing_function)
+        # Grant permissions to DynamoDB tables using IAM policies
+        self.data_processing_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem", 
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'readings')}",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'ledger')}",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'sequence')}"
+                ]
+            )
+        )
         
-        # Grant permissions to S3 buckets
-        self.data_resources["data_lake_bucket"].grant_read_write(self.data_processing_function)
-        self.data_resources["audit_bucket"].grant_read_write(self.data_processing_function)
+        # Grant permissions to S3 buckets using IAM policies
+        self.data_processing_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject"
+                ],
+                resources=[
+                    f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'data-lake-{self.account}')}/*",
+                    f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'audit-trail-{self.account}')}/*"
+                ]
+            )
+        )
         
         # ML Inference Lambda
         self.ml_inference_function = lambda_python.PythonFunction(
@@ -106,8 +132,14 @@ class AquaChainComputeStack(Stack):
             **{k: v for k, v in common_lambda_config.items() if k not in ["memory_size", "timeout"]}
         )
         
-        # Grant ML models bucket access
-        self.data_resources["ml_models_bucket"].grant_read(self.ml_inference_function)
+        # Grant ML models bucket access using IAM policy
+        self.ml_inference_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["s3:GetObject"],
+                resources=[f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'ml-models-{self.account}')}/*"]
+            )
+        )
         
         # Alert Detection Lambda
         self.alert_detection_function = lambda_python.PythonFunction(
@@ -131,8 +163,20 @@ class AquaChainComputeStack(Stack):
             **common_lambda_config
         )
         
-        # Grant users table access
-        self.data_resources["users_table"].grant_read_write_data(self.user_management_function)
+        # Grant users table access using IAM policy
+        self.user_management_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'users')}"]
+            )
+        )
         
         # Service Request Management Lambda
         self.service_request_function = lambda_python.PythonFunction(
@@ -145,8 +189,20 @@ class AquaChainComputeStack(Stack):
             **common_lambda_config
         )
         
-        # Grant service requests table access
-        self.data_resources["service_requests_table"].grant_read_write_data(self.service_request_function)
+        # Grant service requests table access using IAM policy
+        self.service_request_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'service-requests')}"]
+            )
+        )
         
         # Audit Trail Processor Lambda
         self.audit_processor_function = lambda_python.PythonFunction(
@@ -197,26 +253,14 @@ class AquaChainComputeStack(Stack):
         Create SNS topics for notifications
         """
         
-        # Critical alerts topic
-        self.critical_alerts_topic = sns.Topic(
-            self, "CriticalAlertsTopic",
-            topic_name=get_resource_name(self.config, "topic", "critical-alerts"),
-            display_name="AquaChain Critical Water Quality Alerts"
-        )
+        # Use critical alerts topic from security stack
+        self.critical_alerts_topic = self.security_resources["critical_alerts_topic"]
         
-        # Service updates topic
-        self.service_updates_topic = sns.Topic(
-            self, "ServiceUpdatesTopic",
-            topic_name=get_resource_name(self.config, "topic", "service-updates"),
-            display_name="AquaChain Service Request Updates"
-        )
+        # Use service updates topic from security stack
+        self.service_updates_topic = self.security_resources["service_updates_topic"]
         
-        # System alerts topic
-        self.system_alerts_topic = sns.Topic(
-            self, "SystemAlertsTopic",
-            topic_name=get_resource_name(self.config, "topic", "system-alerts"),
-            display_name="AquaChain System Alerts"
-        )
+        # Use system alerts topic from security stack
+        self.system_alerts_topic = self.security_resources["system_alerts_topic"]
         
         # Grant publish permissions to Lambda functions
         self.critical_alerts_topic.grant_publish(self.alert_detection_function)
@@ -245,7 +289,7 @@ class AquaChainComputeStack(Stack):
             execution_role_arn=self.security_resources["sagemaker_role"].role_arn,
             primary_container=sagemaker.CfnModel.ContainerDefinitionProperty(
                 image="382416733822.dkr.ecr.us-east-1.amazonaws.com/sklearn_inference:0.23-1-cpu-py3",
-                model_data_url=f"s3://{self.data_resources['ml_models_bucket'].bucket_name}/models/wqi-model.tar.gz",
+                model_data_url=f"s3://{get_resource_name(self.config, 'bucket', f'ml-models-{self.account}')}/models/wqi-model.tar.gz",
                 environment={
                     "SAGEMAKER_PROGRAM": "inference.py",
                     "SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/code"
@@ -290,25 +334,9 @@ class AquaChainComputeStack(Stack):
         Create AWS Location Service resources for routing and ETA calculation
         """
         
-        # Location Service Map
-        self.location_map = location.CfnMap(
-            self, "LocationMap",
-            map_name=get_resource_name(self.config, "map", "service-areas"),
-            configuration=location.CfnMap.MapConfigurationProperty(
-                style="VectorEsriStreets"
-            ),
-            description="Map for AquaChain service area routing",
-            pricing_plan="RequestBasedUsage"
-        )
-        
-        # Location Service Route Calculator
-        self.route_calculator = location.CfnRouteCalculator(
-            self, "RouteCalculator",
-            calculator_name=get_resource_name(self.config, "route-calc", "service-routing"),
-            data_source="Esri",
-            description="Route calculator for technician ETA calculation",
-            pricing_plan="RequestBasedUsage"
-        )
+        # Use location services from security stack
+        self.location_map = self.security_resources["location_map"]
+        self.route_calculator = self.security_resources["route_calculator"]
         
         # Grant Location Service permissions to service request Lambda
         self.service_request_function.add_to_role_policy(

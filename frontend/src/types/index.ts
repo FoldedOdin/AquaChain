@@ -189,3 +189,31 @@ export interface DiagnosticData {
   calibrationStatus: 'current' | 'needs_calibration' | 'failed';
   lastCalibrationDate?: string;
 }
+
+export interface DeviceStatus {
+  id: string;
+  name: string;
+  location: {
+    latitude: number;
+    longitude: number;
+    address: string;
+  };
+  status: 'online' | 'offline' | 'maintenance' | 'error';
+  lastSeen: string;
+  batteryLevel: number;
+  signalStrength: number;
+  firmwareVersion: string;
+  lastReading?: WaterQualityReading;
+  diagnostics: DiagnosticData;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: 'consumer' | 'technician' | 'admin';
+  profile: UserProfile;
+  createdAt: string;
+  lastLogin?: string;
+  isActive: boolean;
+}

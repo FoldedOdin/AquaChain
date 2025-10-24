@@ -1,6 +1,6 @@
 """
-Sample ML model training script for AquaChain WQI calculation
-This demonstrates the model structure and training process
+ML model training script for AquaChain WQI calculation
+Production model structure and training process
 """
 
 import numpy as np

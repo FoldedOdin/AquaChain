@@ -67,10 +67,7 @@ export const LazyAuthModal = React.lazy(() =>
   import('../components/LandingPage/AuthModal')
 );
 
-// Demo Dashboard Viewer (loaded on demand)
-export const LazyDemoDashboardViewer = React.lazy(() => 
-  import('../components/LandingPage/DemoDashboardViewer')
-);
+
 
 /**
  * Route-based lazy loading for main pages
@@ -104,8 +101,8 @@ export const preloadCriticalComponents = () => {
   // Preload auth modal when user hovers over "Get Started" button
   preloadComponent(() => import('../components/LandingPage/AuthModal'));
   
-  // Preload demo dashboard when user hovers over "View Dashboards" button
-  preloadComponent(() => import('../components/LandingPage/DemoDashboardViewer'));
+  // Preload dashboard components for authenticated users
+  preloadComponent(() => import('../pages/Dashboard'));
 };
 
 /**
