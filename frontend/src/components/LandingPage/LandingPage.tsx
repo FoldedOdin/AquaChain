@@ -1,4 +1,5 @@
 import React, { useEffect, useState, Suspense } from 'react';
+import { useNavigate } from 'react-router-dom';
 import LandingPageLayout from './LandingPageLayout';
 import LandingPageHeader from './LandingPageHeader';
 import AnimationEngineComponent from './AnimationEngine';
@@ -11,6 +12,7 @@ import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 import { useConversionTracking, useScrollTracking } from '../../hooks/useConversionTracking';
 import { useABTesting } from '../../hooks/useABTesting';
 import authService from '../../services/authService';
+import { useAuth } from '../../contexts/AuthContext';
 import { LazyContent } from '../../utils/lazyLoading';
 import { 
   LazyFeaturesShowcase,

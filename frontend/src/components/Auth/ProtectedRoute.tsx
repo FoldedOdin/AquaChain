@@ -4,7 +4,7 @@ import Login from './Login';
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  requiredRole?: 'consumer' | 'technician' | 'administrator';
+  requiredRole?: 'consumer' | 'technician' | 'admin';
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 

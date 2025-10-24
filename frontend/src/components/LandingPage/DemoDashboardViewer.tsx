@@ -32,6 +32,7 @@ interface DemoDashboardViewerProps {
   isOpen: boolean;
   onClose: () => void;
   onBackToLanding: () => void;
+  initialRole?: 'citizen' | 'field-technician' | 'auditor';
 }
 
 interface WaterQualityData {
@@ -731,9 +732,10 @@ const AnimatedStatusCard: React.FC<{ wqi: number; location: string; lastUpdate: 
 const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
   isOpen,
   onClose,
-  onBackToLanding
+  onBackToLanding,
+  initialRole = 'citizen'
 }) => {
-  const [activeRole, setActiveRole] = useState<'citizen' | 'field-technician' | 'auditor'>('citizen');
+  const [activeRole, setActiveRole] = useState<'citizen' | 'field-technician' | 'auditor'>(initialRole);
   const [activeTab, setActiveTab] = useState<'overview' | 'devices' | 'alerts'>('overview');
   const [timeRange, setTimeRange] = useState('1day');
   const [currentData, setCurrentData] = useState<WaterQualityData[]>([]);
@@ -745,11 +747,11 @@ const DemoDashboardViewer: React.FC<DemoDashboardViewerProps> = ({
   // Reset to default state when opening
   useEffect(() => {
     if (isOpen) {
-      setActiveRole('citizen');
+      setActiveRole(initialRole);
       setActiveTab('overview');
       setTimeRange('1day');
     }
-  }, [isOpen]);
+  }, [isOpen, initialRole]);
 
   // Update data when time range changes
   useEffect(() => {

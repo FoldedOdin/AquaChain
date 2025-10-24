@@ -122,6 +122,14 @@ app.post('/api/auth/signin', (req, res) => {
   // Update last login
   user.lastLogin = new Date().toISOString();
   
+  // Generate and store token
+  const token = 'dev-token-' + Date.now() + '-' + Math.random().toString(36).substring(2);
+  validTokens.set(token, {
+    email: user.email,
+    userId: user.userId,
+    createdAt: new Date().toISOString()
+  });
+  
   res.json({ 
     success: true, 
     message: 'Sign in successful!',
@@ -132,7 +140,7 @@ app.post('/api/auth/signin', (req, res) => {
       role: user.role,
       emailVerified: user.emailVerified
     },
-    token: 'dev-token-' + Date.now()
+    token: token
   });
 });
 
@@ -152,6 +160,60 @@ app.get('/api/auth/verification-status/:email', (req, res) => {
     success: true,
     emailVerified: user.emailVerified,
     email: user.email
+  });
+});
+
+// In-memory token storage for development
+const validTokens = new Map();
+
+// Validate user session endpoint
+app.post('/api/auth/validate', (req, res) => {
+  const { email } = req.body;
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'No valid token provided' 
+    });
+  }
+  
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  
+  // Check if token is valid and matches the user
+  const tokenData = validTokens.get(token);
+  if (!tokenData || tokenData.email !== email) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(email);
+  
+  if (!user) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  if (!user.emailVerified) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Email not verified' 
+    });
+  }
+  
+  res.json({
+    success: true,
+    user: {
+      userId: user.userId,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      emailVerified: user.emailVerified
+    }
   });
 });
 

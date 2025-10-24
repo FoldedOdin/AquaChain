@@ -50,7 +50,7 @@ export interface ServiceNote {
 export interface UserProfile {
   userId: string;
   email: string;
-  role: 'consumer' | 'technician' | 'administrator';
+  role: 'consumer' | 'technician' | 'admin';
   profile: {
     firstName: string;
     lastName: string;

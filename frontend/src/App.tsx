@@ -1,6 +1,11 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import LandingPageWithAnalytics from './components/LandingPage/LandingPageWithAnalytics';
+import ConsumerDashboard from './components/Dashboard/ConsumerDashboard';
+import TechnicianDashboard from './components/Dashboard/TechnicianDashboard';
+import AdminDashboard from './components/Dashboard/AdminDashboard';
+import ProtectedRoute from './components/ProtectedRoute';
+import { AuthProvider } from './contexts/AuthContext';
 import './App.css';
 
 function App() {
@@ -17,77 +22,127 @@ function App() {
   }, []);
 
   return (
-    <Router>
-      <div className="App">
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <LandingPageWithAnalytics />
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <div style={{ padding: '20px', backgroundColor: 'lightblue', minHeight: '100vh' }}>
-                <h1>Dashboard Page</h1>
-                <p>This is the dashboard page.</p>
-                <button onClick={() => window.location.href = '/'}>Go to Landing Page</button>
-              </div>
-            }
-          />
-          <Route
-            path="/dashboard/consumer"
-            element={
-              <div style={{ padding: '20px', backgroundColor: 'lightgreen', minHeight: '100vh' }}>
-                <h1>Consumer Dashboard</h1>
-                <p>Water quality monitoring dashboard for consumers.</p>
-                <button onClick={() => window.location.href = '/'}>Go to Landing Page</button>
-              </div>
-            }
-          />
-          <Route
-            path="/dashboard/technician"
-            element={
-              <div style={{ padding: '20px', backgroundColor: 'lightyellow', minHeight: '100vh' }}>
-                <h1>Technician Dashboard</h1>
-                <p>Field service dashboard for technicians.</p>
-                <button onClick={() => window.location.href = '/'}>Go to Landing Page</button>
-              </div>
-            }
-          />
-          <Route
-            path="/dashboard/admin"
-            element={
-              <div style={{ padding: '20px', backgroundColor: 'lightcoral', minHeight: '100vh' }}>
-                <h1>Admin Dashboard</h1>
-                <p>System management dashboard for administrators.</p>
-                <button onClick={() => window.location.href = '/'}>Go to Landing Page</button>
-              </div>
-            }
-          />
-          <Route
-            path="/auth/callback"
-            element={
-              <div style={{ padding: '20px', textAlign: 'center', minHeight: '100vh' }}>
-                <h1>Authentication Callback</h1>
-                <p>Processing authentication...</p>
-              </div>
-            }
-          />
-          <Route
-            path="/auth/logout"
-            element={
-              <div style={{ padding: '20px', textAlign: 'center', minHeight: '100vh' }}>
-                <h1>Logged Out</h1>
-                <p>You have been successfully logged out.</p>
-                <button onClick={() => window.location.href = '/'}>Return to Home</button>
-              </div>
-            }
-          />
-        </Routes>
-      </div>
-    </Router>
+    <AuthProvider>
+      <Router>
+        <div className="App">
+          <Routes>
+            <Route
+              path="/"
+              element={<LandingPageWithAnalytics />}
+            />
+            
+            {/* Protected Dashboard Routes */}
+            <Route
+              path="/dashboard/consumer"
+              element={
+                <ProtectedRoute requiredRole="consumer">
+                  <ConsumerDashboard />
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
+              path="/dashboard/technician"
+              element={
+                <ProtectedRoute requiredRole="technician">
+                  <TechnicianDashboard />
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
+              path="/dashboard/admin"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Generic dashboard route - redirects based on user role */}
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-aqua-500 mx-auto mb-4"></div>
+                      <p className="text-gray-600">Redirecting to your dashboard...</p>
+                    </div>
+                  </div>
+                </ProtectedRoute>
+              }
+            />
+            
+            {/* Authentication callback */}
+            <Route
+              path="/auth/callback"
+              element={
+                <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-aqua-500 mx-auto mb-4"></div>
+                    <h1 className="text-xl font-semibold text-gray-900 mb-2">Processing Authentication</h1>
+                    <p className="text-gray-600">Please wait while we complete your login...</p>
+                  </div>
+                </div>
+              }
+            />
+            
+            {/* Logout confirmation */}
+            <Route
+              path="/auth/logout"
+              element={
+                <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                  <div className="text-center max-w-md mx-auto p-6">
+                    <div className="mb-6">
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <h1 className="text-2xl font-bold text-gray-900 mb-2">Successfully Logged Out</h1>
+                      <p className="text-gray-600 mb-6">You have been safely signed out of your AquaChain account.</p>
+                    </div>
+                    <button 
+                      onClick={() => window.location.href = '/'}
+                      className="bg-aqua-600 hover:bg-aqua-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200"
+                    >
+                      Return to Home
+                    </button>
+                  </div>
+                </div>
+              }
+            />
+
+            {/* Catch-all route - redirect to home */}
+            <Route
+              path="*"
+              element={
+                <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                  <div className="text-center max-w-md mx-auto p-6">
+                    <div className="mb-6">
+                      <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                      </div>
+                      <h1 className="text-2xl font-bold text-gray-900 mb-2">Page Not Found</h1>
+                      <p className="text-gray-600 mb-6">The page you're looking for doesn't exist or has been moved.</p>
+                    </div>
+                    <button 
+                      onClick={() => window.location.href = '/'}
+                      className="bg-aqua-600 hover:bg-aqua-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200"
+                    >
+                      Go to Home
+                    </button>
+                  </div>
+                </div>
+              }
+            />
+          </Routes>
+        </div>
+      </Router>
+    </AuthProvider>
   );
 }
 

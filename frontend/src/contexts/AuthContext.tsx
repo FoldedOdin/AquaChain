@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Amplify } from 'aws-amplify';
-import { getCurrentUser, signOut, fetchAuthSession } from 'aws-amplify/auth';
+import { signOut, fetchAuthSession } from 'aws-amplify/auth';
 import { UserProfile } from '../types';
 
 // Configure Amplify (this would be loaded from environment variables)
@@ -56,26 +56,94 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const checkAuthState = async () => {
     try {
-      const currentUser = await getCurrentUser();
-      if (currentUser) {
-        // Fetch user profile from API
-        const token = await getAuthToken();
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/v1/users/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
+        // Development mode with local dev server
+        const storedUser = localStorage.getItem('aquachain_user');
+        const storedToken = localStorage.getItem('aquachain_token');
+
+        if (storedUser && storedToken) {
+          const userData = JSON.parse(storedUser);
+
+          try {
+            const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/validate`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${storedToken}`
+              },
+              body: JSON.stringify({ email: userData.email })
+            });
+
+            if (response.ok) {
+              const validatedUser = await response.json();
+              setUser(validatedUser.user);
+              setIsAuthenticated(true);
+            } else {
+              localStorage.removeItem('aquachain_user');
+              localStorage.removeItem('aquachain_token');
+              setIsAuthenticated(false);
+            }
+          } catch (error) {
+            console.warn('Dev server not available, using stored user data');
+            setUser(userData);
+            setIsAuthenticated(true);
           }
-        });
-        
-        if (response.ok) {
-          const userProfile = await response.json();
-          setUser(userProfile);
-          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } else {
+        // Production mode with AWS Cognito
+        try {
+          const session = await fetchAuthSession();
+          if (session.tokens?.accessToken) {
+            // Get user attributes from Cognito
+            const { getCurrentUser } = await import('aws-amplify/auth');
+            const currentUser = await getCurrentUser();
+            
+            // Create user profile from Cognito data
+            const userProfile: UserProfile = {
+              userId: currentUser.userId,
+              email: currentUser.signInDetails?.loginId || '',
+              role: 'consumer', // Default role, should be set from Cognito groups
+              profile: {
+                firstName: 'User',
+                lastName: '',
+                phone: '+1234567890',
+                address: {
+                  street: '123 Main St',
+                  city: 'Anytown',
+                  state: 'CA',
+                  zipCode: '12345',
+                  coordinates: {
+                    latitude: 37.7749,
+                    longitude: -122.4194
+                  }
+                }
+              },
+              deviceIds: [],
+              preferences: {
+                notifications: {
+                  push: true,
+                  sms: true,
+                  email: true
+                },
+                theme: 'auto',
+                language: 'en'
+              }
+            };
+
+            setUser(userProfile);
+            setIsAuthenticated(true);
+          } else {
+            setIsAuthenticated(false);
+          }
+        } catch (error) {
+          console.log('No authenticated user found');
+          setIsAuthenticated(false);
         }
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.log('No authenticated user found');
+      console.log('Authentication check failed:', error);
       setIsAuthenticated(false);
     } finally {
       setIsLoading(false);
@@ -83,48 +151,98 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const login = async (email: string, password: string) => {
-    // This would use Amplify Auth signIn
-    // For now, we'll simulate the login process
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock user data for development
-      const mockUser: UserProfile = {
-        userId: 'user-123',
-        email: email,
-        role: 'consumer',
-        profile: {
-          firstName: 'John',
-          lastName: 'Doe',
-          phone: '+1234567890',
-          address: {
-            street: '123 Main St',
-            city: 'Anytown',
-            state: 'CA',
-            zipCode: '12345',
-            coordinates: {
-              latitude: 37.7749,
-              longitude: -122.4194
+      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
+        // Development mode with local dev server
+        const authService = (await import('../services/authService')).default;
+        const result = await authService.signIn({ email, password, rememberMe: true });
+
+        const userProfile: UserProfile = {
+          userId: result.user.userId || 'user-' + Date.now(),
+          email: result.user.email,
+          role: result.user.role || 'consumer',
+          profile: {
+            firstName: result.user.name?.split(' ')[0] || 'User',
+            lastName: result.user.name?.split(' ')[1] || '',
+            phone: '+1234567890',
+            address: {
+              street: '123 Main St',
+              city: 'Anytown',
+              state: 'CA',
+              zipCode: '12345',
+              coordinates: {
+                latitude: 37.7749,
+                longitude: -122.4194
+              }
             }
-          }
-        },
-        deviceIds: ['DEV-3421', 'DEV-3422'],
-        preferences: {
-          notifications: {
-            push: true,
-            sms: true,
-            email: true
           },
-          theme: 'auto',
-          language: 'en'
+          deviceIds: ['DEV-3421', 'DEV-3422'],
+          preferences: {
+            notifications: {
+              push: true,
+              sms: true,
+              email: true
+            },
+            theme: 'auto',
+            language: 'en'
+          }
+        };
+
+        localStorage.setItem('aquachain_user', JSON.stringify(userProfile));
+        localStorage.setItem('aquachain_token', result.session.token || 'dev-token-' + Date.now());
+
+        setUser(userProfile);
+        setIsAuthenticated(true);
+      } else {
+        // Production mode with AWS Cognito
+        const { signIn } = await import('aws-amplify/auth');
+        const signInResult = await signIn({ username: email, password });
+
+        if (signInResult.isSignedIn) {
+          // Get user details and create profile
+          const { getCurrentUser } = await import('aws-amplify/auth');
+          const currentUser = await getCurrentUser();
+          
+          const userProfile: UserProfile = {
+            userId: currentUser.userId,
+            email: email,
+            role: 'consumer', // Should be determined from Cognito groups
+            profile: {
+              firstName: 'User',
+              lastName: '',
+              phone: '+1234567890',
+              address: {
+                street: '123 Main St',
+                city: 'Anytown',
+                state: 'CA',
+                zipCode: '12345',
+                coordinates: {
+                  latitude: 37.7749,
+                  longitude: -122.4194
+                }
+              }
+            },
+            deviceIds: [],
+            preferences: {
+              notifications: {
+                push: true,
+                sms: true,
+                email: true
+              },
+              theme: 'auto',
+              language: 'en'
+            }
+          };
+
+          setUser(userProfile);
+          setIsAuthenticated(true);
+        } else {
+          throw new Error('Sign in not completed');
         }
-      };
-      
-      setUser(mockUser);
-      setIsAuthenticated(true);
+      }
     } catch (error) {
+      console.error('Login error:', error);
       throw new Error('Login failed');
     } finally {
       setIsLoading(false);
@@ -133,9 +251,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
-      await signOut();
+      // Clear localStorage
+      localStorage.removeItem('aquachain_user');
+      localStorage.removeItem('aquachain_token');
+
+      // Clear state
       setUser(null);
       setIsAuthenticated(false);
+
+      // In production, would call AWS Amplify signOut
+      if (process.env.NODE_ENV !== 'development') {
+        await signOut();
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Logout error:', error);
