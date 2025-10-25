@@ -32,6 +32,7 @@
 #include "sensors.h"
 #include "wifi_manager.h"
 #include "mqtt_client.h"
+#include "ota_update.h"
 
 // Global objects
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -40,6 +41,7 @@ PubSubClient mqttClient(wifiClient);
 WiFiManager wifiManager;
 MQTTManager mqttManager(mqttClient, wifiClient);
 SensorManager sensorManager;
+OTAUpdateHandler otaHandler;
 
 // Timing variables
 unsigned long lastSensorReading = 0;
@@ -80,6 +82,11 @@ void setup() {
   // Initialize MQTT
   Serial.println("Initializing MQTT...");
   mqttManager.begin();
+  
+  // Initialize OTA handler
+  Serial.println("Initializing OTA handler...");
+  otaHandler.begin(FIRMWARE_VERSION);
+  otaHandler.validateFirmware();  // Validate firmware after boot
   
   // Set up watchdog timer
   esp_task_wdt_init(WDT_TIMEOUT, true);
@@ -294,11 +301,13 @@ void publishHeartbeat() {
 void subscribeToCommands() {
   String commandTopic = "aquachain/" + String(DEVICE_ID) + "/commands";
   String configTopic = "aquachain/" + String(DEVICE_ID) + "/config";
+  String jobTopic = "$aws/things/" + String(DEVICE_ID) + "/jobs/notify";
   
   mqttClient.subscribe(commandTopic.c_str());
   mqttClient.subscribe(configTopic.c_str());
+  mqttClient.subscribe(jobTopic.c_str());
   
-  Serial.println("Subscribed to command topics");
+  Serial.println("Subscribed to command and job topics");
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -311,7 +320,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.printf("Message: %s\n", message.c_str());
   
   // Parse JSON command
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(2048);
   DeserializationError error = deserializeJson(doc, message);
   
   if (error) {
@@ -319,8 +328,72 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
   
+  // Check if this is an IoT Job notification
+  String topicStr = String(topic);
+  if (topicStr.indexOf("/jobs/notify") >= 0) {
+    handleJobNotification(doc);
+    return;
+  }
+  
+  // Handle regular commands
   String command = doc["command"];
   handleCommand(command, doc);
+}
+
+void handleJobNotification(DynamicJsonDocument& jobDoc) {
+  Serial.println("Received IoT Job notification");
+  
+  if (!jobDoc.containsKey("jobs") || !jobDoc["jobs"].containsKey("IN_PROGRESS")) {
+    Serial.println("No in-progress jobs");
+    return;
+  }
+  
+  JsonArray jobs = jobDoc["jobs"]["IN_PROGRESS"].as<JsonArray>();
+  
+  for (JsonObject job : jobs) {
+    String jobId = job["jobId"];
+    
+    Serial.printf("Processing job: %s\n", jobId.c_str());
+    
+    // Get job document
+    String jobTopic = "$aws/things/" + String(DEVICE_ID) + "/jobs/" + jobId + "/get";
+    mqttClient.publish(jobTopic.c_str(), "{}");
+    
+    // Subscribe to job document response
+    String responseTopic = "$aws/things/" + String(DEVICE_ID) + "/jobs/" + jobId + "/get/accepted";
+    mqttClient.subscribe(responseTopic.c_str());
+    
+    // Wait for job document
+    delay(1000);
+    
+    // Process job (this would be handled in a separate callback in production)
+    // For now, we'll handle it inline
+    if (job.containsKey("document")) {
+      JsonObject document = job["document"];
+      String operation = document["operation"];
+      
+      if (operation == "firmware_update" || operation == "firmware_rollback") {
+        handleCommand(operation, document);
+        
+        // Update job status
+        updateJobStatus(jobId, "SUCCEEDED");
+      }
+    }
+  }
+}
+
+void updateJobStatus(String jobId, String status) {
+  DynamicJsonDocument doc(256);
+  doc["status"] = status;
+  doc["statusDetails"] = {};
+  
+  String topic = "$aws/things/" + String(DEVICE_ID) + "/jobs/" + jobId + "/update";
+  String payload;
+  serializeJson(doc, payload);
+  
+  mqttClient.publish(topic.c_str(), payload.c_str());
+  
+  Serial.printf("Updated job %s status to: %s\n", jobId.c_str(), status.c_str());
 }
 
 void handleCommand(String command, DynamicJsonDocument& params) {
@@ -338,9 +411,56 @@ void handleCommand(String command, DynamicJsonDocument& params) {
     publishDiagnostics();
   } else if (command == "factory_reset") {
     factoryReset();
+  } else if (command == "firmware_update") {
+    handleFirmwareUpdate(params);
+  } else if (command == "firmware_rollback") {
+    handleFirmwareRollback();
   } else {
     Serial.printf("Unknown command: %s\n", command.c_str());
   }
+}
+
+void handleFirmwareUpdate(DynamicJsonDocument& params) {
+  Serial.println("Processing firmware update request...");
+  
+  if (!params.containsKey("firmware_version") || 
+      !params.containsKey("firmware_url") ||
+      !params.containsKey("checksum")) {
+    Serial.println("Missing required firmware update parameters");
+    otaHandler.reportUpdateStatus(mqttClient, DEVICE_ID, "failed", "Missing parameters");
+    return;
+  }
+  
+  String version = params["firmware_version"];
+  String url = params["firmware_url"];
+  String checksum = params["checksum"];
+  int size = params["firmware_size"] | 0;
+  
+  // Report update started
+  otaHandler.reportUpdateStatus(mqttClient, DEVICE_ID, "in_progress");
+  
+  // Perform update
+  bool success = otaHandler.performUpdate(url, checksum, size);
+  
+  if (success) {
+    otaHandler.reportUpdateStatus(mqttClient, DEVICE_ID, "success");
+    // Device will reboot automatically
+  } else {
+    otaHandler.reportUpdateStatus(mqttClient, DEVICE_ID, "failed", "Update failed");
+  }
+}
+
+void handleFirmwareRollback() {
+  Serial.println("Processing firmware rollback request...");
+  
+  otaHandler.reportUpdateStatus(mqttClient, DEVICE_ID, "rollback_in_progress");
+  
+  bool success = otaHandler.rollbackToPrevious();
+  
+  if (!success) {
+    otaHandler.reportUpdateStatus(mqttClient, DEVICE_ID, "rollback_failed", "No previous partition");
+  }
+  // If successful, device will reboot
 }
 
 void calibrateSensors() {

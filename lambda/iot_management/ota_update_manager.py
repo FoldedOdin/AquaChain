@@ -10,6 +10,13 @@ import hashlib
 from typing import Dict, Any, List
 from datetime import datetime
 from botocore.exceptions import ClientError
+from job_templates import (
+    create_firmware_update_job_document,
+    create_rollback_job_document,
+    create_gradual_rollout_config,
+    create_abort_config,
+    create_timeout_config
+)
 
 s3 = boto3.client('s3')
 iot = boto3.client('iot')
@@ -34,6 +41,11 @@ class OTAUpdateManager:
     
     def __init__(self):
         self.max_rollback_versions = 3
+        self.rollout_stages = [
+            {'percentage': 10, 'wait_minutes': 30},
+            {'percentage': 50, 'wait_minutes': 60},
+            {'percentage': 100, 'wait_minutes': 0}
+        ]
     
     def sign_firmware(
         self,
@@ -98,6 +110,181 @@ class OTAUpdateManager:
             }
 
     
+    def create_firmware_job(
+        self,
+        firmware_version: str,
+        signed_firmware_key: str,
+        target_devices: List[str] = None,
+        target_all: bool = False,
+        rollout_config: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        Create IoT Job for firmware update with gradual rollout
+        
+        Args:
+            firmware_version: Version of firmware
+            signed_firmware_key: S3 key of signed firmware
+            target_devices: List of device IDs to update
+            target_all: Update all devices
+            rollout_config: Custom rollout configuration
+        
+        Returns:
+            Job details including job_id
+        """
+        job_id = f"ota-{firmware_version}-{int(datetime.utcnow().timestamp())}"
+        
+        try:
+            # Get firmware metadata
+            firmware_obj = s3.head_object(Bucket=FIRMWARE_BUCKET, Key=signed_firmware_key)
+            firmware_size = firmware_obj['ContentLength']
+            
+            # Calculate checksum
+            firmware_data = s3.get_object(Bucket=FIRMWARE_BUCKET, Key=signed_firmware_key)
+            checksum = hashlib.sha256(firmware_data['Body'].read()).hexdigest()
+            
+            # Get target devices
+            if target_all:
+                target_devices = self._get_all_devices()
+            elif not target_devices:
+                return {'error': 'No target devices specified'}
+            
+            # Generate presigned URL for firmware download
+            download_url = s3.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': FIRMWARE_BUCKET, 'Key': signed_firmware_key},
+                ExpiresIn=7200  # 2 hours
+            )
+            
+            # Create job document using template
+            job_document = create_firmware_update_job_document(
+                firmware_version=firmware_version,
+                firmware_url=download_url,
+                firmware_size=firmware_size,
+                checksum=checksum
+            )
+            
+            # Configure rollout - use provided config or default gradual rollout
+            if not rollout_config:
+                # Determine rollout stage based on number of devices
+                device_count = len(target_devices)
+                if device_count <= 10:
+                    rollout = create_gradual_rollout_config('initial')
+                elif device_count <= 50:
+                    rollout = create_gradual_rollout_config('medium')
+                else:
+                    rollout = create_gradual_rollout_config('full')
+            else:
+                rollout = rollout_config
+            
+            # Create IoT Job with safety configurations
+            response = iot.create_job(
+                jobId=job_id,
+                targets=[f'arn:aws:iot:{os.environ.get("AWS_REGION", "us-east-1")}:{os.environ.get("AWS_ACCOUNT_ID")}:thing/{device_id}' 
+                        for device_id in target_devices],
+                document=json.dumps(job_document),
+                description=f'Firmware update to version {firmware_version}',
+                targetSelection='SNAPSHOT',
+                jobExecutionsRolloutConfig=rollout,
+                timeoutConfig=create_timeout_config(30),
+                abortConfig=create_abort_config()
+            )
+            
+            # Store job record
+            job_record = {
+                'job_id': job_id,
+                'firmware_version': firmware_version,
+                'firmware_key': signed_firmware_key,
+                'firmware_size': firmware_size,
+                'checksum': checksum,
+                'target_devices': target_devices,
+                'created_at': datetime.utcnow().isoformat(),
+                'status': 'IN_PROGRESS',
+                'job_arn': response['jobArn'],
+                'devices_total': len(target_devices),
+                'devices_updated': 0,
+                'devices_failed': 0,
+                'devices_in_progress': 0
+            }
+            
+            firmware_history_table.put_item(Item=job_record)
+            
+            return {
+                'job_id': job_id,
+                'job_arn': response['jobArn'],
+                'status': 'created',
+                'firmware_version': firmware_version,
+                'target_devices_count': len(target_devices)
+            }
+            
+        except ClientError as e:
+            print(f"Error creating firmware job: {e}")
+            return {'error': str(e)}
+    
+    def track_update_progress(self, job_id: str) -> Dict[str, Any]:
+        """
+        Track progress of firmware update job
+        
+        Args:
+            job_id: IoT Job identifier
+        
+        Returns:
+            Job progress details
+        """
+        try:
+            # Get job status from IoT
+            job_response = iot.describe_job(jobId=job_id)
+            job = job_response['job']
+            
+            # Get job execution summary
+            status = job['status']
+            job_process_details = job.get('jobProcessDetails', {})
+            
+            progress = {
+                'job_id': job_id,
+                'status': status,
+                'queued': job_process_details.get('numberOfQueuedThings', 0),
+                'in_progress': job_process_details.get('numberOfInProgressThings', 0),
+                'succeeded': job_process_details.get('numberOfSucceededThings', 0),
+                'failed': job_process_details.get('numberOfFailedThings', 0),
+                'rejected': job_process_details.get('numberOfRejectedThings', 0),
+                'removed': job_process_details.get('numberOfRemovedThings', 0),
+                'canceled': job_process_details.get('numberOfCanceledThings', 0),
+                'timed_out': job_process_details.get('numberOfTimedOutThings', 0),
+                'created_at': job.get('createdAt', '').isoformat() if job.get('createdAt') else None,
+                'last_updated': job.get('lastUpdatedAt', '').isoformat() if job.get('lastUpdatedAt') else None
+            }
+            
+            # Calculate completion percentage
+            total = progress['succeeded'] + progress['failed'] + progress['in_progress'] + progress['queued']
+            if total > 0:
+                progress['completion_percentage'] = (progress['succeeded'] / total) * 100
+            else:
+                progress['completion_percentage'] = 0
+            
+            # Update DynamoDB record
+            firmware_history_table.update_item(
+                Key={'job_id': job_id},
+                UpdateExpression='SET #status = :status, devices_updated = :succeeded, devices_failed = :failed, devices_in_progress = :in_progress, last_updated = :ts',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': status,
+                    ':succeeded': progress['succeeded'],
+                    ':failed': progress['failed'],
+                    ':in_progress': progress['in_progress'],
+                    ':ts': datetime.utcnow().isoformat()
+                }
+            )
+            
+            # Check for failures and trigger alerts
+            if progress['failed'] > 0 or progress['timed_out'] > 0:
+                self._send_update_alert(job_id, progress)
+            
+            return progress
+            
+        except ClientError as e:
+            print(f"Error tracking update progress: {e}")
+            return {'error': str(e)}
+    
     def create_ota_update(
         self,
         firmware_version: str,
@@ -106,7 +293,7 @@ class OTAUpdateManager:
         target_all: bool = False
     ) -> Dict[str, Any]:
         """
-        Create OTA update for devices
+        Legacy method - redirects to create_firmware_job
         
         Args:
             firmware_version: Version of firmware
@@ -117,43 +304,12 @@ class OTAUpdateManager:
         Returns:
             OTA update details
         """
-        update_id = f"ota-{firmware_version}-{int(datetime.utcnow().timestamp())}"
-        
-        # Get firmware metadata
-        firmware_obj = s3.head_object(Bucket=FIRMWARE_BUCKET, Key=signed_firmware_key)
-        firmware_size = firmware_obj['ContentLength']
-        
-        # Calculate checksum
-        firmware_data = s3.get_object(Bucket=FIRMWARE_BUCKET, Key=signed_firmware_key)
-        checksum = hashlib.sha256(firmware_data['Body'].read()).hexdigest()
-        
-        # Get target devices
-        if target_all:
-            target_devices = self._get_all_devices()
-        elif not target_devices:
-            return {'error': 'No target devices specified'}
-        
-        # Create update record
-        update_record = {
-            'update_id': update_id,
-            'firmware_version': firmware_version,
-            'firmware_key': signed_firmware_key,
-            'firmware_size': firmware_size,
-            'checksum': checksum,
-            'target_devices': target_devices,
-            'created_at': datetime.utcnow().isoformat(),
-            'status': 'in_progress',
-            'devices_updated': 0,
-            'devices_failed': 0
-        }
-        
-        firmware_history_table.put_item(Item=update_record)
-        
-        # Notify devices via shadow update
-        for device_id in target_devices:
-            self._notify_device_update(device_id, firmware_version, signed_firmware_key, checksum)
-        
-        return update_record
+        return self.create_firmware_job(
+            firmware_version=firmware_version,
+            signed_firmware_key=signed_firmware_key,
+            target_devices=target_devices,
+            target_all=target_all
+        )
     
     def _notify_device_update(
         self,
@@ -247,13 +403,25 @@ class OTAUpdateManager:
         # Update device record
         try:
             if status == 'success':
+                # Get current version before updating
+                device = device_table.get_item(Key={'device_id': device_id})
+                current_version = device.get('Item', {}).get('firmware_version')
+                
+                # Update device with new version and store previous
+                update_expr = 'SET firmware_version = :ver, last_updated = :ts'
+                expr_values = {
+                    ':ver': firmware_version,
+                    ':ts': timestamp
+                }
+                
+                if current_version:
+                    update_expr += ', previous_firmware_version = :prev'
+                    expr_values[':prev'] = current_version
+                
                 device_table.update_item(
                     Key={'device_id': device_id},
-                    UpdateExpression='SET firmware_version = :ver, last_updated = :ts',
-                    ExpressionAttributeValues={
-                        ':ver': firmware_version,
-                        ':ts': timestamp
-                    }
+                    UpdateExpression=update_expr,
+                    ExpressionAttributeValues=expr_values
                 )
                 
                 # Clear shadow update flag
@@ -274,6 +442,9 @@ class OTAUpdateManager:
             elif status == 'failed':
                 # Log failure
                 print(f"Firmware update failed for {device_id}: {error_message}")
+                
+                # Check if automatic rollback should be triggered
+                self._check_and_trigger_rollback(device_id, firmware_version, error_message)
                 
                 # Send alert
                 if ALERT_TOPIC_ARN:
@@ -298,6 +469,51 @@ class OTAUpdateManager:
             print(f"Error updating device status: {e}")
             return {'error': str(e)}
     
+    def _check_and_trigger_rollback(
+        self,
+        device_id: str,
+        failed_version: str,
+        error_message: str
+    ):
+        """Check if automatic rollback should be triggered"""
+        try:
+            # Get device info
+            device = device_table.get_item(Key={'device_id': device_id})
+            
+            if 'Item' not in device:
+                return
+            
+            device_data = device['Item']
+            previous_version = device_data.get('previous_firmware_version')
+            
+            # Trigger automatic rollback if previous version exists
+            if previous_version:
+                print(f"Triggering automatic rollback for {device_id} to version {previous_version}")
+                self.rollback_firmware(device_id, previous_version)
+                
+        except Exception as e:
+            print(f"Error checking rollback trigger: {e}")
+    
+    def _send_update_alert(self, job_id: str, progress: Dict[str, Any]):
+        """Send alert for update failures"""
+        if not ALERT_TOPIC_ARN:
+            return
+        
+        try:
+            sns.publish(
+                TopicArn=ALERT_TOPIC_ARN,
+                Subject=f'Firmware Update Issues Detected: {job_id}',
+                Message=json.dumps({
+                    'job_id': job_id,
+                    'failed_devices': progress['failed'],
+                    'timed_out_devices': progress['timed_out'],
+                    'completion_percentage': progress['completion_percentage'],
+                    'timestamp': datetime.utcnow().isoformat()
+                }, indent=2)
+            )
+        except ClientError as e:
+            print(f"Error sending update alert: {e}")
+    
     def rollback_firmware(
         self,
         device_id: str,
@@ -321,45 +537,91 @@ class OTAUpdateManager:
                 return {'error': 'Device not found'}
             
             current_version = device['Item'].get('firmware_version')
-            
-            # Get firmware history
-            history = firmware_history_table.query(
-                IndexName='device-version-index',
-                KeyConditionExpression='device_id = :did',
-                ExpressionAttributeValues={':did': device_id},
-                ScanIndexForward=False,  # Most recent first
-                Limit=self.max_rollback_versions + 1
-            )
-            
-            versions = history.get('Items', [])
-            
-            if len(versions) < 2:
-                return {'error': 'No previous version available for rollback'}
+            previous_version = device['Item'].get('previous_firmware_version')
             
             # Determine rollback version
             if target_version:
-                rollback_version = next(
-                    (v for v in versions if v['firmware_version'] == target_version),
-                    None
-                )
-                if not rollback_version:
-                    return {'error': f'Version {target_version} not found in history'}
+                rollback_version = target_version
+            elif previous_version:
+                rollback_version = previous_version
             else:
-                # Rollback to previous version
-                rollback_version = versions[1]
+                return {'error': 'No previous version available for rollback'}
             
-            # Initiate rollback update
-            result = self._notify_device_update(
-                device_id,
-                rollback_version['firmware_version'],
-                rollback_version['firmware_key'],
-                rollback_version['checksum']
+            # Get firmware details for rollback version
+            # Query firmware history for the rollback version
+            history_response = firmware_history_table.scan(
+                FilterExpression='firmware_version = :ver',
+                ExpressionAttributeValues={':ver': rollback_version},
+                Limit=1
             )
+            
+            if not history_response.get('Items'):
+                return {'error': f'Firmware version {rollback_version} not found in history'}
+            
+            rollback_firmware = history_response['Items'][0]
+            
+            # Create rollback job
+            job_id = f"rollback-{device_id}-{int(datetime.utcnow().timestamp())}"
+            
+            # Generate presigned URL
+            download_url = s3.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': FIRMWARE_BUCKET, 'Key': rollback_firmware['firmware_key']},
+                ExpiresIn=3600
+            )
+            
+            # Create job document using template
+            job_document = create_rollback_job_document(
+                firmware_version=rollback_version,
+                firmware_url=download_url,
+                firmware_size=rollback_firmware.get('firmware_size', 0),
+                checksum=rollback_firmware.get('checksum', ''),
+                reason='manual_rollback'
+            )
+            
+            # Create IoT Job for single device
+            response = iot.create_job(
+                jobId=job_id,
+                targets=[f'arn:aws:iot:{os.environ.get("AWS_REGION", "us-east-1")}:{os.environ.get("AWS_ACCOUNT_ID")}:thing/{device_id}'],
+                document=json.dumps(job_document),
+                description=f'Rollback firmware from {current_version} to {rollback_version}',
+                targetSelection='SNAPSHOT',
+                timeoutConfig={
+                    'inProgressTimeoutInMinutes': 15
+                }
+            )
+            
+            # Log rollback
+            firmware_history_table.put_item(Item={
+                'job_id': job_id,
+                'firmware_version': rollback_version,
+                'firmware_key': rollback_firmware['firmware_key'],
+                'target_devices': [device_id],
+                'created_at': datetime.utcnow().isoformat(),
+                'status': 'IN_PROGRESS',
+                'operation_type': 'rollback',
+                'previous_version': current_version
+            })
+            
+            # Send alert
+            if ALERT_TOPIC_ARN:
+                sns.publish(
+                    TopicArn=ALERT_TOPIC_ARN,
+                    Subject=f'Firmware Rollback Initiated: {device_id}',
+                    Message=json.dumps({
+                        'device_id': device_id,
+                        'current_version': current_version,
+                        'rollback_version': rollback_version,
+                        'job_id': job_id,
+                        'timestamp': datetime.utcnow().isoformat()
+                    }, indent=2)
+                )
             
             return {
                 'device_id': device_id,
                 'current_version': current_version,
-                'rollback_version': rollback_version['firmware_version'],
+                'rollback_version': rollback_version,
+                'job_id': job_id,
                 'status': 'rollback_initiated'
             }
             
@@ -390,6 +652,70 @@ class OTAUpdateManager:
             
         except ClientError as e:
             return {'error': str(e)}
+    
+    def monitor_and_rollback_failed_updates(self) -> Dict[str, Any]:
+        """
+        Monitor for failed updates and trigger automatic rollback
+        Should be called periodically (e.g., via EventBridge schedule)
+        
+        Returns:
+            Summary of rollback actions taken
+        """
+        rollback_actions = []
+        
+        try:
+            # Get all in-progress jobs
+            jobs_response = iot.list_jobs(status='IN_PROGRESS', maxResults=50)
+            
+            for job_summary in jobs_response.get('jobs', []):
+                job_id = job_summary['jobId']
+                
+                # Get detailed job status
+                progress = self.track_update_progress(job_id)
+                
+                # Check for failure conditions
+                total_devices = (progress['succeeded'] + progress['failed'] + 
+                               progress['in_progress'] + progress['queued'])
+                
+                if total_devices == 0:
+                    continue
+                
+                failure_rate = (progress['failed'] + progress['timed_out']) / total_devices
+                
+                # If failure rate exceeds threshold, trigger rollback for failed devices
+                if failure_rate > 0.3:  # 30% failure rate
+                    print(f"High failure rate detected for job {job_id}: {failure_rate:.1%}")
+                    
+                    # Get failed device executions
+                    executions = iot.list_job_executions_for_job(
+                        jobId=job_id,
+                        status='FAILED'
+                    )
+                    
+                    for execution in executions.get('executionSummaries', []):
+                        thing_arn = execution['thingArn']
+                        device_id = thing_arn.split('/')[-1]
+                        
+                        # Trigger rollback
+                        rollback_result = self.rollback_firmware(device_id)
+                        
+                        if 'error' not in rollback_result:
+                            rollback_actions.append({
+                                'device_id': device_id,
+                                'job_id': job_id,
+                                'action': 'rollback_triggered',
+                                'rollback_job_id': rollback_result.get('job_id')
+                            })
+            
+            return {
+                'rollbacks_triggered': len(rollback_actions),
+                'actions': rollback_actions,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+        except ClientError as e:
+            print(f"Error monitoring failed updates: {e}")
+            return {'error': str(e)}
 
 
 def lambda_handler(event, context):
@@ -398,7 +724,9 @@ def lambda_handler(event, context):
     
     Event types:
     - sign_firmware: Sign firmware image
-    - create_update: Create OTA update
+    - create_firmware_job: Create IoT Job for firmware update
+    - create_update: Legacy - Create OTA update
+    - track_progress: Track job progress
     - update_status: Handle device update status
     - rollback: Rollback firmware
     - get_status: Get update status
@@ -414,6 +742,15 @@ def lambda_handler(event, context):
                 version=event['version']
             )
             
+        elif action == 'create_firmware_job':
+            result = manager.create_firmware_job(
+                firmware_version=event['firmware_version'],
+                signed_firmware_key=event['signed_firmware_key'],
+                target_devices=event.get('target_devices'),
+                target_all=event.get('target_all', False),
+                rollout_config=event.get('rollout_config')
+            )
+            
         elif action == 'create_update':
             result = manager.create_ota_update(
                 firmware_version=event['firmware_version'],
@@ -421,6 +758,9 @@ def lambda_handler(event, context):
                 target_devices=event.get('target_devices'),
                 target_all=event.get('target_all', False)
             )
+            
+        elif action == 'track_progress':
+            result = manager.track_update_progress(event['job_id'])
             
         elif action == 'update_status':
             result = manager.handle_update_status(
@@ -438,6 +778,9 @@ def lambda_handler(event, context):
             
         elif action == 'get_status':
             result = manager.get_firmware_status(event['update_id'])
+            
+        elif action == 'monitor_rollback':
+            result = manager.monitor_and_rollback_failed_updates()
             
         else:
             return {

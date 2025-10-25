@@ -1,0 +1,6 @@
+# Test dependencies for IoT Management Lambda functions
+pytest==7.4.3
+pytest-cov==4.1.0
+moto[all]==4.2.9
+boto3==1.34.10
+botocore==1.34.10
