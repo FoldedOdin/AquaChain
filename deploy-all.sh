@@ -184,7 +184,11 @@ STACKS=(
     "AquaChain-API-${ENVIRONMENT}"
     "AquaChain-Monitoring-${ENVIRONMENT}"
     "AquaChain-DR-${ENVIRONMENT}"
+    "AquaChain-IoTSecurity-${ENVIRONMENT}"
+    "AquaChain-MLRegistry-${ENVIRONMENT}"
     "AquaChain-Phase3-${ENVIRONMENT}"
+    "AquaChain-PerformanceDashboard-${ENVIRONMENT}"
+    "AquaChain-CloudFront-${ENVIRONMENT}"
 )
 
 for stack in "${STACKS[@]}"; do
