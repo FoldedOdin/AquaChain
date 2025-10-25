@@ -108,6 +108,12 @@ jobs:
             p/secrets
             p/owasp-top-ten
 
+      - name: Check dependency security
+        run: |
+          echo "ℹ️  Dependency security scanning is handled by the 'Dependency Security Scan' workflow"
+          echo "   This workflow runs daily and on dependency changes"
+          echo "   View results at: Actions → Dependency Security Scan"
+
   # SBOM Generation and Vulnerability Scanning
   sbom-generation:
     name: Generate SBOM

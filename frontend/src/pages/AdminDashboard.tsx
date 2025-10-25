@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import SystemHealthCard from '../components/Admin/SystemHealthCard';
 import DeviceFleetOverview from '../components/Admin/DeviceFleetOverview';
 import PerformanceMetricsChart from '../components/Admin/PerformanceMetricsChart';
@@ -27,22 +27,34 @@ const AdminDashboard = () => {
   const { latestUpdate } = useRealTimeUpdates('admin-alerts');
   const { exportData, exporting } = useDataExport();
 
-  // Extract data from the hook
+  // Extract data from the hook with memoization
   const adminData = data as any;
-  const healthMetrics = adminData?.healthMetrics;
-  const deviceFleet = adminData?.deviceFleet || [];
-  const alertAnalytics = adminData?.alertAnalytics;
+  const healthMetrics = useMemo(() => adminData?.healthMetrics, [adminData]);
+  const deviceFleet = useMemo(() => adminData?.deviceFleet || [], [adminData]);
+  const alertAnalytics = useMemo(() => adminData?.alertAnalytics, [adminData]);
 
-  const handlePerformanceTimeRangeChange = async (range: '1h' | '24h' | '7d' | '30d') => {
+  // Memoize computed values
+  const activeDeviceCount = useMemo(
+    () => deviceFleet.filter((d: any) => d.status === 'online').length,
+    [deviceFleet]
+  );
+
+  const criticalAlertCount = useMemo(
+    () => alertAnalytics?.criticalCount || 0,
+    [alertAnalytics]
+  );
+
+  // Memoize event handlers
+  const handlePerformanceTimeRangeChange = useCallback(async (range: '1h' | '24h' | '7d' | '30d') => {
     try {
       const metrics = await getPerformanceMetrics(range);
       setPerformanceMetrics(metrics);
     } catch (error) {
       console.error('Error loading performance metrics:', error);
     }
-  };
+  }, []);
 
-  const handleExportData = async () => {
+  const handleExportData = useCallback(async () => {
     try {
       await exportData(
         {
@@ -60,7 +72,11 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Error exporting data:', error);
     }
-  };
+  }, [exportData, healthMetrics, deviceFleet, performanceMetrics, alertAnalytics]);
+
+  const handleTabChange = useCallback((tab: TabType) => {
+    setActiveTab(tab);
+  }, []);
 
   if (loading) {
     return (

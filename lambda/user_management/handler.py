@@ -462,6 +462,57 @@ class UserManagementService:
         except ClientError as e:
             logger.error(f"Error updating Cognito attributes: {e}")
             # Don't raise exception as DynamoDB update was successful
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """
+        Get user by email using email-index GSI (Phase 4 optimization).
+        Replaces scan operations with efficient GSI query.
+        """
+        try:
+            # Import optimized query function
+            from dynamodb_queries import query_user_by_email
+            
+            user = query_user_by_email(email, table_name='aquachain-users')
+            
+            if user:
+                logger.info(f"User found by email: {email}")
+            else:
+                logger.info(f"User not found by email: {email}")
+            
+            return user
+            
+        except Exception as e:
+            logger.error(f"Error querying user by email: {e}")
+            raise DatabaseError("Failed to query user by email", details={'email': email})
+    
+    def list_users_by_organization(self, organization_id: str, role: Optional[str] = None,
+                                   limit: int = 100, last_key: Optional[Dict] = None) -> Dict:
+        """
+        List users by organization and optionally role using organization_id-role-index GSI.
+        Implements pagination for efficient data retrieval (Phase 4 optimization).
+        """
+        try:
+            # Import optimized query function
+            from dynamodb_queries import query_users_by_organization_and_role
+            
+            result = query_users_by_organization_and_role(
+                organization_id=organization_id,
+                role=role,
+                limit=limit,
+                last_key=last_key,
+                table_name='aquachain-users'
+            )
+            
+            logger.info(f"Listed {len(result['items'])} users for organization {organization_id}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error listing users by organization: {e}")
+            raise DatabaseError("Failed to list users", details={
+                'organization_id': organization_id,
+                'role': role
+            })
 
 # Lambda handler
 @handle_errors
@@ -558,6 +609,59 @@ def lambda_handler(event, context):
         result = user_service.setup_technician_profile(
             user_id, work_schedule, initial_location
         )
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps(result)
+        }
+    
+    elif http_method == 'GET' and '/users/by-email' in path:
+        # Get user by email using GSI (Phase 4 optimization)
+        query_params = event.get('queryStringParameters', {})
+        email = query_params.get('email')
+        
+        if not email:
+            raise ValidationError('Email parameter required')
+        
+        user = user_service.get_user_by_email(email)
+        
+        if not user:
+            raise ResourceNotFoundError('User not found', details={'email': email})
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps(user)
+        }
+    
+    elif http_method == 'GET' and '/users/by-organization' in path:
+        # List users by organization using GSI (Phase 4 optimization)
+        query_params = event.get('queryStringParameters', {})
+        organization_id = query_params.get('organizationId')
+        role = query_params.get('role')
+        limit = int(query_params.get('limit', 100))
+        last_key = query_params.get('lastKey')
+        
+        if not organization_id:
+            raise ValidationError('organizationId parameter required')
+        
+        # Parse last_key if provided
+        if last_key:
+            import base64
+            last_key = json.loads(base64.b64decode(last_key))
+        
+        result = user_service.list_users_by_organization(
+            organization_id=organization_id,
+            role=role,
+            limit=limit,
+            last_key=last_key
+        )
+        
+        # Encode last_key for response
+        if result.get('last_key'):
+            import base64
+            result['last_key'] = base64.b64encode(
+                json.dumps(result['last_key']).encode()
+            ).decode()
         
         return {
             'statusCode': 200,

@@ -167,10 +167,13 @@ export const useRippleEffect = (config: RippleConfig = {}) => {
 
 /**
  * Higher-order component to add ripple effects
- * TODO: Fix TypeScript issues with generic component props
+ * Properly typed with generic component props
  */
-export const withRipple = (Component: any, config: RippleConfig = {}) => {
-  return React.forwardRef((props: any, ref: any) => {
+export const withRipple = <P extends { onClick?: (event: React.MouseEvent<HTMLElement>) => void }>(
+  Component: React.ComponentType<P>,
+  config: RippleConfig = {}
+) => {
+  return React.forwardRef<HTMLElement, P>((props, ref) => {
     const handleClick = (event: React.MouseEvent<HTMLElement>) => {
       RippleEffect.create(event.currentTarget, event, config);
       if (props.onClick) {

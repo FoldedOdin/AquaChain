@@ -82,6 +82,34 @@ class AquaChainDataStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL
         )
         
+        # GSI for querying by device and metric type (Phase 4 optimization)
+        self.readings_table.add_global_secondary_index(
+            index_name="device_id-metric_type-index",
+            partition_key=dynamodb.Attribute(
+                name="deviceId",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="metric_type",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
+        # GSI for querying by alert level and timestamp (Phase 4 optimization)
+        self.readings_table.add_global_secondary_index(
+            index_name="alert_level-timestamp-index",
+            partition_key=dynamodb.Attribute(
+                name="alert_level",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="timestamp",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
         # Ledger table for immutable records
         self.ledger_table = dynamodb.Table(
             self, "LedgerTable",
@@ -133,6 +161,30 @@ class AquaChainDataStack(Stack):
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
         )
         
+        # GSI for email lookup (Phase 4 optimization)
+        self.users_table.add_global_secondary_index(
+            index_name="email-index",
+            partition_key=dynamodb.Attribute(
+                name="email",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
+        # GSI for organization and role queries (Phase 4 optimization)
+        self.users_table.add_global_secondary_index(
+            index_name="organization_id-role-index",
+            partition_key=dynamodb.Attribute(
+                name="organization_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="role",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
         # Service requests table
         self.service_requests_table = dynamodb.Table(
             self, "ServiceRequestsTable",
@@ -166,12 +218,57 @@ class AquaChainDataStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL
         )
         
+        # Devices table with GSIs for Phase 4 optimization
+        self.devices_table = dynamodb.Table(
+            self, "DevicesTable",
+            table_name=get_resource_name(self.config, "table", "devices"),
+            partition_key=dynamodb.Attribute(
+                name="device_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
+            encryption_key=self.kms_key,
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
+        )
+        
+        # GSI 1: user_id-created_at-index for querying devices by user
+        self.devices_table.add_global_secondary_index(
+            index_name="user_id-created_at-index",
+            partition_key=dynamodb.Attribute(
+                name="user_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="created_at",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
+        # GSI 2: status-last_seen-index for querying devices by status
+        self.devices_table.add_global_secondary_index(
+            index_name="status-last_seen-index",
+            partition_key=dynamodb.Attribute(
+                name="status",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="last_seen",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
         self.data_resources.update({
             "readings_table": self.readings_table,
             "ledger_table": self.ledger_table,
             "sequence_table": self.sequence_table,
             "users_table": self.users_table,
-            "service_requests_table": self.service_requests_table
+            "service_requests_table": self.service_requests_table,
+            "devices_table": self.devices_table
         })
     
     def _create_s3_buckets(self) -> None:

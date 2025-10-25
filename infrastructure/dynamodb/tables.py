@@ -42,6 +42,14 @@ class DynamoDBTableManager:
                 {
                     'AttributeName': 'deviceId',
                     'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'metric_type',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'alert_level',
+                    'AttributeType': 'S'
                 }
             ],
             'GlobalSecondaryIndexes': [
@@ -50,6 +58,40 @@ class DynamoDBTableManager:
                     'KeySchema': [
                         {
                             'AttributeName': 'deviceId',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'timestamp',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                },
+                {
+                    'IndexName': 'device_id-metric_type-index',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'deviceId',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'metric_type',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                },
+                {
+                    'IndexName': 'alert_level-timestamp-index',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'alert_level',
                             'KeyType': 'HASH'
                         },
                         {
@@ -221,7 +263,7 @@ class DynamoDBTableManager:
     
     def create_users_table(self) -> Dict[str, Any]:
         """
-        Create users table for profile management
+        Create users table for profile management with Phase 4 GSIs
         """
         table_definition = {
             'TableName': 'aquachain-users',
@@ -239,15 +281,40 @@ class DynamoDBTableManager:
                 {
                     'AttributeName': 'email',
                     'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'organization_id',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'role',
+                    'AttributeType': 'S'
                 }
             ],
             'GlobalSecondaryIndexes': [
                 {
-                    'IndexName': 'EmailIndex',
+                    'IndexName': 'email-index',
                     'KeySchema': [
                         {
                             'AttributeName': 'email',
                             'KeyType': 'HASH'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                },
+                {
+                    'IndexName': 'organization_id-role-index',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'organization_id',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'role',
+                            'KeyType': 'RANGE'
                         }
                     ],
                     'Projection': {
@@ -694,6 +761,101 @@ class DynamoDBTableManager:
         except self.dynamodb.exceptions.ResourceInUseException:
             print("WebSocket connections table already exists")
             return self.dynamodb.describe_table(TableName='aquachain-websocket-connections')
+    
+    def create_devices_table(self) -> Dict[str, Any]:
+        """
+        Create devices table with GSIs for Phase 4 query optimization
+        """
+        table_definition = {
+            'TableName': 'aquachain-devices',
+            'KeySchema': [
+                {
+                    'AttributeName': 'device_id',
+                    'KeyType': 'HASH'
+                }
+            ],
+            'AttributeDefinitions': [
+                {
+                    'AttributeName': 'device_id',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'user_id',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'created_at',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'status',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName': 'last_seen',
+                    'AttributeType': 'S'
+                }
+            ],
+            'GlobalSecondaryIndexes': [
+                {
+                    'IndexName': 'user_id-created_at-index',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'user_id',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'created_at',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                },
+                {
+                    'IndexName': 'status-last_seen-index',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'status',
+                            'KeyType': 'HASH'
+                        },
+                        {
+                            'AttributeName': 'last_seen',
+                            'KeyType': 'RANGE'
+                        }
+                    ],
+                    'Projection': {
+                        'ProjectionType': 'ALL'
+                    },
+                    'BillingMode': 'PAY_PER_REQUEST'
+                }
+            ],
+            'BillingMode': 'PAY_PER_REQUEST',
+            'StreamSpecification': {
+                'StreamEnabled': True,
+                'StreamViewType': 'NEW_AND_OLD_IMAGES'
+            },
+            'Tags': [
+                {
+                    'Key': 'Project',
+                    'Value': 'AquaChain'
+                },
+                {
+                    'Key': 'Environment',
+                    'Value': 'production'
+                }
+            ]
+        }
+        
+        try:
+            response = self.dynamodb.create_table(**table_definition)
+            print(f"Created devices table: {response['TableDescription']['TableName']}")
+            return response
+        except self.dynamodb.exceptions.ResourceInUseException:
+            print("Devices table already exists")
+            return self.dynamodb.describe_table(TableName='aquachain-devices')
 
     def create_all_tables(self):
         """Create all DynamoDB tables for AquaChain system"""
@@ -708,7 +870,8 @@ class DynamoDBTableManager:
             self.create_alerts_table,
             self.create_notifications_table,
             self.create_rate_limits_table,
-            self.create_websocket_connections_table
+            self.create_websocket_connections_table,
+            self.create_devices_table
         ]
         
         for create_table_func in tables:
