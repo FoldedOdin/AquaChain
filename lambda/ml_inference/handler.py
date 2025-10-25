@@ -24,6 +24,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 # Import structured logging
 from structured_logger import get_logger
 
+# Import cold start monitoring
+from cold_start_monitor import monitor_cold_start, PerformanceTimer
+
 # Configure structured logging
 logger = get_logger(__name__, service='ml-inference')
 
@@ -53,6 +56,7 @@ class MLInferenceError(Exception):
     """Custom exception for ML inference errors"""
     pass
 
+@monitor_cold_start
 def lambda_handler(event, context):
     """
     Main Lambda handler for ML inference with performance monitoring

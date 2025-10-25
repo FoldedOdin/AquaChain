@@ -1,2 +1,6 @@
-boto3==1.34.0
-botocore==1.34.0
+# Dependencies moved to common layer:
+# - boto3
+# - botocore
+
+# Function-specific dependencies only
+# (none currently - all dependencies are in common layer)

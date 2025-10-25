@@ -30,6 +30,9 @@ from error_handler import handle_errors
 # Import structured logging
 from structured_logger import get_logger
 
+# Import cold start monitoring
+from cold_start_monitor import monitor_cold_start, PerformanceTimer
+
 # Configure structured logging
 logger = get_logger(__name__, service='data-processing')
 
@@ -125,6 +128,7 @@ class DuplicateDataError(Exception):
         self.timestamp = timestamp
         super().__init__(self.message)
 
+@monitor_cold_start
 @handle_errors
 @trace_lambda_handler('data-processing')
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:

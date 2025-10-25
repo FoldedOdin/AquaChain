@@ -15,7 +15,7 @@ from aws_cdk import (
     Size
 )
 from constructs import Construct
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from config.environment_config import get_resource_name
 
 class AquaChainComputeStack(Stack):
@@ -24,12 +24,17 @@ class AquaChainComputeStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str, config: Dict[str, Any],
-                 data_resources: Dict[str, Any], security_resources: Dict[str, Any], **kwargs) -> None:
+                 data_resources: Dict[str, Any], security_resources: Dict[str, Any],
+                 common_layer: Optional[lambda_.ILayerVersion] = None,
+                 ml_layer: Optional[lambda_.ILayerVersion] = None,
+                 **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.config = config
         self.data_resources = data_resources
         self.security_resources = security_resources
+        self.common_layer = common_layer
+        self.ml_layer = ml_layer
         self.lambda_functions = {}
         self.compute_resources = {}
         
@@ -73,6 +78,9 @@ class AquaChainComputeStack(Stack):
             "reserved_concurrent_executions": self.config.get("lambda_reserved_concurrency")
         }
         
+        # Prepare layers list
+        layers = [self.common_layer] if self.common_layer else []
+        
         # Data Processing Lambda
         self.data_processing_function = lambda_python.PythonFunction(
             self, "DataProcessingFunction",
@@ -81,6 +89,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
@@ -119,7 +128,8 @@ class AquaChainComputeStack(Stack):
             )
         )
         
-        # ML Inference Lambda
+        # ML Inference Lambda (with ML layer)
+        ml_layers = [self.common_layer, self.ml_layer] if (self.common_layer and self.ml_layer) else layers
         self.ml_inference_function = lambda_python.PythonFunction(
             self, "MLInferenceFunction",
             function_name=get_resource_name(self.config, "function", "ml-inference"),
@@ -127,6 +137,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=ml_layers,
             memory_size=1024,
             timeout=Duration.seconds(15),
             **{k: v for k, v in common_lambda_config.items() if k not in ["memory_size", "timeout"]}
@@ -149,6 +160,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
@@ -160,6 +172,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
@@ -186,6 +199,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
@@ -212,6 +226,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
@@ -223,6 +238,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
@@ -234,6 +250,7 @@ class AquaChainComputeStack(Stack):
             index="handler.py",
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
+            layers=layers,
             **common_lambda_config
         )
         
