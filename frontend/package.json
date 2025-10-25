@@ -133,10 +133,10 @@
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx}": [
-      "eslint --fix",
+      "eslint --fix --max-warnings=0",
       "prettier --write"
     ],
-    "src/**/*.{css,md}": [
+    "src/**/*.{css,md,json}": [
       "prettier --write"
     ]
   }
