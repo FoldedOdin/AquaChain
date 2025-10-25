@@ -58,9 +58,8 @@ export const useRealTimeData = (options: UseRealTimeDataOptions = {}) => {
     error: null,
   });
 
-  const wsRef = useRef<WebSocket | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const messageHandlerRef = useRef<((data: any) => void) | null>(null);
 
   // Fetch all data from API
   const fetchData = useCallback(async () => {
@@ -156,39 +155,36 @@ export const useRealTimeData = (options: UseRealTimeDataOptions = {}) => {
     });
   }, []);
 
-  // Setup WebSocket connection
-  const setupWebSocket = useCallback(async () => {
+  // Setup WebSocket connection using WebSocketService
+  const setupWebSocket = useCallback(() => {
     if (!enableRealTime) return;
 
     try {
-      const ws = await dataService.subscribeToRealTimeUpdates(handleRealTimeUpdate);
-      
-      if (ws) {
-        wsRef.current = ws;
+      // Import websocketService dynamically to avoid circular dependencies
+      import('../services/websocketService').then(({ websocketService }) => {
+        websocketService.connect('real-time-data', handleRealTimeUpdate);
         
-        ws.onopen = () => {
-          setData(prev => ({ ...prev, isConnected: true }));
-        };
+        // Poll connection status
+        const statusInterval = setInterval(() => {
+          const status = websocketService.getConnectionStatus('real-time-data');
+          setData(prev => ({
+            ...prev,
+            isConnected: status?.isConnected || false
+          }));
+        }, 1000);
 
-        ws.onclose = () => {
-          setData(prev => ({ ...prev, isConnected: false }));
-          
-          // Auto-reconnect if enabled
-          if (autoReconnect) {
-            reconnectTimeoutRef.current = setTimeout(() => {
-              setupWebSocket();
-            }, 5000);
-          }
-        };
+        // Store interval for cleanup
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+        }
+        intervalRef.current = statusInterval;
+      });
 
-        ws.onerror = () => {
-          setData(prev => ({ ...prev, isConnected: false }));
-        };
-      }
+      messageHandlerRef.current = handleRealTimeUpdate;
     } catch (error) {
       console.warn('Failed to setup WebSocket:', error);
     }
-  }, [enableRealTime, autoReconnect, handleRealTimeUpdate]);
+  }, [enableRealTime, handleRealTimeUpdate]);
 
   // Setup polling fallback
   const setupPolling = useCallback(() => {
@@ -210,14 +206,15 @@ export const useRealTimeData = (options: UseRealTimeDataOptions = {}) => {
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+      
+      // Disconnect from WebSocket
+      if (enableRealTime && messageHandlerRef.current) {
+        import('../services/websocketService').then(({ websocketService }) => {
+          websocketService.disconnect('real-time-data', messageHandlerRef.current!);
+        });
       }
     };
   }, [fetchData, setupWebSocket, setupPolling, enableRealTime]);
@@ -229,15 +226,16 @@ export const useRealTimeData = (options: UseRealTimeDataOptions = {}) => {
 
   // Connect/disconnect functions
   const connect = useCallback(() => {
-    if (enableRealTime && !wsRef.current) {
+    if (enableRealTime) {
       setupWebSocket();
     }
   }, [enableRealTime, setupWebSocket]);
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    if (messageHandlerRef.current) {
+      import('../services/websocketService').then(({ websocketService }) => {
+        websocketService.disconnect('real-time-data', messageHandlerRef.current!);
+      });
     }
     setData(prev => ({ ...prev, isConnected: false }));
   }, []);

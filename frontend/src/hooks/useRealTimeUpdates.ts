@@ -1,10 +1,12 @@
 /**
  * Real-Time Updates Hook
  * Manages WebSocket subscriptions for real-time data updates
+ * Uses WebSocketService for connection pooling and automatic reconnection
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { dataService } from '../services/dataService';
+import { websocketService } from '../services/websocketService';
+import { useNotifications } from '../contexts/NotificationContext';
 
 interface RealTimeUpdate {
   type: string;
@@ -14,9 +16,6 @@ interface RealTimeUpdate {
 
 interface UseRealTimeUpdatesOptions {
   autoConnect?: boolean;
-  autoReconnect?: boolean;
-  reconnectDelay?: number;
-  maxReconnectAttempts?: number;
 }
 
 interface UseRealTimeUpdatesReturn {
@@ -24,6 +23,7 @@ interface UseRealTimeUpdatesReturn {
   latestUpdate: RealTimeUpdate | null;
   isConnected: boolean;
   error: Error | null;
+  reconnectAttempts: number;
   connect: () => void;
   disconnect: () => void;
   clearUpdates: () => void;
@@ -40,22 +40,36 @@ export function useRealTimeUpdates(
   options: UseRealTimeUpdatesOptions = {}
 ): UseRealTimeUpdatesReturn {
   const {
-    autoConnect = true,
-    autoReconnect = true,
-    reconnectDelay = 5000,
-    maxReconnectAttempts = 5
+    autoConnect = true
   } = options;
 
   const [updates, setUpdates] = useState<RealTimeUpdate[]>([]);
   const [latestUpdate, setLatestUpdate] = useState<RealTimeUpdate | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttemptsRef = useRef(0);
+  const statusCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const messageHandlerRef = useRef<((data: any) => void) | null>(null);
+  const { addNotification } = useNotifications();
 
   const handleUpdate = useCallback((update: any) => {
+    // Handle connection error messages
+    if (update.type === 'connection_error') {
+      setError(new Error(update.message));
+      setIsConnected(false);
+      
+      // Show user notification
+      addNotification({
+        type: 'error',
+        title: 'Connection Lost',
+        message: `Unable to maintain connection to ${update.topic}. ${update.message}`,
+        duration: 0 // Don't auto-dismiss
+      });
+      
+      return;
+    }
+
     const realTimeUpdate: RealTimeUpdate = {
       type: update.type || 'unknown',
       data: update.data,
@@ -64,77 +78,48 @@ export function useRealTimeUpdates(
 
     setLatestUpdate(realTimeUpdate);
     setUpdates(prev => [realTimeUpdate, ...prev.slice(0, 99)]); // Keep last 100 updates
-  }, []);
+    setError(null); // Clear any previous errors on successful message
+  }, [addNotification]);
+
+  // Store the handler reference so we can disconnect properly
+  useEffect(() => {
+    messageHandlerRef.current = handleUpdate;
+  }, [handleUpdate]);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return; // Already connected
+    setError(null);
+    websocketService.connect(subscriptionTopic, handleUpdate);
+
+    // Start polling connection status
+    if (statusCheckIntervalRef.current) {
+      clearInterval(statusCheckIntervalRef.current);
     }
 
-    try {
-      setError(null);
-
-      // Subscribe to real-time updates
-      dataService.subscribeToRealTimeUpdates(handleUpdate)
-        .then(ws => {
-          if (ws) {
-            wsRef.current = ws;
-
-            ws.onopen = () => {
-              setIsConnected(true);
-              reconnectAttemptsRef.current = 0;
-              console.log(`Connected to ${subscriptionTopic}`);
-            };
-
-            ws.onclose = () => {
-              setIsConnected(false);
-              console.log(`Disconnected from ${subscriptionTopic}`);
-
-              // Auto-reconnect if enabled
-              if (autoReconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
-                reconnectAttemptsRef.current += 1;
-                const delay = reconnectDelay * Math.pow(2, reconnectAttemptsRef.current - 1); // Exponential backoff
-
-                console.log(`Reconnecting to ${subscriptionTopic} (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts}) in ${delay}ms`);
-
-                reconnectTimeoutRef.current = setTimeout(() => {
-                  connect();
-                }, delay);
-              } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-                setError(new Error(`Failed to reconnect after ${maxReconnectAttempts} attempts`));
-              }
-            };
-
-            ws.onerror = (event) => {
-              console.error(`WebSocket error on ${subscriptionTopic}:`, event);
-              setError(new Error('WebSocket connection error'));
-            };
-          }
-        })
-        .catch(err => {
-          console.error('Failed to setup WebSocket:', err);
-          setError(err instanceof Error ? err : new Error('Failed to connect'));
-        });
-    } catch (err) {
-      console.error('Error connecting to WebSocket:', err);
-      setError(err instanceof Error ? err : new Error('Connection failed'));
-    }
-  }, [subscriptionTopic, handleUpdate, autoReconnect, reconnectDelay, maxReconnectAttempts]);
+    statusCheckIntervalRef.current = setInterval(() => {
+      const status = websocketService.getConnectionStatus(subscriptionTopic);
+      if (status) {
+        setIsConnected(status.isConnected);
+        setReconnectAttempts(status.reconnectAttempts);
+      } else {
+        setIsConnected(false);
+        setReconnectAttempts(0);
+      }
+    }, 1000);
+  }, [subscriptionTopic, handleUpdate]);
 
   const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
+    if (statusCheckIntervalRef.current) {
+      clearInterval(statusCheckIntervalRef.current);
+      statusCheckIntervalRef.current = null;
     }
 
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    if (messageHandlerRef.current) {
+      websocketService.disconnect(subscriptionTopic, messageHandlerRef.current);
     }
 
     setIsConnected(false);
-    reconnectAttemptsRef.current = 0;
-  }, []);
+    setReconnectAttempts(0);
+  }, [subscriptionTopic]);
 
   const clearUpdates = useCallback(() => {
     setUpdates([]);
@@ -156,6 +141,7 @@ export function useRealTimeUpdates(
     latestUpdate,
     isConnected,
     error,
+    reconnectAttempts,
     connect,
     disconnect,
     clearUpdates
