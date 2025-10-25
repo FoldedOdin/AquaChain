@@ -17,8 +17,9 @@ import os
 sys.path.append('/opt/python')  # Lambda layer path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-# Import structured logging
+# Import structured logging and consent checker
 from structured_logger import get_logger
+from consent_checker import check_marketing_consent, check_analytics_consent
 
 # Configure structured logging
 logger = get_logger(__name__, service='notification-service')
@@ -445,6 +446,13 @@ def send_email_notification(user: Dict[str, Any], notification: Dict[str, Any]) 
         
         content = notification['content']
         notification_type = notification['notificationType']
+        
+        # Check consent for marketing emails
+        if notification_type in ['marketing', 'promotional', 'newsletter']:
+            user_id = user.get('userId')
+            if user_id and not check_marketing_consent(user_id):
+                logger.info(f"Skipping marketing email for user {user_id} - no consent")
+                return {'status': 'skipped', 'message': 'User has not consented to marketing communications'}
         
         # Create email content
         email_content = create_email_content(content, notification_type)

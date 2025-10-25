@@ -26,6 +26,9 @@ from error_handler import handle_errors
 # Import structured logging
 from structured_logger import get_logger
 
+# Import audit logging
+from audit_logger import audit_logger
+
 # Configure structured logging
 logger = get_logger(__name__, service='auth-service')
 
@@ -346,12 +349,29 @@ def lambda_handler(event, context):
             raise ValidationError('Token is required')
         
         decoded_token = token_manager.validate_token(token)
+        user_id = decoded_token.get('sub')
+        
+        # Log authentication event
+        request_context = {
+            'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+            'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
+            'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+            'source': 'api'
+        }
+        
+        audit_logger.log_authentication_event(
+            event_type='TOKEN_VALIDATION',
+            user_id=user_id,
+            success=True,
+            request_context=request_context,
+            details={'token_type': decoded_token.get('token_use')}
+        )
         
         return {
             'statusCode': 200,
             'body': json.dumps({
                 'valid': True,
-                'userId': decoded_token.get('sub'),
+                'userId': user_id,
                 'role': decoded_token.get('cognito:groups', ['consumers'])[0],
                 'email': decoded_token.get('email')
             })
@@ -366,6 +386,28 @@ def lambda_handler(event, context):
             raise ValidationError('Refresh token is required')
         
         new_tokens = token_manager.refresh_token(refresh_token, client_id)
+        
+        # Extract user ID from new token for audit logging
+        try:
+            decoded = jwt.decode(new_tokens['idToken'], options={"verify_signature": False})
+            user_id = decoded.get('sub', 'unknown')
+        except:
+            user_id = 'unknown'
+        
+        # Log authentication event
+        request_context = {
+            'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+            'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
+            'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+            'source': 'api'
+        }
+        
+        audit_logger.log_authentication_event(
+            event_type='TOKEN_REFRESH',
+            user_id=user_id,
+            success=True,
+            request_context=request_context
+        )
         
         return {
             'statusCode': 200,

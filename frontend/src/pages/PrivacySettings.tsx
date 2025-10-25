@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Download, Trash2, FileText } from 'lucide-react';
 import DataExportPanel from '../components/Privacy/DataExportPanel';
+import DataDeletionPanel from '../components/Privacy/DataDeletionPanel';
+import ConsentManagementPanel from '../components/Privacy/ConsentManagementPanel';
 
 interface User {
   userId: string;
@@ -119,34 +121,11 @@ const PrivacySettings: React.FC = () => {
           )}
 
           {activeTab === 'delete' && (
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Data Deletion</h2>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
-                <p className="text-yellow-800">
-                  <strong>Warning:</strong> This feature will be available soon. 
-                  Account deletion is permanent and cannot be undone.
-                </p>
-              </div>
-              <p className="text-gray-600">
-                You have the right to request deletion of your personal data. 
-                This will permanently remove your account and all associated data from our systems.
-              </p>
-            </div>
+            <DataDeletionPanel userId={user.userId} userEmail={user.email} />
           )}
 
           {activeTab === 'consent' && (
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Consent Management</h2>
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
-                <p className="text-blue-800">
-                  <strong>Coming Soon:</strong> Manage your data processing consents here.
-                </p>
-              </div>
-              <p className="text-gray-600">
-                Control how your data is used for different purposes including analytics, 
-                marketing, and third-party integrations.
-              </p>
-            </div>
+            <ConsentManagementPanel userId={user.userId} />
           )}
         </div>
 

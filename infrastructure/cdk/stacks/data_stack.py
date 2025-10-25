@@ -262,13 +262,77 @@ class AquaChainDataStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL
         )
         
+        # AuditLogs table for comprehensive audit trail (Phase 4 compliance)
+        self.audit_logs_table = dynamodb.Table(
+            self, "AuditLogsTable",
+            table_name=get_resource_name(self.config, "table", "audit-logs"),
+            partition_key=dynamodb.Attribute(
+                name="log_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="timestamp",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
+            encryption_key=self.kms_key,
+            point_in_time_recovery=True,  # Always enabled for audit logs
+            removal_policy=RemovalPolicy.RETAIN,  # Always retain audit logs
+            stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+            time_to_live_attribute="ttl"  # 7-year retention via TTL
+        )
+        
+        # GSI 1: user_id-timestamp-index for querying audit logs by user
+        self.audit_logs_table.add_global_secondary_index(
+            index_name="user_id-timestamp-index",
+            partition_key=dynamodb.Attribute(
+                name="user_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="timestamp",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
+        # GSI 2: resource_type-timestamp-index for querying by resource
+        self.audit_logs_table.add_global_secondary_index(
+            index_name="resource_type-timestamp-index",
+            partition_key=dynamodb.Attribute(
+                name="resource_type",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="timestamp",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
+        # GSI 3: action_type-timestamp-index for querying by action type
+        self.audit_logs_table.add_global_secondary_index(
+            index_name="action_type-timestamp-index",
+            partition_key=dynamodb.Attribute(
+                name="action_type",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="timestamp",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
         self.data_resources.update({
             "readings_table": self.readings_table,
             "ledger_table": self.ledger_table,
             "sequence_table": self.sequence_table,
             "users_table": self.users_table,
             "service_requests_table": self.service_requests_table,
-            "devices_table": self.devices_table
+            "devices_table": self.devices_table,
+            "audit_logs_table": self.audit_logs_table
         })
     
     def _create_s3_buckets(self) -> None:

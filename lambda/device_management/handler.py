@@ -30,6 +30,9 @@ from dynamodb_queries import (
 # Import cache service
 from cache_service import get_cache_service
 
+# Import audit logging
+from audit_logger import audit_logger
+
 logger = get_logger(__name__, service='device-management')
 
 
@@ -188,6 +191,15 @@ class DeviceManagementService:
             })
 
 
+def _get_request_context(event: Dict) -> Dict:
+    """Extract request context for audit logging"""
+    return {
+        'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+        'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
+        'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+        'source': 'api'
+    }
+
 @handle_errors
 def lambda_handler(event, context):
     """
@@ -195,6 +207,7 @@ def lambda_handler(event, context):
     """
     region = os.environ.get('AWS_REGION', 'us-east-1')
     device_service = DeviceManagementService(region)
+    request_context = _get_request_context(event)
     
     # Route based on HTTP method and path
     http_method = event.get('httpMethod')
@@ -291,6 +304,15 @@ def lambda_handler(event, context):
         if not device:
             raise ResourceNotFoundError('Device not found', details={'device_id': device_id})
         
+        # Log data access
+        audit_logger.log_data_access(
+            user_id=event.get('userContext', {}).get('userId', 'system'),
+            resource_type='DEVICE',
+            resource_id=device_id,
+            operation='GET',
+            request_context=request_context
+        )
+        
         return {
             'statusCode': 200,
             'headers': {
@@ -310,7 +332,22 @@ def lambda_handler(event, context):
         if not status:
             raise ValidationError('status field required in body')
         
+        # Get current device for audit log
+        current_device = device_service.get_device(device_id)
+        previous_status = current_device.get('status') if current_device else None
+        
         updated_device = device_service.update_device_status(device_id, status)
+        
+        # Log data modification
+        audit_logger.log_data_modification(
+            user_id=event.get('userContext', {}).get('userId', 'system'),
+            resource_type='DEVICE',
+            resource_id=device_id,
+            modification_type='UPDATE',
+            previous_values={'status': previous_status},
+            new_values={'status': status},
+            request_context=request_context
+        )
         
         return {
             'statusCode': 200,

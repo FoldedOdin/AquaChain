@@ -33,6 +33,9 @@ from structured_logger import get_logger
 # Import cold start monitoring
 from cold_start_monitor import monitor_cold_start, PerformanceTimer
 
+# Import audit logging
+from audit_logger import audit_logger
+
 # Configure structured logging
 logger = get_logger(__name__, service='data-processing')
 

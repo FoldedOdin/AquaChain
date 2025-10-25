@@ -180,6 +180,20 @@ class GDPRComplianceStack(Stack):
             removal_policy=RemovalPolicy.RETAIN if self.config.get("environment") == "prod" else RemovalPolicy.DESTROY
         )
         
+        # GSI for querying consents by type and timestamp
+        self.user_consents_table.add_global_secondary_index(
+            index_name="consent_type-updated_at-index",
+            partition_key=dynamodb.Attribute(
+                name="consent_type",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="updated_at",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+        
         # Audit Logs Table (for comprehensive audit trail)
         self.audit_logs_table = dynamodb.Table(
             self, "AuditLogsTable",

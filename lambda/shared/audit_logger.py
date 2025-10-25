@@ -1,616 +1,398 @@
 """
-Comprehensive audit logging system for AquaChain.
-Implements audit trail for all user actions and sensitive operations.
-Requirements: 15.5
+AuditLogger - Comprehensive audit logging for compliance
+Logs all user actions, data access, and administrative operations
 """
 
+import os
 import json
+import uuid
 import boto3
-import logging
-import hashlib
-import hmac
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Union
-from enum import Enum
-from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
 from botocore.exceptions import ClientError
 
-from structured_logger import get_logger
-
-logger = get_logger(__name__, service='audit-logger')
-
-class AuditEventType(Enum):
-    """Enumeration of audit event types"""
-    USER_LOGIN = "user_login"
-    USER_LOGOUT = "user_logout"
-    USER_REGISTRATION = "user_registration"
-    USER_PROFILE_UPDATE = "user_profile_update"
-    DEVICE_ACCESS = "device_access"
-    DATA_EXPORT = "data_export"
-    SERVICE_REQUEST_CREATE = "service_request_create"
-    SERVICE_REQUEST_UPDATE = "service_request_update"
-    ADMIN_ACTION = "admin_action"
-    SYSTEM_CONFIG_CHANGE = "system_config_change"
-    SECURITY_VIOLATION = "security_violation"
-    DATA_MODIFICATION = "data_modification"
-    COMPLIANCE_REPORT_GENERATION = "compliance_report_generation"
-    LEDGER_ACCESS = "ledger_access"
-    HASH_CHAIN_VERIFICATION = "hash_chain_verification"
-
-class AuditSeverity(Enum):
-    """Audit event severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-@dataclass
-class AuditEvent:
-    """Audit event data structure"""
-    event_id: str
-    event_type: AuditEventType
-    severity: AuditSeverity
-    timestamp: str
-    user_id: Optional[str]
-    user_role: Optional[str]
-    source_ip: str
-    user_agent: str
-    resource_type: Optional[str]
-    resource_id: Optional[str]
-    action: str
-    outcome: str  # success, failure, partial
-    details: Dict[str, Any]
-    request_id: Optional[str]
-    session_id: Optional[str]
-    compliance_tags: List[str]
-    data_classification: str  # public, internal, confidential, restricted
-    retention_period: int  # days
-    hash_signature: Optional[str] = None
 
 class AuditLogger:
     """
-    Comprehensive audit logging system.
-    Implements requirement 15.5 for audit trail and compliance tracking.
+    Comprehensive audit logger for tracking all system actions
+    Logs to DynamoDB and streams to Kinesis Firehose for S3 archival
     """
     
-    def __init__(self, region: str = 'us-east-1'):
-        self.region = region
-        self.dynamodb = boto3.resource('dynamodb', region_name=region)
-        self.s3 = boto3.client('s3', region_name=region)
-        self.cloudwatch = boto3.client('logs', region_name=region)
-        self.kms = boto3.client('kms', region_name=region)
+    def __init__(self):
+        """Initialize AuditLogger with DynamoDB and Firehose clients"""
+        self.dynamodb = boto3.resource('dynamodb')
+        self.firehose = boto3.client('firehose')
         
-        # Initialize tables and resources
-        self.audit_table = self.dynamodb.Table('aquachain-audit-logs')
-        self.compliance_table = self.dynamodb.Table('aquachain-compliance-tracking')
-        self.audit_bucket = 'aquachain-audit-archive'
-        self.log_group = '/aws/lambda/aquachain-audit'
+        # Get table and stream names from environment
+        self.table_name = os.environ.get('AUDIT_LOGS_TABLE', 'aquachain-dev-audit-logs')
+        self.stream_name = os.environ.get('AUDIT_LOG_STREAM', 'AuditLogStream')
         
-        # KMS key for audit log signing
-        self.audit_signing_key = 'arn:aws:kms:us-east-1:123456789012:key/audit-signing-key'
+        self.table = self.dynamodb.Table(self.table_name)
+        
+        # TTL for 7 years (2555 days)
+        self.ttl_days = 2555
     
-    def log_event(self, event: AuditEvent) -> bool:
+    def log_action(
+        self,
+        action_type: str,
+        user_id: str,
+        resource_type: str,
+        resource_id: str,
+        details: Dict[str, Any],
+        request_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
-        Log audit event to multiple destinations.
+        Log an auditable action
+        
+        Args:
+            action_type: Type of action (CREATE, READ, UPDATE, DELETE, LOGIN, LOGOUT, etc.)
+            user_id: ID of user performing the action
+            resource_type: Type of resource (USER, DEVICE, READING, ALERT, etc.)
+            resource_id: ID of the resource being acted upon
+            details: Additional details about the action
+            request_context: Request context (IP, user agent, request ID, etc.)
+        
+        Returns:
+            The created audit log entry
+        
+        Raises:
+            ClientError: If DynamoDB or Firehose operations fail
         """
+        timestamp = datetime.utcnow().isoformat()
+        log_id = str(uuid.uuid4())
+        
+        # Calculate TTL (7 years from now)
+        ttl_timestamp = int((datetime.utcnow() + timedelta(days=self.ttl_days)).timestamp())
+        
+        # Create structured log entry
+        log_entry = {
+            'log_id': log_id,
+            'timestamp': timestamp,
+            'action_type': action_type,
+            'user_id': user_id,
+            'resource_type': resource_type,
+            'resource_id': resource_id,
+            'details': details,
+            'request_context': {
+                'ip_address': request_context.get('ip_address', 'unknown'),
+                'user_agent': request_context.get('user_agent', 'unknown'),
+                'request_id': request_context.get('request_id', 'unknown'),
+                'source': request_context.get('source', 'api')
+            },
+            'ttl': ttl_timestamp
+        }
+        
         try:
-            # Generate hash signature for integrity
-            event.hash_signature = self._generate_event_signature(event)
+            # Write to DynamoDB for queryable audit trail
+            self.table.put_item(Item=log_entry)
             
-            # Store in DynamoDB for real-time access
-            self._store_in_dynamodb(event)
+            # Stream to Kinesis Firehose for long-term S3 archival
+            self._stream_to_firehose(log_entry)
             
-            # Store in CloudWatch Logs for monitoring
-            self._store_in_cloudwatch(event)
-            
-            # Archive in S3 for long-term retention
-            self._archive_in_s3(event)
-            
-            # Update compliance metrics
-            self._update_compliance_metrics(event)
-            
-            # Trigger alerts for critical events
-            if event.severity == AuditSeverity.CRITICAL:
-                self._trigger_security_alert(event)
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error logging audit event: {e}")
-            # Fallback to CloudWatch Logs only
-            try:
-                self._store_in_cloudwatch(event)
-            except Exception as fallback_error:
-                logger.error(f"Fallback audit logging failed: {fallback_error}")
-            return False
-    
-    def _generate_event_signature(self, event: AuditEvent) -> str:
-        """Generate cryptographic signature for audit event integrity"""
-        try:
-            # Create canonical string representation
-            event_data = {
-                'event_id': event.event_id,
-                'event_type': event.event_type.value,
-                'timestamp': event.timestamp,
-                'user_id': event.user_id,
-                'action': event.action,
-                'outcome': event.outcome,
-                'details': json.dumps(event.details, sort_keys=True)
-            }
-            
-            canonical_string = json.dumps(event_data, sort_keys=True)
-            
-            # Generate HMAC signature using KMS
-            response = self.kms.generate_mac(
-                KeyId=self.audit_signing_key,
-                Message=canonical_string.encode('utf-8'),
-                MacAlgorithm='HMAC_SHA_256'
-            )
-            
-            return response['Mac'].hex()
+            return log_entry
             
         except ClientError as e:
-            logger.error(f"Error generating event signature: {e}")
-            # Fallback to local HMAC
-            secret_key = "audit-fallback-key"  # Should be from secure storage
-            return hmac.new(
-                secret_key.encode('utf-8'),
-                canonical_string.encode('utf-8'),
-                hashlib.sha256
-            ).hexdigest()
-    
-    def _store_in_dynamodb(self, event: AuditEvent) -> None:
-        """Store audit event in DynamoDB for real-time access"""
-        try:
-            # Convert event to DynamoDB item
-            item = asdict(event)
-            item['event_type'] = event.event_type.value
-            item['severity'] = event.severity.value
-            
-            # Add TTL based on retention period
-            ttl_timestamp = int(datetime.now(timezone.utc).timestamp()) + (event.retention_period * 24 * 3600)
-            item['ttl'] = ttl_timestamp
-            
-            # Store with conditional write to prevent duplicates
-            self.audit_table.put_item(
-                Item=item,
-                ConditionExpression='attribute_not_exists(event_id)'
-            )
-            
-        except ClientError as e:
-            if e.response['Error']['Code'] != 'ConditionalCheckFailedException':
-                logger.error(f"Error storing audit event in DynamoDB: {e}")
-                raise
-    
-    def _store_in_cloudwatch(self, event: AuditEvent) -> None:
-        """Store audit event in CloudWatch Logs"""
-        try:
-            log_entry = {
-                'timestamp': event.timestamp,
-                'level': 'AUDIT',
-                'event_id': event.event_id,
-                'event_type': event.event_type.value,
-                'severity': event.severity.value,
-                'user_id': event.user_id,
-                'action': event.action,
-                'outcome': event.outcome,
-                'source_ip': event.source_ip,
-                'details': event.details
-            }
-            
-            self.cloudwatch.put_log_events(
-                logGroupName=self.log_group,
-                logStreamName=f"audit-{datetime.now().strftime('%Y-%m-%d')}",
-                logEvents=[
-                    {
-                        'timestamp': int(datetime.fromisoformat(event.timestamp.replace('Z', '+00:00')).timestamp() * 1000),
-                        'message': json.dumps(log_entry)
-                    }
-                ]
-            )
-            
-        except ClientError as e:
-            logger.error(f"Error storing audit event in CloudWatch: {e}")
+            # Log error but don't fail the operation
+            print(f"Error logging audit entry: {e}")
+            # Re-raise to allow caller to handle
             raise
     
-    def _archive_in_s3(self, event: AuditEvent) -> None:
-        """Archive audit event in S3 for long-term retention"""
-        try:
-            # Create S3 key with date partitioning
-            date_partition = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00')).strftime('%Y/%m/%d')
-            s3_key = f"audit-logs/{date_partition}/{event.event_id}.json"
-            
-            # Prepare event data for archival
-            archive_data = asdict(event)
-            archive_data['event_type'] = event.event_type.value
-            archive_data['severity'] = event.severity.value
-            
-            # Store in S3 with server-side encryption
-            self.s3.put_object(
-                Bucket=self.audit_bucket,
-                Key=s3_key,
-                Body=json.dumps(archive_data, indent=2),
-                ContentType='application/json',
-                ServerSideEncryption='aws:kms',
-                SSEKMSKeyId=self.audit_signing_key,
-                Metadata={
-                    'event-type': event.event_type.value,
-                    'severity': event.severity.value,
-                    'data-classification': event.data_classification
-                }
-            )
-            
-        except ClientError as e:
-            logger.error(f"Error archiving audit event in S3: {e}")
-            # Don't raise - archival failure shouldn't block operations
-    
-    def _update_compliance_metrics(self, event: AuditEvent) -> None:
-        """Update compliance tracking metrics"""
-        try:
-            current_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            
-            # Update daily metrics
-            self.compliance_table.update_item(
-                Key={
-                    'metric_type': 'daily_events',
-                    'date': current_date
-                },
-                UpdateExpression='ADD event_count :inc, #event_type :inc',
-                ExpressionAttributeNames={
-                    '#event_type': event.event_type.value
-                },
-                ExpressionAttributeValues={
-                    ':inc': 1
-                }
-            )
-            
-            # Update severity metrics
-            self.compliance_table.update_item(
-                Key={
-                    'metric_type': 'severity_counts',
-                    'date': current_date
-                },
-                UpdateExpression='ADD #severity :inc',
-                ExpressionAttributeNames={
-                    '#severity': event.severity.value
-                },
-                ExpressionAttributeValues={
-                    ':inc': 1
-                }
-            )
-            
-            # Update compliance tag metrics
-            for tag in event.compliance_tags:
-                self.compliance_table.update_item(
-                    Key={
-                        'metric_type': 'compliance_tags',
-                        'date': current_date
-                    },
-                    UpdateExpression='ADD #tag :inc',
-                    ExpressionAttributeNames={
-                        '#tag': tag
-                    },
-                    ExpressionAttributeValues={
-                        ':inc': 1
-                    }
-                )
-                
-        except ClientError as e:
-            logger.error(f"Error updating compliance metrics: {e}")
-            # Don't raise - metrics failure shouldn't block operations
-    
-    def _trigger_security_alert(self, event: AuditEvent) -> None:
-        """Trigger security alert for critical events"""
-        try:
-            sns = boto3.client('sns', region_name=self.region)
-            
-            alert_message = {
-                'alert_type': 'SECURITY_AUDIT',
-                'severity': 'CRITICAL',
-                'event_id': event.event_id,
-                'event_type': event.event_type.value,
-                'timestamp': event.timestamp,
-                'user_id': event.user_id,
-                'source_ip': event.source_ip,
-                'action': event.action,
-                'outcome': event.outcome,
-                'details': event.details
-            }
-            
-            sns.publish(
-                TopicArn='arn:aws:sns:us-east-1:123456789012:aquachain-security-alerts',
-                Subject=f'AquaChain Security Alert: {event.event_type.value}',
-                Message=json.dumps(alert_message, indent=2)
-            )
-            
-        except ClientError as e:
-            logger.error(f"Error triggering security alert: {e}")
-    
-    def query_audit_logs(self, 
-                        start_date: str,
-                        end_date: str,
-                        event_types: Optional[List[AuditEventType]] = None,
-                        user_id: Optional[str] = None,
-                        severity: Optional[AuditSeverity] = None,
-                        limit: int = 100) -> List[Dict[str, Any]]:
+    def log_authentication_event(
+        self,
+        event_type: str,
+        user_id: str,
+        success: bool,
+        request_context: Dict[str, Any],
+        details: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Query audit logs with filtering.
-        """
-        try:
-            # Build filter expression
-            filter_expressions = []
-            expression_values = {}
-            
-            # Date range filter
-            filter_expressions.append('#timestamp BETWEEN :start_date AND :end_date')
-            expression_values[':start_date'] = start_date
-            expression_values[':end_date'] = end_date
-            
-            # Event type filter
-            if event_types:
-                event_type_conditions = []
-                for i, event_type in enumerate(event_types):
-                    key = f':event_type_{i}'
-                    event_type_conditions.append(f'event_type = {key}')
-                    expression_values[key] = event_type.value
-                filter_expressions.append(f"({' OR '.join(event_type_conditions)})")
-            
-            # User ID filter
-            if user_id:
-                filter_expressions.append('user_id = :user_id')
-                expression_values[':user_id'] = user_id
-            
-            # Severity filter
-            if severity:
-                filter_expressions.append('severity = :severity')
-                expression_values[':severity'] = severity.value
-            
-            # Execute scan with filters
-            response = self.audit_table.scan(
-                FilterExpression=' AND '.join(filter_expressions),
-                ExpressionAttributeNames={'#timestamp': 'timestamp'},
-                ExpressionAttributeValues=expression_values,
-                Limit=limit
-            )
-            
-            return response.get('Items', [])
-            
-        except ClientError as e:
-            logger.error(f"Error querying audit logs: {e}")
-            return []
-    
-    def generate_compliance_report(self, 
-                                 start_date: str,
-                                 end_date: str,
-                                 compliance_framework: str = 'SOC2') -> Dict[str, Any]:
-        """
-        Generate compliance report for specified date range.
-        """
-        try:
-            # Query compliance metrics
-            response = self.compliance_table.scan(
-                FilterExpression='#date BETWEEN :start_date AND :end_date',
-                ExpressionAttributeNames={'#date': 'date'},
-                ExpressionAttributeValues={
-                    ':start_date': start_date,
-                    ':end_date': end_date
-                }
-            )
-            
-            metrics = response.get('Items', [])
-            
-            # Aggregate metrics
-            total_events = 0
-            event_types = {}
-            severity_counts = {}
-            compliance_tags = {}
-            
-            for metric in metrics:
-                metric_type = metric.get('metric_type')
-                
-                if metric_type == 'daily_events':
-                    total_events += metric.get('event_count', 0)
-                    for event_type, count in metric.items():
-                        if event_type not in ['metric_type', 'date', 'event_count']:
-                            event_types[event_type] = event_types.get(event_type, 0) + count
-                
-                elif metric_type == 'severity_counts':
-                    for severity, count in metric.items():
-                        if severity not in ['metric_type', 'date']:
-                            severity_counts[severity] = severity_counts.get(severity, 0) + count
-                
-                elif metric_type == 'compliance_tags':
-                    for tag, count in metric.items():
-                        if tag not in ['metric_type', 'date']:
-                            compliance_tags[tag] = compliance_tags.get(tag, 0) + count
-            
-            # Generate report
-            report = {
-                'report_id': hashlib.sha256(f"{start_date}-{end_date}-{compliance_framework}".encode()).hexdigest()[:16],
-                'framework': compliance_framework,
-                'period': {
-                    'start_date': start_date,
-                    'end_date': end_date
-                },
-                'generated_at': datetime.now(timezone.utc).isoformat(),
-                'summary': {
-                    'total_events': total_events,
-                    'event_types': event_types,
-                    'severity_distribution': severity_counts,
-                    'compliance_tags': compliance_tags
-                },
-                'compliance_status': self._assess_compliance_status(severity_counts, compliance_framework),
-                'recommendations': self._generate_compliance_recommendations(severity_counts, event_types)
-            }
-            
-            # Store report
-            self._store_compliance_report(report)
-            
-            return report
-            
-        except Exception as e:
-            logger.error(f"Error generating compliance report: {e}")
-            raise
-    
-    def _assess_compliance_status(self, severity_counts: Dict[str, int], framework: str) -> Dict[str, Any]:
-        """Assess compliance status based on audit metrics"""
-        critical_events = severity_counts.get('critical', 0)
-        high_events = severity_counts.get('high', 0)
+        Log authentication events (login, logout, password reset, etc.)
         
-        if critical_events > 0:
-            status = 'NON_COMPLIANT'
-            risk_level = 'HIGH'
-        elif high_events > 10:  # Threshold for high-severity events
-            status = 'AT_RISK'
-            risk_level = 'MEDIUM'
-        else:
-            status = 'COMPLIANT'
-            risk_level = 'LOW'
+        Args:
+            event_type: Type of auth event (LOGIN, LOGOUT, PASSWORD_RESET, etc.)
+            user_id: ID of user
+            success: Whether the authentication was successful
+            request_context: Request context
+            details: Additional details
+        
+        Returns:
+            The created audit log entry
+        """
+        action_details = details or {}
+        action_details['success'] = success
+        
+        return self.log_action(
+            action_type=f'AUTH_{event_type}',
+            user_id=user_id,
+            resource_type='USER',
+            resource_id=user_id,
+            details=action_details,
+            request_context=request_context
+        )
+    
+    def log_data_access(
+        self,
+        user_id: str,
+        resource_type: str,
+        resource_id: str,
+        operation: str,
+        request_context: Dict[str, Any],
+        details: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Log data access events (read operations)
+        
+        Args:
+            user_id: ID of user accessing data
+            resource_type: Type of resource being accessed
+            resource_id: ID of resource
+            operation: Specific operation (GET, LIST, QUERY, etc.)
+            request_context: Request context
+            details: Additional details
+        
+        Returns:
+            The created audit log entry
+        """
+        action_details = details or {}
+        action_details['operation'] = operation
+        
+        return self.log_action(
+            action_type='READ',
+            user_id=user_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            details=action_details,
+            request_context=request_context
+        )
+    
+    def log_data_modification(
+        self,
+        user_id: str,
+        resource_type: str,
+        resource_id: str,
+        modification_type: str,
+        previous_values: Optional[Dict[str, Any]],
+        new_values: Dict[str, Any],
+        request_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Log data modification events (create, update, delete)
+        
+        Args:
+            user_id: ID of user modifying data
+            resource_type: Type of resource being modified
+            resource_id: ID of resource
+            modification_type: Type of modification (CREATE, UPDATE, DELETE)
+            previous_values: Previous values (for UPDATE/DELETE)
+            new_values: New values (for CREATE/UPDATE)
+            request_context: Request context
+        
+        Returns:
+            The created audit log entry
+        """
+        details = {
+            'modification_type': modification_type,
+            'previous_values': previous_values,
+            'new_values': new_values,
+            'changed_fields': list(new_values.keys()) if new_values else []
+        }
+        
+        return self.log_action(
+            action_type=modification_type,
+            user_id=user_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            details=details,
+            request_context=request_context
+        )
+    
+    def log_administrative_action(
+        self,
+        user_id: str,
+        action: str,
+        target_resource_type: str,
+        target_resource_id: str,
+        request_context: Dict[str, Any],
+        details: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Log administrative actions (user management, config changes, etc.)
+        
+        Args:
+            user_id: ID of admin user
+            action: Administrative action performed
+            target_resource_type: Type of resource being administered
+            target_resource_id: ID of target resource
+            request_context: Request context
+            details: Additional details
+        
+        Returns:
+            The created audit log entry
+        """
+        action_details = details or {}
+        action_details['administrative_action'] = action
+        
+        return self.log_action(
+            action_type=f'ADMIN_{action}',
+            user_id=user_id,
+            resource_type=target_resource_type,
+            resource_id=target_resource_id,
+            details=action_details,
+            request_context=request_context
+        )
+    
+    def _stream_to_firehose(self, log_entry: Dict[str, Any]) -> None:
+        """
+        Stream audit log to Kinesis Firehose for S3 archival
+        
+        Args:
+            log_entry: The audit log entry to stream
+        """
+        try:
+            # Convert to JSON with newline for Firehose
+            record_data = json.dumps(log_entry) + '\n'
+            
+            self.firehose.put_record(
+                DeliveryStreamName=self.stream_name,
+                Record={'Data': record_data.encode('utf-8')}
+            )
+        except ClientError as e:
+            # Log error but don't fail the audit logging
+            print(f"Error streaming to Firehose: {e}")
+            # Don't re-raise - DynamoDB write is primary, Firehose is backup
+    
+    def query_logs_by_user(
+        self,
+        user_id: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Query audit logs for a specific user
+        
+        Args:
+            user_id: ID of user to query logs for
+            start_time: Start timestamp (ISO format)
+            end_time: End timestamp (ISO format)
+            limit: Maximum number of results
+        
+        Returns:
+            Dictionary with items and pagination info
+        """
+        from boto3.dynamodb.conditions import Key
+        
+        query_params = {
+            'IndexName': 'user_id-timestamp-index',
+            'KeyConditionExpression': Key('user_id').eq(user_id),
+            'Limit': limit,
+            'ScanIndexForward': False  # Newest first
+        }
+        
+        # Add time range if specified
+        if start_time and end_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').between(start_time, end_time)
+        elif start_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').gte(start_time)
+        elif end_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').lte(end_time)
+        
+        response = self.table.query(**query_params)
         
         return {
-            'status': status,
-            'risk_level': risk_level,
-            'critical_events': critical_events,
-            'high_severity_events': high_events,
-            'framework': framework
+            'items': response.get('Items', []),
+            'count': len(response.get('Items', [])),
+            'last_evaluated_key': response.get('LastEvaluatedKey')
         }
     
-    def _generate_compliance_recommendations(self, severity_counts: Dict[str, int], 
-                                           event_types: Dict[str, int]) -> List[str]:
-        """Generate compliance recommendations based on audit data"""
-        recommendations = []
+    def query_logs_by_resource(
+        self,
+        resource_type: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Query audit logs for a specific resource type
         
-        if severity_counts.get('critical', 0) > 0:
-            recommendations.append("Immediate investigation required for critical security events")
+        Args:
+            resource_type: Type of resource to query logs for
+            start_time: Start timestamp (ISO format)
+            end_time: End timestamp (ISO format)
+            limit: Maximum number of results
         
-        if severity_counts.get('high', 0) > 10:
-            recommendations.append("Review and strengthen security controls for high-severity events")
+        Returns:
+            Dictionary with items and pagination info
+        """
+        from boto3.dynamodb.conditions import Key
         
-        if event_types.get('security_violation', 0) > 5:
-            recommendations.append("Implement additional security monitoring and alerting")
+        query_params = {
+            'IndexName': 'resource_type-timestamp-index',
+            'KeyConditionExpression': Key('resource_type').eq(resource_type),
+            'Limit': limit,
+            'ScanIndexForward': False  # Newest first
+        }
         
-        if event_types.get('data_export', 0) > 100:
-            recommendations.append("Review data export policies and implement additional controls")
+        # Add time range if specified
+        if start_time and end_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').between(start_time, end_time)
+        elif start_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').gte(start_time)
+        elif end_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').lte(end_time)
         
-        return recommendations
+        response = self.table.query(**query_params)
+        
+        return {
+            'items': response.get('Items', []),
+            'count': len(response.get('Items', [])),
+            'last_evaluated_key': response.get('LastEvaluatedKey')
+        }
     
-    def _store_compliance_report(self, report: Dict[str, Any]) -> None:
-        """Store compliance report in S3"""
-        try:
-            report_key = f"compliance-reports/{report['framework']}/{report['report_id']}.json"
-            
-            self.s3.put_object(
-                Bucket=self.audit_bucket,
-                Key=report_key,
-                Body=json.dumps(report, indent=2),
-                ContentType='application/json',
-                ServerSideEncryption='aws:kms',
-                SSEKMSKeyId=self.audit_signing_key
-            )
-            
-        except ClientError as e:
-            logger.error(f"Error storing compliance report: {e}")
+    def query_logs_by_action_type(
+        self,
+        action_type: str,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Query audit logs for a specific action type
+        
+        Args:
+            action_type: Type of action to query logs for
+            start_time: Start timestamp (ISO format)
+            end_time: End timestamp (ISO format)
+            limit: Maximum number of results
+        
+        Returns:
+            Dictionary with items and pagination info
+        """
+        from boto3.dynamodb.conditions import Key
+        
+        query_params = {
+            'IndexName': 'action_type-timestamp-index',
+            'KeyConditionExpression': Key('action_type').eq(action_type),
+            'Limit': limit,
+            'ScanIndexForward': False  # Newest first
+        }
+        
+        # Add time range if specified
+        if start_time and end_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').between(start_time, end_time)
+        elif start_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').gte(start_time)
+        elif end_time:
+            query_params['KeyConditionExpression'] &= Key('timestamp').lte(end_time)
+        
+        response = self.table.query(**query_params)
+        
+        return {
+            'items': response.get('Items', []),
+            'count': len(response.get('Items', [])),
+            'last_evaluated_key': response.get('LastEvaluatedKey')
+        }
 
-class AuditDecorator:
-    """Decorator for automatic audit logging of function calls"""
-    
-    def __init__(self, audit_logger: AuditLogger):
-        self.audit_logger = audit_logger
-    
-    def audit_action(self, 
-                    event_type: AuditEventType,
-                    severity: AuditSeverity = AuditSeverity.MEDIUM,
-                    resource_type: Optional[str] = None,
-                    compliance_tags: Optional[List[str]] = None,
-                    data_classification: str = 'internal'):
-        """Decorator for auditing function calls"""
-        def decorator(func):
-            def wrapper(event, context):
-                import uuid
-                
-                # Extract user context
-                user_context = event.get('userContext', {})
-                security_context = event.get('securityContext', {})
-                
-                # Create audit event
-                audit_event = AuditEvent(
-                    event_id=str(uuid.uuid4()),
-                    event_type=event_type,
-                    severity=severity,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    user_id=user_context.get('userId'),
-                    user_role=user_context.get('role'),
-                    source_ip=security_context.get('clientIp', '0.0.0.0'),
-                    user_agent=security_context.get('userAgent', ''),
-                    resource_type=resource_type,
-                    resource_id=event.get('pathParameters', {}).get('deviceId') or event.get('pathParameters', {}).get('requestId'),
-                    action=func.__name__,
-                    outcome='pending',
-                    details={
-                        'function_name': func.__name__,
-                        'path_parameters': event.get('pathParameters', {}),
-                        'query_parameters': event.get('queryStringParameters', {})
-                    },
-                    request_id=security_context.get('requestId'),
-                    session_id=user_context.get('sessionId'),
-                    compliance_tags=compliance_tags or [],
-                    data_classification=data_classification,
-                    retention_period=2555  # 7 years in days
-                )
-                
-                try:
-                    # Execute function
-                    result = func(event, context)
-                    
-                    # Update audit event with success
-                    audit_event.outcome = 'success'
-                    if isinstance(result, dict) and result.get('statusCode'):
-                        audit_event.details['status_code'] = result['statusCode']
-                    
-                    return result
-                    
-                except Exception as e:
-                    # Update audit event with failure
-                    audit_event.outcome = 'failure'
-                    audit_event.details['error'] = str(e)
-                    audit_event.severity = AuditSeverity.HIGH
-                    
-                    raise
-                    
-                finally:
-                    # Log audit event
-                    self.audit_logger.log_event(audit_event)
-            
-            return wrapper
-        return decorator
 
-# Global audit logger instance
+# Singleton instance for easy import
 audit_logger = AuditLogger()
-audit_decorator = AuditDecorator(audit_logger)
-
-# Convenience decorators
-def audit_user_action(event_type: AuditEventType, compliance_tags: Optional[List[str]] = None):
-    """Decorator for auditing user actions"""
-    return audit_decorator.audit_action(
-        event_type=event_type,
-        severity=AuditSeverity.MEDIUM,
-        compliance_tags=compliance_tags or ['user_activity']
-    )
-
-def audit_admin_action(event_type: AuditEventType, compliance_tags: Optional[List[str]] = None):
-    """Decorator for auditing admin actions"""
-    return audit_decorator.audit_action(
-        event_type=event_type,
-        severity=AuditSeverity.HIGH,
-        compliance_tags=compliance_tags or ['admin_activity', 'privileged_access']
-    )
-
-def audit_data_access(resource_type: str, compliance_tags: Optional[List[str]] = None):
-    """Decorator for auditing data access"""
-    return audit_decorator.audit_action(
-        event_type=AuditEventType.DEVICE_ACCESS,
-        severity=AuditSeverity.MEDIUM,
-        resource_type=resource_type,
-        compliance_tags=compliance_tags or ['data_access'],
-        data_classification='confidential'
-    )

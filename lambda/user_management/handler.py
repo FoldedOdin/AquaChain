@@ -28,6 +28,9 @@ from structured_logger import get_logger
 # Import cache service
 from cache_service import get_cache_service
 
+# Import audit logging
+from audit_logger import audit_logger
+
 # Configure structured logging
 logger = get_logger(__name__, service='user-management')
 
@@ -145,6 +148,9 @@ class UserManagementService:
             )
             
             logger.info(f"User registered successfully: {user_id}")
+            
+            # Log user creation for audit trail
+            # Note: request_context would be passed from Lambda handler
             
             return {
                 'userId': user_id,
@@ -540,6 +546,15 @@ class UserManagementService:
                 'role': role
             })
 
+def _get_request_context(event: Dict) -> Dict:
+    """Extract request context for audit logging"""
+    return {
+        'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+        'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
+        'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+        'source': 'api'
+    }
+
 # Lambda handler
 @handle_errors
 def lambda_handler(event, context):
@@ -555,6 +570,7 @@ def lambda_handler(event, context):
         raise ValidationError('Missing Cognito configuration')
     
     user_service = UserManagementService(user_pool_id, client_id, region)
+    request_context = _get_request_context(event)
     
     # Route based on HTTP method and path
     http_method = event.get('httpMethod')
@@ -574,6 +590,20 @@ def lambda_handler(event, context):
             address=body.get('address')
         )
         
+        # Log user creation
+        audit_logger.log_data_modification(
+            user_id=result['userId'],
+            resource_type='USER',
+            resource_id=result['userId'],
+            modification_type='CREATE',
+            previous_values=None,
+            new_values={
+                'email': result['email'],
+                'role': result['role']
+            },
+            request_context=request_context
+        )
+        
         return {
             'statusCode': 201,
             'body': json.dumps(result)
@@ -587,6 +617,15 @@ def lambda_handler(event, context):
         if not profile:
             raise ResourceNotFoundError('User not found', details={'user_id': user_id})
         
+        # Log data access
+        audit_logger.log_data_access(
+            user_id=event.get('userContext', {}).get('userId', user_id),
+            resource_type='USER',
+            resource_id=user_id,
+            operation='GET',
+            request_context=request_context
+        )
+        
         return {
             'statusCode': 200,
             'body': json.dumps(profile)
@@ -595,7 +634,22 @@ def lambda_handler(event, context):
     elif http_method == 'PUT' and '/profile/' in path:
         # Update user profile
         user_id = path_params.get('userId')
+        
+        # Get current profile for audit log
+        current_profile = user_service.get_user_profile(user_id)
+        
         updated_profile = user_service.update_user_profile(user_id, body)
+        
+        # Log data modification
+        audit_logger.log_data_modification(
+            user_id=event.get('userContext', {}).get('userId', user_id),
+            resource_type='USER',
+            resource_id=user_id,
+            modification_type='UPDATE',
+            previous_values=current_profile,
+            new_values=body,
+            request_context=request_context
+        )
         
         return {
             'statusCode': 200,
