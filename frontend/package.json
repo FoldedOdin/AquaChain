@@ -43,6 +43,8 @@
     "switch-to-aws": "node switch-to-aws.js",
     "switch-to-dev": "node switch-to-dev.js",
     "deploy": "node deploy-frontend.js",
+    "deploy:cloudfront": "node deploy-cloudfront.js",
+    "deploy:cloudfront:dry-run": "node deploy-cloudfront.js --dry-run",
     "deploy:netlify": "npm run build && netlify deploy --prod --dir=build",
     "deploy:vercel": "vercel --prod",
     "deploy:surge": "npm run build && surge build/",

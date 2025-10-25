@@ -28,10 +28,11 @@ class AquaChainCloudFrontStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str,
-                 config: Dict[str, Any], **kwargs) -> None:
+                 config: Dict[str, Any], api_gateway_domain: str = None, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.config = config
+        self.api_gateway_domain = api_gateway_domain
         
         # Create S3 bucket for frontend
         self.frontend_bucket = self._create_frontend_bucket()
@@ -214,15 +215,15 @@ class AquaChainCloudFrontStack(Stack):
     
     def _create_distribution(self) -> cloudfront.Distribution:
         """
-        Create CloudFront distribution
+        Create CloudFront distribution with S3 and API Gateway origins
         """
-        # Cache policy for SPA
-        cache_policy = cloudfront.CachePolicy(
-            self, "SPACachePolicy",
-            cache_policy_name=f"aquachain-spa-{self.config['environment']}",
-            comment="Cache policy for Single Page Application",
-            default_ttl=Duration.hours(24),
-            min_ttl=Duration.seconds(0),
+        # Cache policy for static assets (long TTL)
+        static_cache_policy = cloudfront.CachePolicy(
+            self, "StaticAssetsCachePolicy",
+            cache_policy_name=f"aquachain-static-{self.config['environment']}",
+            comment="Cache policy for static assets with long TTL",
+            default_ttl=Duration.days(365),
+            min_ttl=Duration.days(1),
             max_ttl=Duration.days(365),
             cookie_behavior=cloudfront.CacheCookieBehavior.none(),
             header_behavior=cloudfront.CacheHeaderBehavior.none(),
@@ -231,8 +232,62 @@ class AquaChainCloudFrontStack(Stack):
             enable_accept_encoding_brotli=True
         )
         
-        # Origin request policy
-        origin_request_policy = cloudfront.OriginRequestPolicy(
+        # Cache policy for SPA (shorter TTL)
+        spa_cache_policy = cloudfront.CachePolicy(
+            self, "SPACachePolicy",
+            cache_policy_name=f"aquachain-spa-{self.config['environment']}",
+            comment="Cache policy for Single Page Application",
+            default_ttl=Duration.hours(24),
+            min_ttl=Duration.seconds(0),
+            max_ttl=Duration.days(7),
+            cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+            header_behavior=cloudfront.CacheHeaderBehavior.none(),
+            query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
+            enable_accept_encoding_gzip=True,
+            enable_accept_encoding_brotli=True
+        )
+        
+        # Cache policy for API (no caching)
+        api_cache_policy = cloudfront.CachePolicy(
+            self, "APICachePolicy",
+            cache_policy_name=f"aquachain-api-{self.config['environment']}",
+            comment="Cache policy for API endpoints - no caching",
+            default_ttl=Duration.seconds(0),
+            min_ttl=Duration.seconds(0),
+            max_ttl=Duration.seconds(0),
+            cookie_behavior=cloudfront.CacheCookieBehavior.all(),
+            header_behavior=cloudfront.CacheHeaderBehavior.allowList(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Origin",
+                "Referer"
+            ),
+            query_string_behavior=cloudfront.CacheQueryStringBehavior.all(),
+            enable_accept_encoding_gzip=True,
+            enable_accept_encoding_brotli=True
+        )
+        
+        # Origin request policy for API
+        api_origin_request_policy = cloudfront.OriginRequestPolicy(
+            self, "APIOriginRequestPolicy",
+            origin_request_policy_name=f"aquachain-api-origin-{self.config['environment']}",
+            comment="Origin request policy for API Gateway",
+            cookie_behavior=cloudfront.OriginRequestCookieBehavior.all(),
+            header_behavior=cloudfront.OriginRequestHeaderBehavior.allowList(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Origin",
+                "Referer",
+                "User-Agent",
+                "CloudFront-Viewer-Country"
+            ),
+            query_string_behavior=cloudfront.OriginRequestQueryStringBehavior.all()
+        )
+        
+        # Origin request policy for SPA
+        spa_origin_request_policy = cloudfront.OriginRequestPolicy(
             self, "SPAOriginRequestPolicy",
             origin_request_policy_name=f"aquachain-spa-origin-{self.config['environment']}",
             comment="Origin request policy for SPA",
@@ -271,6 +326,44 @@ class AquaChainCloudFrontStack(Stack):
             )
         )
         
+        # Build additional behaviors dictionary
+        additional_behaviors = {}
+        
+        # Add API Gateway origin behavior if API domain is provided
+        if self.api_gateway_domain:
+            additional_behaviors["/api/*"] = cloudfront.BehaviorOptions(
+                origin=origins.HttpOrigin(
+                    self.api_gateway_domain,
+                    protocol_policy=cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+                    origin_ssl_protocols=[cloudfront.OriginSslPolicy.TLS_V1_2],
+                    custom_headers={
+                        "X-CloudFront-Origin": "api-gateway"
+                    }
+                ),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                cached_methods=cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+                compress=True,
+                cache_policy=api_cache_policy,
+                origin_request_policy=api_origin_request_policy,
+                response_headers_policy=response_headers_policy
+            )
+        
+        # Add static assets behavior with long TTL
+        additional_behaviors["/static/*"] = cloudfront.BehaviorOptions(
+            origin=origins.S3Origin(
+                self.frontend_bucket,
+                origin_access_identity=self.oai
+            ),
+            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+            cached_methods=cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+            compress=True,
+            cache_policy=static_cache_policy,
+            origin_request_policy=spa_origin_request_policy,
+            response_headers_policy=response_headers_policy
+        )
+        
         # Create distribution
         distribution = cloudfront.Distribution(
             self, "Distribution",
@@ -283,10 +376,11 @@ class AquaChainCloudFrontStack(Stack):
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
                 cached_methods=cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
                 compress=True,
-                cache_policy=cache_policy,
-                origin_request_policy=origin_request_policy,
+                cache_policy=spa_cache_policy,
+                origin_request_policy=spa_origin_request_policy,
                 response_headers_policy=response_headers_policy
             ),
+            additional_behaviors=additional_behaviors,
             default_root_object="index.html",
             error_responses=[
                 cloudfront.ErrorResponse(
@@ -309,7 +403,7 @@ class AquaChainCloudFrontStack(Stack):
             log_bucket=self._create_logs_bucket(),
             log_file_prefix="cloudfront/",
             web_acl_id=self.web_acl.attr_arn,
-            comment=f"AquaChain Frontend {self.config['environment']}"
+            comment=f"AquaChain Frontend and API {self.config['environment']}"
         )
         
         return distribution
