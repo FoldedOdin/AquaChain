@@ -5,10 +5,12 @@ Handles IoT device data validation, sanitization, and orchestration
 
 import json
 import boto3
+from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 import hashlib
 import uuid
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from jsonschema import validate, ValidationError
 import logging
 import sys
@@ -86,16 +88,60 @@ IOT_DATA_SCHEMA = {
 
 class DataProcessingError(Exception):
     """Custom exception for data processing errors"""
-    pass
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Initialize DataProcessingError.
+        
+        Args:
+            message: Error message describing the issue
+            details: Optional dictionary with additional error context
+        """
+        self.message = message
+        self.details = details or {}
+        super().__init__(self.message)
 
 class DuplicateDataError(Exception):
     """Exception for duplicate data detection"""
-    pass
+    
+    def __init__(self, message: str, device_id: Optional[str] = None, 
+                 timestamp: Optional[str] = None) -> None:
+        """
+        Initialize DuplicateDataError.
+        
+        Args:
+            message: Error message describing the duplicate
+            device_id: Optional device identifier
+            timestamp: Optional timestamp of duplicate reading
+        """
+        self.message = message
+        self.device_id = device_id
+        self.timestamp = timestamp
+        super().__init__(self.message)
 
 @trace_lambda_handler('data-processing')
-def lambda_handler(event, context):
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Main Lambda handler for IoT data processing
+    Main Lambda handler for IoT data processing.
+    
+    Processes incoming IoT sensor data through validation, ML inference,
+    storage, and alert detection pipeline.
+    
+    Args:
+        event: Lambda event containing IoT sensor data. Can be from direct
+               invocation, SNS, SQS, or IoT Rule trigger
+        context: Lambda context object with runtime information
+    
+    Returns:
+        Dict containing:
+            - statusCode: HTTP status code (200 for success, 4xx/5xx for errors)
+            - body: JSON string with processing results or error message
+            - headers: Optional response headers
+    
+    Raises:
+        ValidationError: When input data fails schema validation
+        DuplicateDataError: When duplicate reading is detected
+        DataProcessingError: When processing pipeline fails
     """
     try:
         logger.info(f"Processing event: {json.dumps(event)}")
@@ -154,16 +200,32 @@ def lambda_handler(event, context):
 
 def extract_iot_data(event: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Extract IoT data from Lambda event
-    Handles both direct invocation and IoT Rule triggers
+    Extract IoT data from Lambda event.
+    
+    Handles multiple event sources including direct invocation,
+    SNS notifications, SQS messages, and IoT Rule triggers.
+    
+    Args:
+        event: Lambda event dictionary from various sources
+    
+    Returns:
+        Extracted IoT sensor data as dictionary
+    
+    Raises:
+        KeyError: When required event fields are missing
+        json.JSONDecodeError: When event payload is not valid JSON
     """
     if 'Records' in event:
         # SNS/SQS trigger
-        record = event['Records'][0]
+        record: Dict[str, Any] = event['Records'][0]
         if 'Sns' in record:
-            return json.loads(record['Sns']['Message'])
+            message: str = record['Sns']['Message']
+            parsed_message: Dict[str, Any] = json.loads(message)
+            return parsed_message
         elif 'body' in record:
-            return json.loads(record['body'])
+            body: str = record['body']
+            parsed_body: Dict[str, Any] = json.loads(body)
+            return parsed_body
     
     # Direct invocation or IoT Rule
     return event
@@ -171,7 +233,24 @@ def extract_iot_data(event: Dict[str, Any]) -> Dict[str, Any]:
 @tracer.trace_critical_path('validate_sensor_data')
 def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Validate IoT data against schema and sanitize values
+    Validate IoT data against schema and sanitize values.
+    
+    Performs JSON schema validation and additional range checks for
+    sensor readings. Sanitizes timestamp format and rounds sensor
+    values to appropriate precision.
+    
+    Args:
+        data: Raw IoT sensor data dictionary containing deviceId,
+              timestamp, location, readings, and diagnostics
+    
+    Returns:
+        Validated and sanitized data dictionary with:
+            - Normalized timestamp in ISO format with 'Z' suffix
+            - Rounded sensor values to appropriate precision
+            - All fields validated against schema and ranges
+    
+    Raises:
+        ValidationError: When data fails schema validation or range checks
     """
     try:
         # Validate against JSON schema
@@ -222,7 +301,20 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def check_for_duplicates(data: Dict[str, Any]) -> None:
     """
-    Check for duplicate readings using device ID and timestamp
+    Check for duplicate readings using device ID and timestamp.
+    
+    Queries DynamoDB to detect if a reading with the same device ID
+    and timestamp already exists. Uses time-windowed partition keys
+    for efficient lookups.
+    
+    Args:
+        data: Validated sensor data containing deviceId and timestamp
+    
+    Returns:
+        None
+    
+    Raises:
+        DuplicateDataError: When duplicate reading is found
     """
     device_id = data['deviceId']
     timestamp = data['timestamp']
@@ -252,7 +344,21 @@ def check_for_duplicates(data: Dict[str, Any]) -> None:
 @tracer.trace_external_call('s3', 'put_object')
 def store_raw_data_s3(data: Dict[str, Any]) -> str:
     """
-    Store raw IoT data in S3 data lake with partitioned structure
+    Store raw IoT data in S3 data lake with partitioned structure.
+    
+    Stores raw sensor data in S3 with Hive-style partitioning by
+    year/month/day/hour for efficient querying. Applies KMS encryption
+    and adds metadata tags.
+    
+    Args:
+        data: Validated sensor data to store
+    
+    Returns:
+        S3 URI string in format 's3://bucket/key'
+    
+    Raises:
+        DataProcessingError: When S3 storage operation fails
+        ClientError: When AWS S3 API call fails
     """
     device_id = data['deviceId']
     timestamp = data['timestamp']
@@ -293,7 +399,24 @@ def store_raw_data_s3(data: Dict[str, Any]) -> str:
 @tracer.trace_external_call('lambda', 'invoke_ml_inference')
 def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Invoke ML inference Lambda for WQI calculation and anomaly detection
+    Invoke ML inference Lambda for WQI calculation and anomaly detection.
+    
+    Synchronously invokes the ML inference Lambda function to calculate
+    Water Quality Index (WQI) and detect anomalies. Returns default
+    values if ML inference fails to prevent pipeline disruption.
+    
+    Args:
+        data: Validated sensor data containing readings and location
+    
+    Returns:
+        Dictionary containing ML inference results:
+            - wqi: Water Quality Index (0-100)
+            - anomalyType: Type of anomaly detected ('normal', 'contamination', etc.)
+            - confidence: Confidence score (0.0-1.0)
+            - error: Optional error message if inference failed
+    
+    Raises:
+        DataProcessingError: When ML inference fails critically
     """
     try:
         payload = {
@@ -309,13 +432,15 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
             Payload=json.dumps(payload)
         )
         
-        result = json.loads(response['Payload'].read())
+        payload_data = response['Payload'].read()
+        result: Dict[str, Any] = json.loads(payload_data)
         
         if response['StatusCode'] != 200:
             raise DataProcessingError(f"ML inference failed: {result}")
         
         # Parse ML results
-        ml_results = json.loads(result['body'])
+        body_str: str = result['body']
+        ml_results: Dict[str, Any] = json.loads(body_str)
         
         logger.info(f"ML inference completed: WQI={ml_results['wqi']}, "
                    f"Anomaly={ml_results['anomalyType']}")
@@ -336,7 +461,23 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
 def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any], 
                           s3_reference: str) -> Dict[str, Any]:
     """
-    Store processed reading in DynamoDB with ledger entry
+    Store processed reading in DynamoDB with ledger entry.
+    
+    Stores the processed sensor reading in DynamoDB along with ML
+    inference results and S3 reference. Creates immutable ledger
+    entry for audit trail.
+    
+    Args:
+        data: Validated sensor data
+        ml_results: ML inference results including WQI and anomaly type
+        s3_reference: S3 URI where raw data is stored
+    
+    Returns:
+        Dictionary containing stored reading with ledger sequence number
+    
+    Raises:
+        DataProcessingError: When DynamoDB storage operation fails
+        ClientError: When AWS DynamoDB API call fails
     """
     try:
         # Import DynamoDB operations
@@ -369,17 +510,40 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
 
 def is_critical_event(ml_results: Dict[str, Any]) -> bool:
     """
-    Determine if reading represents a critical water quality event
+    Determine if reading represents a critical water quality event.
+    
+    Evaluates ML inference results to determine if the reading
+    represents a critical event requiring immediate attention.
+    
+    Args:
+        ml_results: ML inference results containing WQI and anomaly type
+    
+    Returns:
+        True if event is critical (WQI < 50 or contamination detected),
+        False otherwise
     """
-    wqi = ml_results.get('wqi', 100)
-    anomaly_type = ml_results.get('anomalyType', 'normal')
+    wqi: float = float(ml_results.get('wqi', 100))
+    anomaly_type: str = str(ml_results.get('anomalyType', 'normal'))
     
     # Critical if WQI below 50 or contamination detected
     return wqi < 50 or anomaly_type == 'contamination'
 
 def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any]) -> None:
     """
-    Trigger alert notification for critical events
+    Trigger alert notification for critical events.
+    
+    Publishes critical water quality alerts to SNS topic for
+    downstream processing and notification delivery.
+    
+    Args:
+        data: Validated sensor data with device and location info
+        ml_results: ML inference results with WQI and anomaly type
+    
+    Returns:
+        None
+    
+    Raises:
+        ClientError: When SNS publish operation fails (logged but not raised)
     """
     try:
         sns_client = boto3.client('sns')
@@ -414,7 +578,20 @@ def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any])
 
 def send_to_dlq(event: Dict[str, Any], error_message: str) -> None:
     """
-    Send failed events to dead letter queue for manual review
+    Send failed events to dead letter queue for manual review.
+    
+    Sends events that failed processing to SQS dead letter queue
+    with error context for manual investigation and retry.
+    
+    Args:
+        event: Original Lambda event that failed processing
+        error_message: Description of the error that occurred
+    
+    Returns:
+        None
+    
+    Raises:
+        ClientError: When SQS send operation fails (logged but not raised)
     """
     try:
         dlq_message = {
@@ -440,7 +617,17 @@ def send_to_dlq(event: Dict[str, Any], error_message: str) -> None:
 
 def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
     """
-    Create standardized error response
+    Create standardized error response.
+    
+    Generates a consistent error response format for Lambda
+    function returns.
+    
+    Args:
+        status_code: HTTP status code (400, 409, 500, etc.)
+        message: Human-readable error message
+    
+    Returns:
+        Dictionary with statusCode, body (JSON string), and headers
     """
     return {
         'statusCode': status_code,
