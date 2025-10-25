@@ -7,9 +7,15 @@ import json
 import boto3
 import pickle
 import numpy as np
+import time
 from datetime import datetime
 from typing import Dict, Any, Tuple
 import logging
+import os
+import sys
+
+# Add current directory to path for local imports
+sys.path.insert(0, os.path.dirname(__file__))
 
 # Configure logging
 logger = logging.getLogger()
@@ -22,10 +28,20 @@ s3_client = boto3.client('s3')
 MODEL_BUCKET = 'aquachain-data-lake'
 MODEL_KEY_PREFIX = 'ml-models/current/'
 MODEL_VERSION_KEY = 'wqi-model-version.json'
+ENABLE_MONITORING = os.environ.get('ENABLE_MONITORING', 'true').lower() == 'true'
 
 # Global model cache
 _model_cache = {}
 _model_version = None
+
+# Import performance tracker
+try:
+    from model_performance_monitor import get_tracker
+    _performance_tracker = None
+except ImportError:
+    logger.warning("ModelPerformanceTracker not available - monitoring disabled")
+    get_tracker = None
+    _performance_tracker = None
 
 class MLInferenceError(Exception):
     """Custom exception for ML inference errors"""
@@ -33,8 +49,10 @@ class MLInferenceError(Exception):
 
 def lambda_handler(event, context):
     """
-    Main Lambda handler for ML inference
+    Main Lambda handler for ML inference with performance monitoring
     """
+    start_time = time.time()
+    
     try:
         logger.info(f"ML inference request: {json.dumps(event)}")
         
@@ -59,6 +77,41 @@ def lambda_handler(event, context):
         # Get feature importance for explainability
         feature_importance = get_feature_importance(model, features)
         
+        # Calculate prediction latency
+        latency_ms = (time.time() - start_time) * 1000
+        
+        # Log prediction to performance tracker (async - no latency impact)
+        if ENABLE_MONITORING and get_tracker:
+            try:
+                global _performance_tracker
+                if _performance_tracker is None:
+                    _performance_tracker = get_tracker()
+                
+                _performance_tracker.log_prediction(
+                    model_name='wqi-model',
+                    prediction=wqi,
+                    actual=None,  # Actual value not available at inference time
+                    confidence=confidence,
+                    latency_ms=latency_ms
+                )
+                
+                # Periodically check for drift (every 100 predictions)
+                predictions = _performance_tracker.get_rolling_window_predictions()
+                if len(predictions) >= 100 and len(predictions) % 100 == 0:
+                    drift_score = _performance_tracker.calculate_drift_score('wqi-model', predictions)
+                    
+                    # Send drift score to CloudWatch for alarming
+                    _performance_tracker.send_drift_score_metric('wqi-model', drift_score)
+                    
+                    drift_detected = _performance_tracker.check_for_drift('wqi-model', drift_score)
+                    
+                    if drift_detected:
+                        logger.warning(f"Model drift detected! Score: {drift_score:.3f}")
+                        _performance_tracker.trigger_retraining('wqi-model', 'drift_detection')
+                
+            except Exception as e:
+                logger.warning(f"Performance monitoring error (non-critical): {e}")
+        
         result = {
             'deviceId': device_id,
             'timestamp': timestamp,
@@ -66,10 +119,11 @@ def lambda_handler(event, context):
             'anomalyType': anomaly_type,
             'confidence': round(confidence, 3),
             'modelVersion': _model_version,
-            'featureImportance': feature_importance
+            'featureImportance': feature_importance,
+            'latencyMs': round(latency_ms, 2)
         }
         
-        logger.info(f"ML inference completed: WQI={wqi}, Anomaly={anomaly_type}")
+        logger.info(f"ML inference completed: WQI={wqi}, Anomaly={anomaly_type}, Latency={latency_ms:.2f}ms")
         
         return {
             'statusCode': 200,
@@ -78,6 +132,8 @@ def lambda_handler(event, context):
         
     except Exception as e:
         logger.error(f"ML inference error: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             'statusCode': 500,
             'body': json.dumps({

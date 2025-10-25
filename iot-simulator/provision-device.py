@@ -12,6 +12,9 @@ from pathlib import Path
 import argparse
 from datetime import datetime
 
+# Import secure validation module
+from device_validation import DeviceValidator, DeviceValidationError
+
 def create_iot_policy():
     """Create the AquaChain device policy if it doesn't exist"""
     
@@ -62,6 +65,16 @@ def provision_device(device_id, region='us-east-1', thing_type='AquaChainWaterSe
     print("-" * 50)
     
     try:
+        # SECURITY: Validate device ID before provisioning
+        print("🔒 Validating device credentials...")
+        try:
+            validated_device_id = DeviceValidator.validate_device_id(device_id)
+            validated_thing_type = DeviceValidator.validate_thing_name(thing_type)
+            print(f"✅ Device ID validated: {validated_device_id}")
+        except DeviceValidationError as e:
+            print(f"❌ Validation failed: {e}")
+            return False
+        
         iot_client = boto3.client('iot', region_name=region)
         
         # Step 1: Create Thing Type (if it doesn't exist)

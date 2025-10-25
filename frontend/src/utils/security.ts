@@ -96,27 +96,133 @@ export class RateLimiter {
 }
 
 export class RecaptchaService {
+  private static isLoaded = false;
+  private static loadPromise: Promise<void> | null = null;
+
   /**
-   * Execute reCAPTCHA (mock implementation for development)
+   * Load reCAPTCHA script
+   */
+  private static loadRecaptchaScript(): Promise<void> {
+    if (this.loadPromise) {
+      return this.loadPromise;
+    }
+
+    this.loadPromise = new Promise((resolve, reject) => {
+      if (this.isLoaded || typeof (window as any).grecaptcha !== 'undefined') {
+        this.isLoaded = true;
+        resolve();
+        return;
+      }
+
+      const siteKey = process.env.REACT_APP_RECAPTCHA_SITE_KEY;
+      if (!siteKey) {
+        reject(new Error('reCAPTCHA site key not configured'));
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+      script.async = true;
+      script.defer = true;
+
+      script.onload = () => {
+        this.isLoaded = true;
+        resolve();
+      };
+
+      script.onerror = () => {
+        reject(new Error('Failed to load reCAPTCHA script'));
+      };
+
+      document.head.appendChild(script);
+    });
+
+    return this.loadPromise;
+  }
+
+  /**
+   * Execute reCAPTCHA v3
    */
   static async executeRecaptcha(action: string): Promise<string> {
+    // Development mode - return mock token
     if (process.env.NODE_ENV === 'development') {
-      // Mock token for development
+      console.log(`[DEV] reCAPTCHA mock token for action: ${action}`);
       return 'dev-recaptcha-token-' + Date.now();
     }
-    
-    // In production, would integrate with Google reCAPTCHA
+
+    // Production mode - use real reCAPTCHA
     const siteKey = process.env.REACT_APP_RECAPTCHA_SITE_KEY;
     if (!siteKey) {
-      throw new Error('reCAPTCHA not configured');
+      throw new Error('reCAPTCHA not configured. Set REACT_APP_RECAPTCHA_SITE_KEY in environment.');
     }
-    
-    // Mock implementation - replace with actual reCAPTCHA integration
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        resolve('mock-recaptcha-token-' + Date.now());
-      }, 100);
-    });
+
+    try {
+      // Load reCAPTCHA script if not already loaded
+      await this.loadRecaptchaScript();
+
+      // Execute reCAPTCHA
+      return new Promise((resolve, reject) => {
+        const grecaptcha = (window as any).grecaptcha;
+        
+        if (!grecaptcha || !grecaptcha.ready) {
+          reject(new Error('reCAPTCHA not ready'));
+          return;
+        }
+
+        grecaptcha.ready(() => {
+          grecaptcha
+            .execute(siteKey, { action })
+            .then((token: string) => {
+              if (!token) {
+                reject(new Error('reCAPTCHA returned empty token'));
+                return;
+              }
+              resolve(token);
+            })
+            .catch((error: Error) => {
+              reject(new Error(`reCAPTCHA execution failed: ${error.message}`));
+            });
+        });
+      });
+    } catch (error) {
+      console.error('reCAPTCHA error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verify reCAPTCHA token on backend
+   */
+  static async verifyToken(token: string, action: string): Promise<boolean> {
+    try {
+      const response = await fetch('/api/auth/verify-recaptcha', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token, action }),
+      });
+
+      if (!response.ok) {
+        throw new Error('reCAPTCHA verification failed');
+      }
+
+      const result = await response.json();
+      return result.success && result.score >= 0.5; // Threshold for v3
+    } catch (error) {
+      console.error('reCAPTCHA verification error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Reset reCAPTCHA (for v2 checkbox)
+   */
+  static reset(): void {
+    const grecaptcha = (window as any).grecaptcha;
+    if (grecaptcha && grecaptcha.reset) {
+      grecaptcha.reset();
+    }
   }
 }
 

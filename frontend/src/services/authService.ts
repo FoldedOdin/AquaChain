@@ -289,16 +289,70 @@ class AuthService {
    */
   async signInWithGoogle(): Promise<AuthResult> {
     try {
-      // TODO: Implement with AWS Amplify v6
-      const user = { email: 'user@example.com' };
-      const session = { isValid: () => true };
-      const userRole: UserRole = 'consumer';
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - simulate OAuth
+        const user = { 
+          email: 'google-user@example.com',
+          name: 'Google User',
+          provider: 'google'
+        };
+        const session = { isValid: () => true };
+        const userRole: UserRole = 'consumer';
+        const redirectPath = this.getRedirectPath(userRole);
+
+        this.currentUser = user;
+        this.currentSession = session;
+
+        await this.trackAuthEvent('oauth_login', userRole, 'google');
+
+        return { user, session, userRole, redirectPath };
+      }
+
+      // Production: Use AWS Amplify v6 OAuth
+      const { signInWithRedirect } = await import('aws-amplify/auth');
+      
+      // Initiate OAuth flow
+      await signInWithRedirect({ 
+        provider: 'Google',
+        customState: JSON.stringify({ returnUrl: window.location.pathname })
+      });
+
+      // Note: This will redirect to Google, then back to callback URL
+      // The actual user data will be retrieved in handleOAuthCallback()
+      
+      // Return placeholder - actual auth happens after redirect
+      return {
+        user: null,
+        session: null,
+        userRole: 'consumer',
+        redirectPath: '/auth/callback'
+      };
+      
+    } catch (error: any) {
+      throw this.handleAuthError(error);
+    }
+  }
+
+  /**
+   * Handle OAuth callback after redirect
+   */
+  async handleOAuthCallback(): Promise<AuthResult> {
+    try {
+      const { getCurrentUser, fetchAuthSession } = await import('aws-amplify/auth');
+      
+      // Get authenticated user
+      const user = await getCurrentUser();
+      const session = await fetchAuthSession();
+      
+      const userRole: UserRole = user.signInDetails?.loginId?.includes('admin') 
+        ? 'admin' 
+        : 'consumer';
       const redirectPath = this.getRedirectPath(userRole);
 
       this.currentUser = user;
       this.currentSession = session;
 
-      // Track OAuth login event
+      // Track successful OAuth login
       await this.trackAuthEvent('oauth_login', userRole, 'google');
 
       return {
@@ -307,6 +361,7 @@ class AuthService {
         userRole,
         redirectPath
       };
+      
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -319,16 +374,34 @@ class AuthService {
     try {
       const userRole = this.getCurrentUserRole();
       
-      // TODO: Implement with AWS Amplify v6
-      
-      this.currentUser = null;
-      this.currentSession = null;
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - clear local state
+        this.currentUser = null;
+        this.currentSession = null;
+        
+        // Clear localStorage
+        localStorage.removeItem('aquachain_user');
+        localStorage.removeItem('aquachain_token');
+      } else {
+        // Production: Use AWS Amplify v6
+        const { signOut } = await import('aws-amplify/auth');
+        await signOut({ global: true }); // Sign out from all devices
+        
+        this.currentUser = null;
+        this.currentSession = null;
+      }
 
       // Track logout event
       if (userRole) {
         await this.trackAuthEvent('logout', userRole);
       }
     } catch (error: any) {
+      console.error('Sign out error:', error);
+      // Force local cleanup even if remote signout fails
+      this.currentUser = null;
+      this.currentSession = null;
+      localStorage.clear();
+      
       throw this.handleAuthError(error);
     }
   }
@@ -344,14 +417,84 @@ class AuthService {
    * Get current user session
    */
   async getCurrentSession(): Promise<any> {
-    return this.currentSession;
+    if (process.env.NODE_ENV === 'development') {
+      return this.currentSession;
+    }
+
+    try {
+      const { fetchAuthSession } = await import('aws-amplify/auth');
+      const session = await fetchAuthSession();
+      
+      // Check if session is valid
+      if (session.tokens?.accessToken) {
+        this.currentSession = session;
+        return session;
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('Failed to fetch session:', error);
+      return null;
+    }
   }
 
   /**
    * Check if user is authenticated
    */
   async isAuthenticated(): Promise<boolean> {
-    return this.currentUser !== null;
+    if (process.env.NODE_ENV === 'development') {
+      return this.currentUser !== null;
+    }
+
+    try {
+      const session = await this.getCurrentSession();
+      return session !== null && session.tokens?.accessToken !== undefined;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Refresh authentication session
+   */
+  async refreshSession(): Promise<boolean> {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - session doesn't expire
+        return this.currentUser !== null;
+      }
+
+      const { fetchAuthSession } = await import('aws-amplify/auth');
+      const session = await fetchAuthSession({ forceRefresh: true });
+      
+      if (session.tokens?.accessToken) {
+        this.currentSession = session;
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Session refresh failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get authentication token for API requests
+   */
+  async getAuthToken(): Promise<string | null> {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        const token = localStorage.getItem('aquachain_token');
+        return token;
+      }
+
+      const session = await this.getCurrentSession();
+      return session?.tokens?.idToken?.toString() || null;
+    } catch (error) {
+      console.error('Failed to get auth token:', error);
+      return null;
+    }
   }
 
   /**
