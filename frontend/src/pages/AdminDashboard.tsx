@@ -1,20 +1,32 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, lazy, Suspense } from 'react';
 import SystemHealthCard from '../components/Admin/SystemHealthCard';
 import DeviceFleetOverview from '../components/Admin/DeviceFleetOverview';
 import PerformanceMetricsChart from '../components/Admin/PerformanceMetricsChart';
 import AlertAnalytics from '../components/Admin/AlertAnalytics';
-import UserManagement from '../components/Admin/UserManagement';
-import DeviceManagement from '../components/Admin/DeviceManagement';
-import TechnicianManagement from '../components/Admin/TechnicianManagement';
-import ComplianceReporting from '../components/Admin/ComplianceReporting';
-import AuditTrailViewer from '../components/Admin/AuditTrailViewer';
-import SystemConfiguration from '../components/Admin/SystemConfiguration';
 import DashboardLayout from '../components/Dashboard/DashboardLayout';
 import DataCard from '../components/Dashboard/DataCard';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 import { useDataExport } from '../hooks/useDataExport';
 import { getPerformanceMetrics } from '../services/adminService';
+
+// Lazy load heavy admin components
+const UserManagement = lazy(() => import('../components/Admin/UserManagement'));
+const DeviceManagement = lazy(() => import('../components/Admin/DeviceManagement'));
+const TechnicianManagement = lazy(() => import('../components/Admin/TechnicianManagement'));
+const ComplianceReporting = lazy(() => import('../components/Admin/ComplianceReporting'));
+const AuditTrailViewer = lazy(() => import('../components/Admin/AuditTrailViewer'));
+const SystemConfiguration = lazy(() => import('../components/Admin/SystemConfiguration'));
+
+// Loading component for tab content
+const TabLoadingFallback = () => (
+  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+      <p className="text-gray-600">Loading...</p>
+    </div>
+  </div>
+);
 
 type TabType = 'overview' | 'fleet' | 'performance' | 'alerts' | 'users' | 'devices' | 'technicians' | 'compliance' | 'audit' | 'config';
 
@@ -165,7 +177,7 @@ const AdminDashboard = () => {
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as TabType)}
+              onClick={() => handleTabChange(tab.id as TabType)}
               className={`py-4 px-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-blue-500 text-blue-600'
@@ -201,7 +213,7 @@ const AdminDashboard = () => {
                 />
                 <DataCard
                   title="Active Devices"
-                  value={deviceFleet.filter((d: any) => d.status === 'online').length}
+                  value={activeDeviceCount}
                   subtitle={`of ${deviceFleet.length}`}
                   icon={
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,7 +223,7 @@ const AdminDashboard = () => {
                 />
                 <DataCard
                   title="Critical Alerts"
-                  value={alertAnalytics?.criticalCount || 0}
+                  value={criticalAlertCount}
                   trend={{
                     value: 15,
                     direction: 'down',
@@ -240,19 +252,19 @@ const AdminDashboard = () => {
               <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button 
-                  onClick={() => setActiveTab('users')}
+                  onClick={() => handleTabChange('users')}
                   className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Manage Users
                 </button>
                 <button 
-                  onClick={() => setActiveTab('devices')}
+                  onClick={() => handleTabChange('devices')}
                   className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Register Device
                 </button>
                 <button 
-                  onClick={() => setActiveTab('compliance')}
+                  onClick={() => handleTabChange('compliance')}
                   className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   Generate Report
@@ -277,17 +289,41 @@ const AdminDashboard = () => {
           <AlertAnalytics analytics={alertAnalytics} />
         )}
 
-        {activeTab === 'users' && <UserManagement />}
+        {activeTab === 'users' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <UserManagement />
+          </Suspense>
+        )}
 
-        {activeTab === 'devices' && <DeviceManagement />}
+        {activeTab === 'devices' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <DeviceManagement />
+          </Suspense>
+        )}
 
-        {activeTab === 'technicians' && <TechnicianManagement />}
+        {activeTab === 'technicians' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <TechnicianManagement />
+          </Suspense>
+        )}
 
-        {activeTab === 'compliance' && <ComplianceReporting />}
+        {activeTab === 'compliance' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <ComplianceReporting />
+          </Suspense>
+        )}
 
-        {activeTab === 'audit' && <AuditTrailViewer />}
+        {activeTab === 'audit' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <AuditTrailViewer />
+          </Suspense>
+        )}
 
-        {activeTab === 'config' && <SystemConfiguration />}
+        {activeTab === 'config' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <SystemConfiguration />
+          </Suspense>
+        )}
       </div>
     </DashboardLayout>
   );

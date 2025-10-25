@@ -35,8 +35,9 @@ interface DataCardProps {
 
 /**
  * DataCard displays a metric with optional trend indicators and actions
+ * Memoized to prevent unnecessary re-renders
  */
-export const DataCard: React.FC<DataCardProps> = ({
+const DataCardComponent: React.FC<DataCardProps> = ({
   title,
   value,
   trend,
@@ -141,5 +142,18 @@ export const DataCard: React.FC<DataCardProps> = ({
     </div>
   );
 };
+
+// Memoize the component to prevent unnecessary re-renders
+// Only re-render if props actually change
+export const DataCard = React.memo(DataCardComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.title === nextProps.title &&
+    prevProps.value === nextProps.value &&
+    prevProps.loading === nextProps.loading &&
+    prevProps.subtitle === nextProps.subtitle &&
+    prevProps.className === nextProps.className &&
+    JSON.stringify(prevProps.trend) === JSON.stringify(nextProps.trend)
+  );
+});
 
 export default DataCard;

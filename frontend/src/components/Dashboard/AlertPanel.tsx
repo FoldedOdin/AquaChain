@@ -30,8 +30,9 @@ interface AlertPanelProps {
 
 /**
  * AlertPanel displays a list of alerts with actions for dismissing and acknowledging
+ * Memoized to prevent unnecessary re-renders
  */
-export const AlertPanel: React.FC<AlertPanelProps> = ({
+const AlertPanelComponent: React.FC<AlertPanelProps> = ({
   alerts,
   onDismiss,
   onAcknowledge,
@@ -220,5 +221,18 @@ export const AlertPanel: React.FC<AlertPanelProps> = ({
     </div>
   );
 };
+
+// Memoize the component to prevent unnecessary re-renders
+// Only re-render if alerts array or callbacks change
+export const AlertPanel = React.memo(AlertPanelComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.alerts.length === nextProps.alerts.length &&
+    prevProps.alerts.every((alert, index) => alert.id === nextProps.alerts[index]?.id) &&
+    prevProps.maxAlerts === nextProps.maxAlerts &&
+    prevProps.className === nextProps.className &&
+    prevProps.onDismiss === nextProps.onDismiss &&
+    prevProps.onAcknowledge === nextProps.onAcknowledge
+  );
+});
 
 export default AlertPanel;

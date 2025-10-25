@@ -1,16 +1,33 @@
-import React from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import LandingPageWithAnalytics from './components/LandingPage/LandingPageWithAnalytics';
-import ConsumerDashboard from './components/Dashboard/ConsumerDashboard';
-import TechnicianDashboard from './components/Dashboard/TechnicianDashboard';
-import AdminDashboard from './components/Dashboard/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
+import performanceMonitor from './services/performanceMonitor';
 import './App.css';
 
+// Lazy load dashboard components for code splitting
+const ConsumerDashboard = lazy(() => import('./components/Dashboard/ConsumerDashboard'));
+const TechnicianDashboard = lazy(() => import('./components/Dashboard/TechnicianDashboard'));
+const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboard'));
+
+// Loading component for Suspense fallback
+const DashboardLoadingFallback = () => (
+  <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-aqua-500 mx-auto mb-4"></div>
+      <p className="text-gray-600">Loading dashboard...</p>
+    </div>
+  </div>
+);
+
 function App() {
-  // Debug current location (development only)
-  React.useEffect(() => {
+  // Initialize performance monitoring
+  useEffect(() => {
+    // Mark app initialization
+    performanceMonitor.mark('app-init');
+
+    // Debug current location (development only)
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
       console.log('=== APP MOUNTED ===');
@@ -19,6 +36,11 @@ function App() {
       // eslint-disable-next-line no-console
       console.log('Current pathname:', window.location.pathname);
     }
+
+    // Cleanup on unmount
+    return () => {
+      performanceMonitor.disconnect();
+    };
   }, []);
 
   return (
@@ -31,12 +53,14 @@ function App() {
               element={<LandingPageWithAnalytics />}
             />
             
-            {/* Protected Dashboard Routes */}
+            {/* Protected Dashboard Routes with Lazy Loading */}
             <Route
               path="/dashboard/consumer"
               element={
                 <ProtectedRoute requiredRole="consumer">
-                  <ConsumerDashboard />
+                  <Suspense fallback={<DashboardLoadingFallback />}>
+                    <ConsumerDashboard />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -45,7 +69,9 @@ function App() {
               path="/dashboard/technician"
               element={
                 <ProtectedRoute requiredRole="technician">
-                  <TechnicianDashboard />
+                  <Suspense fallback={<DashboardLoadingFallback />}>
+                    <TechnicianDashboard />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -54,7 +80,9 @@ function App() {
               path="/dashboard/admin"
               element={
                 <ProtectedRoute requiredRole="admin">
-                  <AdminDashboard />
+                  <Suspense fallback={<DashboardLoadingFallback />}>
+                    <AdminDashboard />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />

@@ -1,14 +1,26 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback, useEffect, lazy, Suspense } from 'react';
 import { TechnicianTask } from '../types';
 import { technicianService } from '../services/technicianService';
 import TaskList from '../components/Technician/TaskList';
 import TaskDetails from '../components/Technician/TaskDetails';
-import TaskMap from '../components/Technician/TaskMap';
-import MaintenanceHistory from '../components/Technician/MaintenanceHistory';
 import DashboardLayout from '../components/Dashboard/DashboardLayout';
 import DataCard from '../components/Dashboard/DataCard';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDataExport } from '../hooks/useDataExport';
+
+// Lazy load heavy components
+const TaskMap = lazy(() => import('../components/Technician/TaskMap'));
+const MaintenanceHistory = lazy(() => import('../components/Technician/MaintenanceHistory'));
+
+// Loading component for view content
+const ViewLoadingFallback = () => (
+  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500 mx-auto mb-4"></div>
+      <p className="text-gray-600">Loading...</p>
+    </div>
+  </div>
+);
 
 const TechnicianDashboard = () => {
   const [selectedTask, setSelectedTask] = useState<TechnicianTask | null>(null);
@@ -20,36 +32,47 @@ const TechnicianDashboard = () => {
 
   // Extract data from the hook
   const technicianData = data as any;
-  const tasks = technicianData?.tasks || [];
+  const tasks = useMemo(() => technicianData?.tasks || [], [technicianData]);
 
   // Set initial selected task
-  if (tasks.length > 0 && !selectedTask) {
-    setSelectedTask(tasks[0]);
-  }
+  useEffect(() => {
+    if (tasks.length > 0 && !selectedTask) {
+      setSelectedTask(tasks[0]);
+    }
+  }, [tasks, selectedTask]);
 
-  const handleTaskSelect = (task: TechnicianTask) => {
+  // Memoize computed task counts
+  const taskCounts = useMemo(() => ({
+    assigned: tasks.filter((t: TechnicianTask) => t.status === 'assigned').length,
+    accepted: tasks.filter((t: TechnicianTask) => t.status === 'accepted').length,
+    inProgress: tasks.filter((t: TechnicianTask) => ['en_route', 'in_progress'].includes(t.status)).length,
+    highPriority: tasks.filter((t: TechnicianTask) => ['high', 'critical'].includes(t.priority)).length
+  }), [tasks]);
+
+  // Memoize event handlers
+  const handleTaskSelect = useCallback((task: TechnicianTask) => {
     setSelectedTask(task);
-  };
+  }, []);
 
-  const handleTaskUpdate = async (taskId: string, status: TechnicianTask['status'], note?: string) => {
+  const handleTaskUpdate = useCallback(async (taskId: string, status: TechnicianTask['status'], note?: string) => {
     try {
       await technicianService.updateTaskStatus(taskId, status, note);
       await refetch(); // Reload tasks to get updated data
     } catch (err) {
       console.error('Error updating task:', err);
     }
-  };
+  }, [refetch]);
 
-  const handleAcceptTask = async (taskId: string) => {
+  const handleAcceptTask = useCallback(async (taskId: string) => {
     try {
       await technicianService.acceptTask(taskId);
       await refetch();
     } catch (err) {
       console.error('Error accepting task:', err);
     }
-  };
+  }, [refetch]);
 
-  const handleExportTasks = async () => {
+  const handleExportTasks = useCallback(async () => {
     try {
       await exportData(tasks, {
         format: 'json',
@@ -59,7 +82,11 @@ const TechnicianDashboard = () => {
     } catch (err) {
       console.error('Error exporting tasks:', err);
     }
-  };
+  }, [exportData, tasks]);
+
+  const handleViewChange = useCallback((newView: 'list' | 'map' | 'history') => {
+    setView(newView);
+  }, []);
 
   if (loading) {
     return (
@@ -119,7 +146,7 @@ const TechnicianDashboard = () => {
           </div>
           <div className="flex space-x-3">
             <button
-              onClick={() => setView('list')}
+              onClick={() => handleViewChange('list')}
               className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'list'
                 ? 'bg-green-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -128,7 +155,7 @@ const TechnicianDashboard = () => {
               List View
             </button>
             <button
-              onClick={() => setView('map')}
+              onClick={() => handleViewChange('map')}
               className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'map'
                 ? 'bg-green-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -137,7 +164,7 @@ const TechnicianDashboard = () => {
               Map View
             </button>
             <button
-              onClick={() => setView('history')}
+              onClick={() => handleViewChange('history')}
               className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'history'
                 ? 'bg-green-600 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -161,7 +188,7 @@ const TechnicianDashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <DataCard
           title="Assigned"
-          value={tasks.filter((t: TechnicianTask) => t.status === 'assigned').length}
+          value={taskCounts.assigned}
           icon={
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
@@ -170,7 +197,7 @@ const TechnicianDashboard = () => {
         />
         <DataCard
           title="Accepted"
-          value={tasks.filter((t: TechnicianTask) => t.status === 'accepted').length}
+          value={taskCounts.accepted}
           icon={
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -179,7 +206,7 @@ const TechnicianDashboard = () => {
         />
         <DataCard
           title="In Progress"
-          value={tasks.filter((t: TechnicianTask) => ['en_route', 'in_progress'].includes(t.status)).length}
+          value={taskCounts.inProgress}
           icon={
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
@@ -188,7 +215,7 @@ const TechnicianDashboard = () => {
         />
         <DataCard
           title="High Priority"
-          value={tasks.filter((t: TechnicianTask) => ['high', 'critical'].includes(t.priority)).length}
+          value={taskCounts.highPriority}
           icon={
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -229,13 +256,17 @@ const TechnicianDashboard = () => {
           </div>
         </div>
       ) : view === 'map' ? (
-        <TaskMap
-          tasks={tasks}
-          selectedTask={selectedTask}
-          onTaskSelect={handleTaskSelect}
-        />
+        <Suspense fallback={<ViewLoadingFallback />}>
+          <TaskMap
+            tasks={tasks}
+            selectedTask={selectedTask}
+            onTaskSelect={handleTaskSelect}
+          />
+        </Suspense>
       ) : (
-        <MaintenanceHistory />
+        <Suspense fallback={<ViewLoadingFallback />}>
+          <MaintenanceHistory />
+        </Suspense>
       )}
     </DashboardLayout>
   );
