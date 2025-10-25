@@ -21,6 +21,7 @@ from stacks.cloudfront_stack import AquaChainCloudFrontStack
 from stacks.iot_security_stack import AquaChainIoTSecurityStack
 from stacks.ml_model_registry_stack import AquaChainMLModelRegistryStack
 from stacks.phase3_infrastructure_stack import AquaChainPhase3InfrastructureStack
+from stacks.performance_dashboard_stack import PerformanceDashboardStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -205,6 +206,19 @@ def main():
         description=f"AquaChain Phase 3 Infrastructure - {env_name}"
     )
     phase3_stack.add_dependency(security_stack)
+    
+    # 16. Performance Dashboard Stack (CloudWatch dashboard for system monitoring)
+    performance_dashboard_stack = PerformanceDashboardStack(
+        app,
+        f"AquaChain-PerformanceDashboard-{env_name}",
+        environment=env_name,
+        env=aws_env,
+        description=f"AquaChain Performance Monitoring Dashboard - {env_name}"
+    )
+    # Dashboard can be deployed independently but benefits from other stacks being deployed first
+    performance_dashboard_stack.add_dependency(api_stack)
+    performance_dashboard_stack.add_dependency(data_stack)
+    performance_dashboard_stack.add_dependency(compute_stack)
     
     # Synthesize the app
     app.synth()
