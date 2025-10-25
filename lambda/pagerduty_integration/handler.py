@@ -5,9 +5,20 @@ Processes CloudWatch alarms and creates PagerDuty incidents
 
 import json
 import os
+import sys
 import requests
 from datetime import datetime
 from typing import Dict, Any
+
+# Add shared utilities to path
+sys.path.append('/opt/python')  # Lambda layer path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='pagerduty-integration')
 
 
 def create_pagerduty_incident(integration_key: str, 
@@ -227,7 +238,11 @@ def lambda_handler(event, context):
         new_state_value = sns_message.get('NewStateValue', '')
         new_state_reason = sns_message.get('NewStateReason', '')
         
-        print(f"Processing alarm: {alarm_name}, State: {new_state_value}")
+        logger.info(
+            "Processing CloudWatch alarm",
+            alarm_name=alarm_name,
+            alarm_state=new_state_value
+        )
         
         # Only process ALARM state (not OK or INSUFFICIENT_DATA)
         if new_state_value != 'ALARM':
@@ -289,7 +304,11 @@ def lambda_handler(event, context):
                 }
             )
         
-        print(f"PagerDuty incident created: {response}")
+        logger.info(
+            "PagerDuty incident created",
+            alarm_name=alarm_name,
+            incident_key=response.get('dedup_key')
+        )
         
         return {
             'statusCode': 200,
@@ -301,7 +320,10 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"Error processing alarm: {str(e)}")
+        logger.error(
+            "Error processing alarm",
+            error_message=str(e)
+        )
         return {
             'statusCode': 500,
             'body': json.dumps({

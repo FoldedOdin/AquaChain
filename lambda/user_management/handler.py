@@ -8,13 +8,25 @@ import json
 import boto3
 import logging
 import uuid
+import sys
+import os
 from typing import Dict, List, Optional, Any
 from botocore.exceptions import ClientError
 from datetime import datetime, time
 import re
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# Add shared utilities to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import error handling
+from errors import ValidationError, AuthenticationError, DatabaseError, ResourceNotFoundError
+from error_handler import handle_errors
+
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='user-management')
 
 class UserManagementService:
     """
@@ -40,13 +52,13 @@ class UserManagementService:
         try:
             # Validate input
             if not self._validate_email(email):
-                raise ValueError("Invalid email format")
+                raise ValidationError("Invalid email format", details={'email': email})
             
             if not self._validate_password(password):
-                raise ValueError("Password does not meet complexity requirements")
+                raise ValidationError("Password does not meet complexity requirements")
             
             if role not in ['consumer', 'technician', 'administrator']:
-                raise ValueError("Invalid role specified")
+                raise ValidationError("Invalid role specified", details={'role': role})
             
             # Create user in Cognito
             user_attributes = [
@@ -141,15 +153,17 @@ class UserManagementService:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'UsernameExistsException':
-                raise ValueError("User with this email already exists")
+                raise ValidationError("User with this email already exists", details={'email': email})
             elif error_code == 'InvalidPasswordException':
-                raise ValueError("Password does not meet requirements")
+                raise ValidationError("Password does not meet requirements")
             else:
                 logger.error(f"Cognito error during registration: {e}")
-                raise Exception(f"Registration failed: {error_code}")
+                raise DatabaseError(f"Registration failed: {error_code}")
+        except (ValidationError, DatabaseError):
+            raise
         except Exception as e:
             logger.error(f"User registration error: {e}")
-            raise
+            raise DatabaseError(f"User registration failed: {str(e)}")
     
     def get_user_profile(self, user_id: str) -> Optional[Dict]:
         """
@@ -171,7 +185,7 @@ class UserManagementService:
             # Get current profile
             current_profile = self.get_user_profile(user_id)
             if not current_profile:
-                raise ValueError("User not found")
+                raise ResourceNotFoundError("User not found", details={'user_id': user_id})
             
             # Prepare update expression
             update_expression = "SET updatedAt = :updated_at"
@@ -223,10 +237,12 @@ class UserManagementService:
             
         except ClientError as e:
             logger.error(f"Error updating user profile: {e}")
-            raise Exception("Failed to update profile")
+            raise DatabaseError("Failed to update profile", details={'user_id': user_id})
+        except (ResourceNotFoundError, DatabaseError):
+            raise
         except Exception as e:
             logger.error(f"Profile update error: {e}")
-            raise
+            raise DatabaseError(f"Profile update failed: {str(e)}")
     
     def associate_device(self, user_id: str, device_id: str) -> bool:
         """
@@ -237,10 +253,10 @@ class UserManagementService:
             # Get current profile
             profile = self.get_user_profile(user_id)
             if not profile:
-                raise ValueError("User not found")
+                raise ResourceNotFoundError("User not found", details={'user_id': user_id})
             
             if profile.get('role') != 'consumer':
-                raise ValueError("Only consumers can associate devices")
+                raise ValidationError("Only consumers can associate devices", details={'role': profile.get('role')})
             
             # Add device to user's device list
             current_devices = set(profile.get('deviceIds', []))
@@ -269,9 +285,11 @@ class UserManagementService:
             logger.info(f"Device {device_id} associated with user {user_id}")
             return True
             
+        except (ResourceNotFoundError, ValidationError, DatabaseError):
+            raise
         except Exception as e:
             logger.error(f"Device association error: {e}")
-            raise
+            raise DatabaseError(f"Device association failed: {str(e)}")
     
     def remove_device_association(self, user_id: str, device_id: str) -> bool:
         """
@@ -281,7 +299,7 @@ class UserManagementService:
             # Get current profile
             profile = self.get_user_profile(user_id)
             if not profile:
-                raise ValueError("User not found")
+                raise ResourceNotFoundError("User not found", details={'user_id': user_id})
             
             # Remove device from user's device list
             current_devices = set(profile.get('deviceIds', []))
@@ -310,9 +328,11 @@ class UserManagementService:
             logger.info(f"Device {device_id} removed from user {user_id}")
             return True
             
+        except (ResourceNotFoundError, DatabaseError):
+            raise
         except Exception as e:
             logger.error(f"Device removal error: {e}")
-            raise
+            raise DatabaseError(f"Device removal failed: {str(e)}")
     
     def setup_technician_profile(self, user_id: str, work_schedule: Dict, 
                                 initial_location: Optional[Dict] = None) -> Dict:
@@ -323,15 +343,15 @@ class UserManagementService:
         try:
             # Validate work schedule
             if not self._validate_work_schedule(work_schedule):
-                raise ValueError("Invalid work schedule format")
+                raise ValidationError("Invalid work schedule format")
             
             # Get current profile
             profile = self.get_user_profile(user_id)
             if not profile:
-                raise ValueError("User not found")
+                raise ResourceNotFoundError("User not found", details={'user_id': user_id})
             
             if profile.get('role') != 'technician':
-                raise ValueError("User is not a technician")
+                raise ValidationError("User is not a technician", details={'role': profile.get('role')})
             
             # Update technician-specific fields
             update_data = {
@@ -350,9 +370,11 @@ class UserManagementService:
             logger.info(f"Technician profile setup completed: {user_id}")
             return updated_profile
             
+        except (ValidationError, ResourceNotFoundError, DatabaseError):
+            raise
         except Exception as e:
             logger.error(f"Technician setup error: {e}")
-            raise
+            raise DatabaseError(f"Technician setup failed: {str(e)}")
     
     def _validate_email(self, email: str) -> bool:
         """Validate email format."""
@@ -442,128 +464,107 @@ class UserManagementService:
             # Don't raise exception as DynamoDB update was successful
 
 # Lambda handler
+@handle_errors
 def lambda_handler(event, context):
     """
     Main Lambda handler for user management operations.
     """
-    try:
-        # Get configuration
-        user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
-        client_id = os.environ.get('COGNITO_CLIENT_ID')
-        region = os.environ.get('AWS_REGION', 'us-east-1')
-        
-        if not user_pool_id or not client_id:
-            return {
-                'statusCode': 500,
-                'body': json.dumps({'error': 'Missing Cognito configuration'})
-            }
-        
-        user_service = UserManagementService(user_pool_id, client_id, region)
-        
-        # Route based on HTTP method and path
-        http_method = event.get('httpMethod')
-        path = event.get('path', '')
-        body = json.loads(event.get('body', '{}'))
-        path_params = event.get('pathParameters', {})
-        
-        if http_method == 'POST' and path.endswith('/register'):
-            # User registration
-            result = user_service.register_user(
-                email=body.get('email'),
-                password=body.get('password'),
-                first_name=body.get('firstName'),
-                last_name=body.get('lastName'),
-                phone=body.get('phone'),
-                role=body.get('role', 'consumer'),
-                address=body.get('address')
-            )
-            
-            return {
-                'statusCode': 201,
-                'body': json.dumps(result)
-            }
-        
-        elif http_method == 'GET' and '/profile/' in path:
-            # Get user profile
-            user_id = path_params.get('userId')
-            profile = user_service.get_user_profile(user_id)
-            
-            if not profile:
-                return {
-                    'statusCode': 404,
-                    'body': json.dumps({'error': 'User not found'})
-                }
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps(profile)
-            }
-        
-        elif http_method == 'PUT' and '/profile/' in path:
-            # Update user profile
-            user_id = path_params.get('userId')
-            updated_profile = user_service.update_user_profile(user_id, body)
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps(updated_profile)
-            }
-        
-        elif http_method == 'POST' and '/devices/associate' in path:
-            # Associate device
-            user_id = body.get('userId')
-            device_id = body.get('deviceId')
-            
-            user_service.associate_device(user_id, device_id)
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps({'message': 'Device associated successfully'})
-            }
-        
-        elif http_method == 'DELETE' and '/devices/associate' in path:
-            # Remove device association
-            user_id = body.get('userId')
-            device_id = body.get('deviceId')
-            
-            user_service.remove_device_association(user_id, device_id)
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps({'message': 'Device association removed'})
-            }
-        
-        elif http_method == 'POST' and '/technician/setup' in path:
-            # Setup technician profile
-            user_id = body.get('userId')
-            work_schedule = body.get('workSchedule')
-            initial_location = body.get('initialLocation')
-            
-            result = user_service.setup_technician_profile(
-                user_id, work_schedule, initial_location
-            )
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps(result)
-            }
-        
-        else:
-            return {
-                'statusCode': 404,
-                'body': json.dumps({'error': 'Endpoint not found'})
-            }
+    # Get configuration
+    user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
+    client_id = os.environ.get('COGNITO_CLIENT_ID')
+    region = os.environ.get('AWS_REGION', 'us-east-1')
     
-    except ValueError as e:
+    if not user_pool_id or not client_id:
+        raise ValidationError('Missing Cognito configuration')
+    
+    user_service = UserManagementService(user_pool_id, client_id, region)
+    
+    # Route based on HTTP method and path
+    http_method = event.get('httpMethod')
+    path = event.get('path', '')
+    body = json.loads(event.get('body', '{}'))
+    path_params = event.get('pathParameters', {})
+        
+    if http_method == 'POST' and path.endswith('/register'):
+        # User registration
+        result = user_service.register_user(
+            email=body.get('email'),
+            password=body.get('password'),
+            first_name=body.get('firstName'),
+            last_name=body.get('lastName'),
+            phone=body.get('phone'),
+            role=body.get('role', 'consumer'),
+            address=body.get('address')
+        )
+        
         return {
-            'statusCode': 400,
-            'body': json.dumps({'error': str(e)})
+            'statusCode': 201,
+            'body': json.dumps(result)
         }
-    except Exception as e:
-        logger.error(f"User management service error: {e}")
+    
+    elif http_method == 'GET' and '/profile/' in path:
+        # Get user profile
+        user_id = path_params.get('userId')
+        profile = user_service.get_user_profile(user_id)
+        
+        if not profile:
+            raise ResourceNotFoundError('User not found', details={'user_id': user_id})
+        
         return {
-            'statusCode': 500,
-            'body': json.dumps({'error': 'Internal server error'})
+            'statusCode': 200,
+            'body': json.dumps(profile)
         }
+    
+    elif http_method == 'PUT' and '/profile/' in path:
+        # Update user profile
+        user_id = path_params.get('userId')
+        updated_profile = user_service.update_user_profile(user_id, body)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps(updated_profile)
+        }
+    
+    elif http_method == 'POST' and '/devices/associate' in path:
+        # Associate device
+        user_id = body.get('userId')
+        device_id = body.get('deviceId')
+        
+        user_service.associate_device(user_id, device_id)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'message': 'Device associated successfully'})
+        }
+    
+    elif http_method == 'DELETE' and '/devices/associate' in path:
+        # Remove device association
+        user_id = body.get('userId')
+        device_id = body.get('deviceId')
+        
+        user_service.remove_device_association(user_id, device_id)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'message': 'Device association removed'})
+        }
+    
+    elif http_method == 'POST' and '/technician/setup' in path:
+        # Setup technician profile
+        user_id = body.get('userId')
+        work_schedule = body.get('workSchedule')
+        initial_location = body.get('initialLocation')
+        
+        result = user_service.setup_technician_profile(
+            user_id, work_schedule, initial_location
+        )
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps(result)
+        }
+    
+    else:
+        raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
 
 import os

@@ -23,9 +23,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 # Import X-Ray tracing utilities
 from xray_utils import AquaChainTracer, trace_lambda_handler, EndToEndTracer
 
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# Import error handling
+from errors import ValidationError as AquaChainValidationError, DatabaseError
+from error_handler import handle_errors
+
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='data-processing')
 
 # Initialize tracer
 tracer = AquaChainTracer('data-processing')
@@ -119,6 +125,7 @@ class DuplicateDataError(Exception):
         self.timestamp = timestamp
         super().__init__(self.message)
 
+@handle_errors
 @trace_lambda_handler('data-processing')
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -144,7 +151,14 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         DataProcessingError: When processing pipeline fails
     """
     try:
-        logger.info(f"Processing event: {json.dumps(event)}")
+        request_id = context.request_id if hasattr(context, 'request_id') else None
+        start_time = datetime.utcnow()
+        
+        logger.info(
+            "Processing IoT data event",
+            request_id=request_id,
+            event_source=event.get('Records', [{}])[0].get('eventSource') if 'Records' in event else 'direct'
+        )
         
         # Extract IoT data from event
         iot_data = extract_iot_data(event)
@@ -172,6 +186,17 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # No need to manually trigger alerts here as the alert detection Lambda
         # will be triggered automatically when data is written to DynamoDB
         
+        # Log performance metrics
+        duration_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+        logger.info(
+            "Data processing completed successfully",
+            request_id=request_id,
+            device_id=validated_data['deviceId'],
+            wqi=ml_results['wqi'],
+            anomaly_type=ml_results['anomalyType'],
+            duration_ms=duration_ms
+        )
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -185,18 +210,44 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
         
     except ValidationError as e:
-        logger.error(f"Data validation error: {e}")
+        logger.error(
+            "Data validation error",
+            request_id=request_id,
+            error_code='VALIDATION_ERROR',
+            error_message=str(e)
+        )
         send_to_dlq(event, f"Validation error: {e}")
-        return create_error_response(400, "Invalid data format")
+        raise AquaChainValidationError(
+            message="Invalid data format",
+            details={'validation_error': str(e)}
+        )
         
     except DuplicateDataError as e:
-        logger.warning(f"Duplicate data detected: {e}")
-        return create_error_response(409, "Duplicate data")
+        logger.warning(
+            "Duplicate data detected",
+            request_id=request_id,
+            device_id=e.device_id,
+            timestamp=e.timestamp
+        )
+        raise AquaChainValidationError(
+            message="Duplicate data detected",
+            error_code='DUPLICATE_DATA',
+            details={'device_id': e.device_id, 'timestamp': e.timestamp}
+        )
         
-    except Exception as e:
-        logger.error(f"Processing error: {e}")
+    except DataProcessingError as e:
+        logger.error(
+            "Data processing error",
+            request_id=request_id,
+            error_code='PROCESSING_ERROR',
+            error_message=e.message,
+            error_details=e.details
+        )
         send_to_dlq(event, f"Processing error: {e}")
-        return create_error_response(500, "Internal processing error")
+        raise DatabaseError(
+            message="Data processing failed",
+            details=e.details
+        )
 
 def extract_iot_data(event: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -261,23 +312,38 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
         
         # pH validation (6.5-8.5 is safe range)
         if not (0 <= readings['pH'] <= 14):
-            raise ValidationError("pH value out of valid range")
+            raise AquaChainValidationError(
+                message="pH value out of valid range",
+                details={'value': readings['pH'], 'valid_range': '0-14'}
+            )
         
         # Turbidity validation (0-4000 NTU)
         if not (0 <= readings['turbidity'] <= 4000):
-            raise ValidationError("Turbidity value out of valid range")
+            raise AquaChainValidationError(
+                message="Turbidity value out of valid range",
+                details={'value': readings['turbidity'], 'valid_range': '0-4000'}
+            )
         
         # TDS validation (0-5000 ppm)
         if not (0 <= readings['tds'] <= 5000):
-            raise ValidationError("TDS value out of valid range")
+            raise AquaChainValidationError(
+                message="TDS value out of valid range",
+                details={'value': readings['tds'], 'valid_range': '0-5000'}
+            )
         
         # Temperature validation (-40 to 125°C)
         if not (-40 <= readings['temperature'] <= 125):
-            raise ValidationError("Temperature value out of valid range")
+            raise AquaChainValidationError(
+                message="Temperature value out of valid range",
+                details={'value': readings['temperature'], 'valid_range': '-40 to 125'}
+            )
         
         # Humidity validation (0-100%)
         if not (0 <= readings['humidity'] <= 100):
-            raise ValidationError("Humidity value out of valid range")
+            raise AquaChainValidationError(
+                message="Humidity value out of valid range",
+                details={'value': readings['humidity'], 'valid_range': '0-100'}
+            )
         
         # Sanitize timestamp to ISO format
         timestamp = data['timestamp']
@@ -292,7 +358,13 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
         data['readings']['temperature'] = round(readings['temperature'], 1)
         data['readings']['humidity'] = round(readings['humidity'], 1)
         
-        logger.info(f"Data validation successful for device {data['deviceId']}")
+        logger.info(
+            "Data validation successful",
+            device_id=data['deviceId'],
+            ph=data['readings']['pH'],
+            turbidity=data['readings']['turbidity'],
+            tds=data['readings']['tds']
+        )
         return data
         
     except ValidationError as e:
@@ -338,7 +410,11 @@ def check_for_duplicates(data: Dict[str, Any]) -> None:
     except Exception as e:
         if isinstance(e, DuplicateDataError):
             raise
-        logger.warning(f"Error checking duplicates: {e}")
+        logger.warning(
+            "Error checking duplicates",
+            device_id=device_id,
+            error_message=str(e)
+        )
         # Continue processing if duplicate check fails
 
 @tracer.trace_external_call('s3', 'put_object')
@@ -389,12 +465,23 @@ def store_raw_data_s3(data: Dict[str, Any]) -> str:
         )
         
         s3_reference = f"s3://{DATA_LAKE_BUCKET}/{s3_key}"
-        logger.info(f"Stored raw data in S3: {s3_reference}")
+        logger.info(
+            "Stored raw data in S3",
+            device_id=device_id,
+            s3_reference=s3_reference
+        )
         return s3_reference
         
     except Exception as e:
-        logger.error(f"Error storing data in S3: {e}")
-        raise DataProcessingError(f"Failed to store raw data: {e}")
+        logger.error(
+            "Error storing data in S3",
+            device_id=device_id,
+            error_message=str(e)
+        )
+        raise DatabaseError(
+            message="Failed to store raw data in S3",
+            details={'device_id': device_id, 'error': str(e)}
+        )
 
 @tracer.trace_external_call('lambda', 'invoke_ml_inference')
 def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -442,13 +529,22 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
         body_str: str = result['body']
         ml_results: Dict[str, Any] = json.loads(body_str)
         
-        logger.info(f"ML inference completed: WQI={ml_results['wqi']}, "
-                   f"Anomaly={ml_results['anomalyType']}")
+        logger.info(
+            "ML inference completed",
+            device_id=data['deviceId'],
+            wqi=ml_results['wqi'],
+            anomaly_type=ml_results['anomalyType'],
+            confidence=ml_results.get('confidence', 0.0)
+        )
         
         return ml_results
         
     except Exception as e:
-        logger.error(f"ML inference error: {e}")
+        logger.error(
+            "ML inference error",
+            device_id=data['deviceId'],
+            error_message=str(e)
+        )
         # Return default values if ML fails
         return {
             'wqi': 50.0,  # Neutral WQI
@@ -499,14 +595,25 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             s3_reference=s3_reference
         )
         
-        logger.info(f"Stored reading in DynamoDB with ledger sequence: "
-                   f"{stored_reading.get('ledgerSequence')}")
+        logger.info(
+            "Stored reading in DynamoDB",
+            device_id=data['deviceId'],
+            ledger_sequence=stored_reading.get('ledgerSequence'),
+            wqi=ml_results['wqi']
+        )
         
         return stored_reading
         
     except Exception as e:
-        logger.error(f"Error storing reading in DynamoDB: {e}")
-        raise DataProcessingError(f"Failed to store reading: {e}")
+        logger.error(
+            "Error storing reading in DynamoDB",
+            device_id=data['deviceId'],
+            error_message=str(e)
+        )
+        raise DatabaseError(
+            message="Failed to store reading in DynamoDB",
+            details={'device_id': data['deviceId'], 'error': str(e)}
+        )
 
 def is_critical_event(ml_results: Dict[str, Any]) -> bool:
     """
@@ -570,10 +677,19 @@ def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any])
             }
         )
         
-        logger.info(f"Triggered critical alert for device {data['deviceId']}")
+        logger.info(
+            "Triggered critical alert",
+            device_id=data['deviceId'],
+            wqi=ml_results['wqi'],
+            anomaly_type=ml_results['anomalyType']
+        )
         
     except Exception as e:
-        logger.error(f"Error triggering alert: {e}")
+        logger.error(
+            "Error triggering alert",
+            device_id=data['deviceId'],
+            error_message=str(e)
+        )
         # Don't fail the entire process if alert fails
 
 def send_to_dlq(event: Dict[str, Any], error_message: str) -> None:
@@ -610,10 +726,17 @@ def send_to_dlq(event: Dict[str, Any], error_message: str) -> None:
             }
         )
         
-        logger.info(f"Sent failed event to DLQ: {error_message}")
+        logger.info(
+            "Sent failed event to DLQ",
+            error_message=error_message,
+            device_id=event.get('deviceId', 'unknown')
+        )
         
     except Exception as e:
-        logger.error(f"Error sending to DLQ: {e}")
+        logger.error(
+            "Error sending to DLQ",
+            error_message=str(e)
+        )
 
 def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
     """

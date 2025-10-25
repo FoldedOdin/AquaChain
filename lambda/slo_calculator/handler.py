@@ -11,9 +11,17 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import logging
 
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# Add shared utilities to path
+import sys
+import os
+sys.path.append('/opt/python')  # Lambda layer path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='slo-calculator')
 
 # Initialize AWS clients
 cloudwatch = boto3.client('cloudwatch')

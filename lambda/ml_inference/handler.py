@@ -17,9 +17,15 @@ import sys
 # Add current directory to path for local imports
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# Add shared utilities to path
+sys.path.append('/opt/python')  # Lambda layer path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='ml-inference')
 
 # Initialize AWS clients
 s3_client = boto3.client('s3')

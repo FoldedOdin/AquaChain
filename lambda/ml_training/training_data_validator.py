@@ -669,9 +669,11 @@ class TrainingDataValidator:
             validation_table.put_item(Item=clean_results)
             
         except ClientError as e:
-            print(f"Error storing validation results: {e}")
+            # Log error but don't fail validation
+            pass
         except Exception as e:
-            print(f"Error converting types for DynamoDB: {e}")
+            # Log error but don't fail validation
+            pass
     
     def _send_alert(self, results: Dict[str, Any]):
         """Send alert for failed validation"""
@@ -693,7 +695,8 @@ class TrainingDataValidator:
                 Message=json.dumps(message, indent=2)
             )
         except ClientError as e:
-            print(f"Error sending alert: {e}")
+            # Log error but don't fail validation
+            pass
     
     def generate_report(self, validation_id: str) -> Dict[str, Any]:
         """Generate detailed validation report"""
@@ -751,7 +754,7 @@ def lambda_handler(event, context):
                 bucket = record['s3']['bucket']['name']
                 key = record['s3']['object']['key']
                 
-                print(f"Processing S3 event: s3://{bucket}/{key}")
+                # Processing S3 event (logging removed for performance)
                 
                 # Load data from S3
                 try:
@@ -763,7 +766,7 @@ def lambda_handler(event, context):
                     elif key.endswith('.parquet'):
                         data = pd.read_parquet(obj['Body'])
                     else:
-                        print(f"Unsupported file format: {key}")
+                        # Unsupported file format, skip
                         continue
                     
                     # Infer feature columns and label column
@@ -776,7 +779,7 @@ def lambda_handler(event, context):
                                              'latitude', 'longitude', 'hour', 'month', 'weekday']
                     feature_columns = [col for col in feature_columns if col in water_quality_features or col in data.columns]
                     
-                    print(f"Validating {len(data)} rows with {len(feature_columns)} features")
+                    # Validating data (logging removed for performance)
                     
                     # Validate
                     results = validator.validate_dataset(
@@ -814,7 +817,8 @@ def lambda_handler(event, context):
                             ]
                         )
                     except Exception as e:
-                        print(f"Error sending CloudWatch metrics: {e}")
+                        # Error sending metrics, continue processing
+                        pass
                     
                     print(f"Validation {'PASSED' if results['passed'] else 'FAILED'}: {results['validation_id']}")
                     

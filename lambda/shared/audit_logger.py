@@ -15,7 +15,9 @@ from enum import Enum
 from dataclasses import dataclass, asdict
 from botocore.exceptions import ClientError
 
-logger = logging.getLogger(__name__)
+from structured_logger import get_logger
+
+logger = get_logger(__name__, service='audit-logger')
 
 class AuditEventType(Enum):
     """Enumeration of audit event types"""

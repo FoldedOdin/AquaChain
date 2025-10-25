@@ -1,37 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { TechnicianTask } from '../types';
 import { technicianService } from '../services/technicianService';
 import TaskList from '../components/Technician/TaskList';
 import TaskDetails from '../components/Technician/TaskDetails';
 import TaskMap from '../components/Technician/TaskMap';
 import MaintenanceHistory from '../components/Technician/MaintenanceHistory';
+import DashboardLayout from '../components/Dashboard/DashboardLayout';
+import DataCard from '../components/Dashboard/DataCard';
+import { useDashboardData } from '../hooks/useDashboardData';
+import { useDataExport } from '../hooks/useDataExport';
 
 const TechnicianDashboard = () => {
-  const [tasks, setTasks] = useState<TechnicianTask[]>([]);
   const [selectedTask, setSelectedTask] = useState<TechnicianTask | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'map' | 'history'>('list');
 
-  useEffect(() => {
-    loadTasks();
-  }, []);
+  // Use shared hooks
+  const { data, loading, error, refetch } = useDashboardData('technician');
+  const { exportData, exporting } = useDataExport();
 
-  const loadTasks = async () => {
-    try {
-      setLoading(true);
-      const assignedTasks = await technicianService.getAssignedTasks();
-      setTasks(assignedTasks);
-      if (assignedTasks.length > 0 && !selectedTask) {
-        setSelectedTask(assignedTasks[0]);
-      }
-    } catch (err) {
-      setError('Failed to load tasks');
-      console.error('Error loading tasks:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Extract data from the hook
+  const technicianData = data as any;
+  const tasks = technicianData?.tasks || [];
+
+  // Set initial selected task
+  if (tasks.length > 0 && !selectedTask) {
+    setSelectedTask(tasks[0]);
+  }
 
   const handleTaskSelect = (task: TechnicianTask) => {
     setSelectedTask(task);
@@ -40,9 +34,8 @@ const TechnicianDashboard = () => {
   const handleTaskUpdate = async (taskId: string, status: TechnicianTask['status'], note?: string) => {
     try {
       await technicianService.updateTaskStatus(taskId, status, note);
-      await loadTasks(); // Reload tasks to get updated data
+      await refetch(); // Reload tasks to get updated data
     } catch (err) {
-      setError('Failed to update task');
       console.error('Error updating task:', err);
     }
   };
@@ -50,183 +43,158 @@ const TechnicianDashboard = () => {
   const handleAcceptTask = async (taskId: string) => {
     try {
       await technicianService.acceptTask(taskId);
-      await loadTasks();
+      await refetch();
     } catch (err) {
-      setError('Failed to accept task');
       console.error('Error accepting task:', err);
+    }
+  };
+
+  const handleExportTasks = async () => {
+    try {
+      await exportData(tasks, {
+        format: 'json',
+        filename: `technician-tasks-${new Date().toISOString().split('T')[0]}.json`,
+        includeMetadata: true
+      });
+    } catch (err) {
+      console.error('Error exporting tasks:', err);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
+      <DashboardLayout
+        role="technician"
+        header={
+          <div className="animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-1/3 mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {[...Array(4)].map((_, i) => (
+            <DataCard key={i} title="" value="" loading={true} />
+          ))}
+        </div>
+      </DashboardLayout>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-red-800">Error</h3>
-            <div className="mt-2 text-sm text-red-700">
-              <p>{error}</p>
-            </div>
-            <div className="mt-4">
-              <button
-                onClick={loadTasks}
-                className="bg-red-100 px-3 py-2 rounded-md text-sm font-medium text-red-800 hover:bg-red-200"
-              >
-                Try Again
-              </button>
-            </div>
-          </div>
+      <DashboardLayout
+        role="technician"
+        header={
+          <>
+            <h1 className="text-2xl font-bold text-gray-900">Field Service Dashboard</h1>
+            <p className="mt-1 text-sm text-gray-500">Manage your assigned tasks and service requests</p>
+          </>
+        }
+      >
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <h3 className="text-red-800 font-semibold mb-2">Error Loading Tasks</h3>
+          <p className="text-red-700">{error.message}</p>
+          <button
+            onClick={refetch}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+          >
+            Try Again
+          </button>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Field Service Dashboard</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage your assigned tasks and service requests
-              </p>
-            </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => setView('list')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'list'
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-              >
-                List View
-              </button>
-              <button
-                onClick={() => setView('map')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'map'
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-              >
-                Map View
-              </button>
-              <button
-                onClick={() => setView('history')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'history'
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-              >
-                History
-              </button>
-            </div>
+    <DashboardLayout
+      role="technician"
+      header={
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Field Service Dashboard</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Manage your assigned tasks and service requests
+            </p>
+          </div>
+          <div className="flex space-x-3">
+            <button
+              onClick={() => setView('list')}
+              className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'list'
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              List View
+            </button>
+            <button
+              onClick={() => setView('map')}
+              className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'map'
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              Map View
+            </button>
+            <button
+              onClick={() => setView('history')}
+              className={`px-4 py-2 rounded-md text-sm font-medium ${view === 'history'
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              History
+            </button>
+            <button
+              onClick={handleExportTasks}
+              disabled={exporting}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+            >
+              {exporting ? 'Exporting...' : 'Export'}
+            </button>
           </div>
         </div>
-      </div>
+      }
+    >
 
-      {/* Task Summary */}
+      {/* Task Summary using DataCard */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                  <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">Assigned</dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {tasks.filter(t => t.status === 'assigned').length}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                  <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">Accepted</dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {tasks.filter(t => t.status === 'accepted').length}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                  <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">In Progress</dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {tasks.filter(t => ['en_route', 'in_progress'].includes(t.status)).length}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                  <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">High Priority</dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {tasks.filter(t => ['high', 'critical'].includes(t.priority)).length}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DataCard
+          title="Assigned"
+          value={tasks.filter((t: TechnicianTask) => t.status === 'assigned').length}
+          icon={
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+            </svg>
+          }
+        />
+        <DataCard
+          title="Accepted"
+          value={tasks.filter((t: TechnicianTask) => t.status === 'accepted').length}
+          icon={
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          }
+        />
+        <DataCard
+          title="In Progress"
+          value={tasks.filter((t: TechnicianTask) => ['en_route', 'in_progress'].includes(t.status)).length}
+          icon={
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+            </svg>
+          }
+        />
+        <DataCard
+          title="High Priority"
+          value={tasks.filter((t: TechnicianTask) => ['high', 'critical'].includes(t.priority)).length}
+          icon={
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          }
+        />
       </div>
 
       {/* Main Content */}
@@ -245,7 +213,7 @@ const TechnicianDashboard = () => {
               <TaskDetails
                 task={selectedTask}
                 onTaskUpdate={handleTaskUpdate}
-                onRefresh={loadTasks}
+                onRefresh={refetch}
               />
             ) : (
               <div className="bg-white shadow rounded-lg p-6">
@@ -269,7 +237,7 @@ const TechnicianDashboard = () => {
       ) : (
         <MaintenanceHistory />
       )}
-    </div>
+    </DashboardLayout>
   );
 };
 

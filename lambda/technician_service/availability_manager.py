@@ -10,7 +10,15 @@ from typing import Dict, List, Optional, Tuple
 from decimal import Decimal
 import json
 
-logger = logging.getLogger(__name__)
+# Import structured logging
+import sys
+import os
+sys.path.append('/opt/python')  # Lambda layer path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+from structured_logger import get_logger
+
+logger = get_logger(__name__, service='availability-manager')
 
 class TechnicianAvailabilityManager:
     """Manages technician availability, schedules, and performance scoring"""

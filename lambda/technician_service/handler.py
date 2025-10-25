@@ -16,9 +16,17 @@ from .availability_manager import TechnicianAvailabilityManager
 from .assignment_algorithm import TechnicianAssignmentAlgorithm
 from .service_request_manager import ServiceRequestManager
 
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# Add shared utilities to path
+import sys
+import os
+sys.path.append('/opt/python')  # Lambda layer path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='technician-service')
 
 # AWS clients
 dynamodb = boto3.resource('dynamodb')

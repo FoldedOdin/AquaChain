@@ -9,21 +9,25 @@ import jwt
 import requests
 import time
 import logging
+import sys
+import os
 from typing import Dict, List, Optional, Any
 from functools import wraps
 import boto3
 from botocore.exceptions import ClientError
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# Add shared utilities to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-class TokenValidationError(Exception):
-    """Custom exception for token validation errors."""
-    pass
+# Import error handling
+from errors import AuthenticationError, AuthorizationError, ValidationError
+from error_handler import handle_errors
 
-class InsufficientPermissionsError(Exception):
-    """Custom exception for authorization errors."""
-    pass
+# Import structured logging
+from structured_logger import get_logger
+
+# Configure structured logging
+logger = get_logger(__name__, service='auth-service')
 
 class TokenManager:
     """
@@ -66,7 +70,7 @@ class TokenManager:
             if self._jwks_cache:
                 # Return stale cache if available
                 return self._jwks_cache
-            raise TokenValidationError(f"Unable to fetch JWKS: {e}")
+            raise AuthenticationError(f"Unable to fetch JWKS: {e}")
     
     def _get_public_key(self, token_header: Dict) -> str:
         """
@@ -77,14 +81,14 @@ class TokenManager:
         # Find the key with matching kid
         kid = token_header.get('kid')
         if not kid:
-            raise TokenValidationError("Token header missing 'kid'")
+            raise AuthenticationError("Token header missing 'kid'")
         
         for key in jwks.get('keys', []):
             if key.get('kid') == kid:
                 # Convert JWK to PEM format
                 return jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
         
-        raise TokenValidationError(f"Unable to find key with kid: {kid}")
+        raise AuthenticationError(f"Unable to find key with kid: {kid}")
     
     def validate_token(self, token: str, required_scopes: Optional[List[str]] = None) -> Dict:
         """
@@ -115,26 +119,30 @@ class TokenManager:
             
             # Validate token use
             if decoded_token.get('token_use') not in ['access', 'id']:
-                raise TokenValidationError("Invalid token use")
+                raise AuthenticationError("Invalid token use")
             
             # Validate required scopes if specified
             if required_scopes:
                 token_scopes = decoded_token.get('scope', '').split()
                 missing_scopes = set(required_scopes) - set(token_scopes)
                 if missing_scopes:
-                    raise InsufficientPermissionsError(
+                    raise AuthorizationError(
                         f"Missing required scopes: {missing_scopes}"
                     )
             
             return decoded_token
             
         except jwt.ExpiredSignatureError:
-            raise TokenValidationError("Token has expired")
+            raise AuthenticationError("Token has expired")
         except jwt.InvalidTokenError as e:
-            raise TokenValidationError(f"Invalid token: {e}")
+            raise AuthenticationError(f"Invalid token: {e}")
+        except AuthenticationError:
+            raise
+        except AuthorizationError:
+            raise
         except Exception as e:
             logger.error(f"Token validation error: {e}")
-            raise TokenValidationError(f"Token validation failed: {e}")
+            raise AuthenticationError(f"Token validation failed: {e}")
     
     def refresh_token(self, refresh_token: str, client_id: str) -> Dict:
         """
@@ -162,10 +170,10 @@ class TokenManager:
         except ClientError as e:
             error_code = e.response['Error']['Code']
             if error_code == 'NotAuthorizedException':
-                raise TokenValidationError("Invalid refresh token")
+                raise AuthenticationError("Invalid refresh token")
             else:
                 logger.error(f"Token refresh error: {e}")
-                raise TokenValidationError(f"Token refresh failed: {error_code}")
+                raise AuthenticationError(f"Token refresh failed: {error_code}")
 
 class AuthorizationManager:
     """
@@ -266,10 +274,7 @@ def create_auth_middleware(token_manager: TokenManager, auth_manager: Authorizat
                     # Extract token from Authorization header
                     auth_header = event.get('headers', {}).get('Authorization', '')
                     if not auth_header.startswith('Bearer '):
-                        return {
-                            'statusCode': 401,
-                            'body': json.dumps({'error': 'Missing or invalid Authorization header'})
-                        }
+                        raise AuthenticationError('Missing or invalid Authorization header')
                     
                     token = auth_header[7:]  # Remove 'Bearer ' prefix
                     
@@ -288,10 +293,7 @@ def create_auth_middleware(token_manager: TokenManager, auth_manager: Authorizat
                         if not auth_manager.check_permission(
                             user_role, resource, action, user_id, resource_owner
                         ):
-                            return {
-                                'statusCode': 403,
-                                'body': json.dumps({'error': 'Insufficient permissions'})
-                            }
+                            raise AuthorizationError('Insufficient permissions')
                     
                     # Add user context to event
                     event['userContext'] = {
@@ -304,109 +306,74 @@ def create_auth_middleware(token_manager: TokenManager, auth_manager: Authorizat
                     # Call the original function
                     return func(event, context)
                     
-                except TokenValidationError as e:
-                    return {
-                        'statusCode': 401,
-                        'body': json.dumps({'error': str(e)})
-                    }
-                except InsufficientPermissionsError as e:
-                    return {
-                        'statusCode': 403,
-                        'body': json.dumps({'error': str(e)})
-                    }
+                except (AuthenticationError, AuthorizationError):
+                    raise
                 except Exception as e:
                     logger.error(f"Auth middleware error: {e}")
-                    return {
-                        'statusCode': 500,
-                        'body': json.dumps({'error': 'Internal server error'})
-                    }
+                    raise
             
             return wrapper
         return decorator
     return auth_required
 
 # Lambda handler for authentication service
+@handle_errors
 def lambda_handler(event, context):
     """
     Main Lambda handler for authentication operations.
     """
-    try:
-        # Get configuration from environment variables
-        user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
-        client_id = os.environ.get('COGNITO_CLIENT_ID')
-        region = os.environ.get('AWS_REGION', 'us-east-1')
-        
-        if not user_pool_id or not client_id:
-            return {
-                'statusCode': 500,
-                'body': json.dumps({'error': 'Missing Cognito configuration'})
-            }
-        
-        token_manager = TokenManager(user_pool_id, region)
-        auth_manager = AuthorizationManager()
-        
-        # Route based on HTTP method and path
-        http_method = event.get('httpMethod')
-        path = event.get('path', '')
-        
-        if http_method == 'POST' and path.endswith('/validate'):
-            # Token validation endpoint
-            body = json.loads(event.get('body', '{}'))
-            token = body.get('token')
-            
-            if not token:
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps({'error': 'Token is required'})
-                }
-            
-            decoded_token = token_manager.validate_token(token)
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps({
-                    'valid': True,
-                    'userId': decoded_token.get('sub'),
-                    'role': decoded_token.get('cognito:groups', ['consumers'])[0],
-                    'email': decoded_token.get('email')
-                })
-            }
-        
-        elif http_method == 'POST' and path.endswith('/refresh'):
-            # Token refresh endpoint
-            body = json.loads(event.get('body', '{}'))
-            refresh_token = body.get('refreshToken')
-            
-            if not refresh_token:
-                return {
-                    'statusCode': 400,
-                    'body': json.dumps({'error': 'Refresh token is required'})
-                }
-            
-            new_tokens = token_manager.refresh_token(refresh_token, client_id)
-            
-            return {
-                'statusCode': 200,
-                'body': json.dumps(new_tokens)
-            }
-        
-        else:
-            return {
-                'statusCode': 404,
-                'body': json.dumps({'error': 'Endpoint not found'})
-            }
+    # Get configuration from environment variables
+    user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
+    client_id = os.environ.get('COGNITO_CLIENT_ID')
+    region = os.environ.get('AWS_REGION', 'us-east-1')
     
-    except TokenValidationError as e:
+    if not user_pool_id or not client_id:
+        raise ValidationError('Missing Cognito configuration')
+    
+    token_manager = TokenManager(user_pool_id, region)
+    auth_manager = AuthorizationManager()
+    
+    # Route based on HTTP method and path
+    http_method = event.get('httpMethod')
+    path = event.get('path', '')
+    
+    if http_method == 'POST' and path.endswith('/validate'):
+        # Token validation endpoint
+        body = json.loads(event.get('body', '{}'))
+        token = body.get('token')
+        
+        if not token:
+            raise ValidationError('Token is required')
+        
+        decoded_token = token_manager.validate_token(token)
+        
         return {
-            'statusCode': 401,
-            'body': json.dumps({'error': str(e)})
+            'statusCode': 200,
+            'body': json.dumps({
+                'valid': True,
+                'userId': decoded_token.get('sub'),
+                'role': decoded_token.get('cognito:groups', ['consumers'])[0],
+                'email': decoded_token.get('email')
+            })
         }
-    except Exception as e:
-        logger.error(f"Authentication service error: {e}")
+    
+    elif http_method == 'POST' and path.endswith('/refresh'):
+        # Token refresh endpoint
+        body = json.loads(event.get('body', '{}'))
+        refresh_token = body.get('refreshToken')
+        
+        if not refresh_token:
+            raise ValidationError('Refresh token is required')
+        
+        new_tokens = token_manager.refresh_token(refresh_token, client_id)
+        
         return {
-            'statusCode': 500,
-            'body': json.dumps({'error': 'Internal server error'})
+            'statusCode': 200,
+            'body': json.dumps(new_tokens)
         }
+    
+    else:
+        raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
 
 # Export the middleware for use in other Lambda functions
 import os

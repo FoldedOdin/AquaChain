@@ -5,10 +5,19 @@ Handles water quality reading queries and historical data retrieval
 import json
 import boto3
 import logging
+import sys
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from decimal import Decimal
 from botocore.exceptions import ClientError
+
+# Add shared utilities to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import error handling
+from errors import ValidationError, AuthenticationError, AuthorizationError, DatabaseError
+from error_handler import handle_errors
 
 # Configure logging
 logger = logging.getLogger()
@@ -31,42 +40,38 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(obj)
 
 
+@handle_errors
 def lambda_handler(event, context):
     """Main Lambda handler for readings API"""
-    try:
-        # Parse request
-        http_method = event['httpMethod']
-        path_parameters = event.get('pathParameters', {}) or {}
-        query_parameters = event.get('queryStringParameters', {}) or {}
-        body = event.get('body')
-        
-        # Get user context from authorizer
-        user_context = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-        user_id = user_context.get('sub')
-        user_groups = user_context.get('cognito:groups', '').split(',')
-        
-        if not user_id:
-            return create_response(401, {'error': 'Unauthorized', 'message': 'User not authenticated'})
-        
-        # Route request based on HTTP method and path
-        if http_method == 'GET':
-            if 'deviceId' in path_parameters:
-                return get_device_readings(path_parameters['deviceId'], query_parameters, user_id, user_groups)
-            else:
-                return get_user_readings(user_id, query_parameters, user_groups)
-        
-        elif http_method == 'POST':
-            # Only administrators can manually add readings
-            if 'administrators' not in user_groups:
-                return create_response(403, {'error': 'Forbidden', 'message': 'Insufficient permissions'})
-            return create_reading(json.loads(body), user_id)
-        
-        else:
-            return create_response(405, {'error': 'Method Not Allowed'})
+    # Parse request
+    http_method = event['httpMethod']
+    path_parameters = event.get('pathParameters', {}) or {}
+    query_parameters = event.get('queryStringParameters', {}) or {}
+    body = event.get('body')
     
-    except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
-        return create_response(500, {'error': 'Internal Server Error', 'message': str(e)})
+    # Get user context from authorizer
+    user_context = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+    user_id = user_context.get('sub')
+    user_groups = user_context.get('cognito:groups', '').split(',')
+        
+    if not user_id:
+        raise AuthenticationError('User not authenticated')
+    
+    # Route request based on HTTP method and path
+    if http_method == 'GET':
+        if 'deviceId' in path_parameters:
+            return get_device_readings(path_parameters['deviceId'], query_parameters, user_id, user_groups)
+        else:
+            return get_user_readings(user_id, query_parameters, user_groups)
+    
+    elif http_method == 'POST':
+        # Only administrators can manually add readings
+        if 'administrators' not in user_groups:
+            raise AuthorizationError('Insufficient permissions')
+        return create_reading(json.loads(body), user_id)
+    
+    else:
+        raise ValidationError('Method not allowed', error_code='METHOD_NOT_ALLOWED')
 
 
 def get_device_readings(device_id: str, query_params: Dict[str, str], user_id: str, user_groups: List[str]) -> Dict[str, Any]:
@@ -74,7 +79,7 @@ def get_device_readings(device_id: str, query_params: Dict[str, str], user_id: s
     try:
         # Check if user has access to this device
         if not has_device_access(user_id, device_id, user_groups):
-            return create_response(403, {'error': 'Forbidden', 'message': 'Access denied to this device'})
+            raise AuthorizationError('Access denied to this device', details={'device_id': device_id})
         
         # Parse query parameters
         days = int(query_params.get('days', 7))
@@ -84,10 +89,10 @@ def get_device_readings(device_id: str, query_params: Dict[str, str], user_id: s
         
         # Validate parameters
         if days > 90:
-            return create_response(400, {'error': 'Bad Request', 'message': 'Maximum 90 days of data allowed'})
+            raise ValidationError('Maximum 90 days of data allowed', details={'days': days})
         
         if limit > 1000:
-            return create_response(400, {'error': 'Bad Request', 'message': 'Maximum 1000 records per request'})
+            raise ValidationError('Maximum 1000 records per request', details={'limit': limit})
         
         # Calculate date range
         if start_date and end_date:
@@ -147,10 +152,12 @@ def get_device_readings(device_id: str, query_params: Dict[str, str], user_id: s
     
     except ClientError as e:
         logger.error(f"DynamoDB error: {str(e)}")
-        return create_response(500, {'error': 'Database Error', 'message': 'Failed to retrieve readings'})
+        raise DatabaseError('Failed to retrieve readings', details={'device_id': device_id})
+    except (ValidationError, AuthorizationError, DatabaseError):
+        raise
     except ValueError as e:
         logger.error(f"Parameter error: {str(e)}")
-        return create_response(400, {'error': 'Bad Request', 'message': str(e)})
+        raise ValidationError(str(e))
 
 
 def get_user_readings(user_id: str, query_params: Dict[str, str], user_groups: List[str]) -> Dict[str, Any]:
@@ -196,9 +203,11 @@ def get_user_readings(user_id: str, query_params: Dict[str, str], user_groups: L
             'totalDevices': len(device_ids)
         })
     
+    except (ValidationError, DatabaseError):
+        raise
     except Exception as e:
         logger.error(f"Error getting user readings: {str(e)}")
-        return create_response(500, {'error': 'Internal Server Error', 'message': str(e)})
+        raise DatabaseError(f"Failed to get user readings: {str(e)}")
 
 
 def create_reading(reading_data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -208,7 +217,7 @@ def create_reading(reading_data: Dict[str, Any], user_id: str) -> Dict[str, Any]
         required_fields = ['deviceId', 'readings', 'location']
         for field in required_fields:
             if field not in reading_data:
-                return create_response(400, {'error': 'Bad Request', 'message': f'Missing required field: {field}'})
+                raise ValidationError(f'Missing required field: {field}', details={'field': field})
         
         # Generate reading entry
         timestamp = datetime.utcnow().isoformat()
@@ -237,9 +246,11 @@ def create_reading(reading_data: Dict[str, Any], user_id: str) -> Dict[str, Any]
             'reading': reading_item
         })
     
+    except (ValidationError, DatabaseError):
+        raise
     except Exception as e:
         logger.error(f"Error creating reading: {str(e)}")
-        return create_response(500, {'error': 'Internal Server Error', 'message': str(e)})
+        raise DatabaseError(f"Failed to create reading: {str(e)}")
 
 
 def has_device_access(user_id: str, device_id: str, user_groups: List[str]) -> bool:

@@ -21,7 +21,9 @@ from botocore.exceptions import ClientError
 import os
 import secrets
 
-logger = logging.getLogger(__name__)
+from structured_logger import get_logger
+
+logger = get_logger(__name__, service='encryption-manager')
 
 class EncryptionError(Exception):
     """Base exception for encryption-related errors"""

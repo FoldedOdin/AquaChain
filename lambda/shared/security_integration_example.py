@@ -15,7 +15,9 @@ from .audit_logger import audit_user_action, audit_data_access, AuditEventType, 
 from .encryption_manager import encrypt_sensitive_data, decrypt_sensitive_data
 from ..auth_service.auth_utils import require_auth
 
-logger = logging.getLogger(__name__)
+from structured_logger import get_logger
+
+logger = get_logger(__name__, service='security-integration')
 
 # Example 1: Secure user registration endpoint
 @auth_endpoint(rate_limit=5, require_captcha=True)  # Strict security for auth

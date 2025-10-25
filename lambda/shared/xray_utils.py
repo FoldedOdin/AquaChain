@@ -157,7 +157,8 @@ class AquaChainTracer:
                 ]
             )
         except Exception as e:
-            print(f"Error sending latency metric: {e}")
+            # Silently fail metric sending to avoid disrupting main flow
+            pass
     
     def _send_error_metric(self, operation: str, error_message: str):
         """Send error metric to CloudWatch"""
@@ -183,7 +184,8 @@ class AquaChainTracer:
                 ]
             )
         except Exception as e:
-            print(f"Error sending error metric: {e}")
+            # Silently fail metric sending to avoid disrupting main flow
+            pass
     
     def _send_throughput_metric(self, data_type: str, throughput: float):
         """Send throughput metric to CloudWatch"""
@@ -209,7 +211,8 @@ class AquaChainTracer:
                 ]
             )
         except Exception as e:
-            print(f"Error sending throughput metric: {e}")
+            # Silently fail metric sending to avoid disrupting main flow
+            pass
     
     def _send_external_service_metric(self, service: str, operation: str, latency: float, success: bool):
         """Send external service performance metric"""
@@ -250,7 +253,8 @@ class AquaChainTracer:
                 ]
             )
         except Exception as e:
-            print(f"Error sending external service metric: {e}")
+            # Silently fail metric sending to avoid disrupting main flow
+            pass
 
 
 class EndToEndTracer:
@@ -302,7 +306,8 @@ class EndToEndTracer:
                         ]
                     )
             except Exception as e:
-                print(f"Error calculating end-to-end latency: {e}")
+                # Silently fail metric calculation to avoid disrupting main flow
+                pass
 
 
 def create_custom_segment(name: str, metadata: Dict[str, Any] = None):
@@ -425,5 +430,3 @@ if __name__ == "__main__":
     def store_reading(reading):
         # DynamoDB storage logic here
         return True
-    
-    print("X-Ray tracing utilities configured successfully!")

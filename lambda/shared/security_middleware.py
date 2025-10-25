@@ -17,7 +17,9 @@ from datetime import datetime, timedelta
 import boto3
 from botocore.exceptions import ClientError
 
-logger = logging.getLogger(__name__)
+from structured_logger import get_logger
+
+logger = get_logger(__name__, service='security-middleware')
 
 class SecurityError(Exception):
     """Base exception for security-related errors"""
