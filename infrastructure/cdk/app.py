@@ -22,6 +22,7 @@ from stacks.iot_security_stack import AquaChainIoTSecurityStack
 from stacks.ml_model_registry_stack import AquaChainMLModelRegistryStack
 from stacks.phase3_infrastructure_stack import AquaChainPhase3InfrastructureStack
 from stacks.performance_dashboard_stack import PerformanceDashboardStack
+from stacks.cache_stack import AquaChainCacheStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -146,6 +147,18 @@ def main():
         env=aws_env,
         description=f"AquaChain VPC Infrastructure - {env_name}"
     )
+    
+    # 9a. Cache Stack (ElastiCache Redis for caching)
+    cache_stack = AquaChainCacheStack(
+        app,
+        f"AquaChain-Cache-{env_name}",
+        config=config,
+        vpc=vpc_stack.vpc,
+        lambda_security_group=vpc_stack.lambda_security_group,
+        env=aws_env,
+        description=f"AquaChain Cache Layer - {env_name}"
+    )
+    cache_stack.add_dependency(vpc_stack)
     
     # 10. Backup Stack (Automated backup and restore for DynamoDB)
     backup_stack = AquaChainBackupStack(

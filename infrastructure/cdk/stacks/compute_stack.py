@@ -3,6 +3,7 @@ AquaChain Compute Stack
 Lambda functions, SageMaker resources, and compute infrastructure
 """
 
+import os
 from aws_cdk import (
     Stack,
     aws_lambda as lambda_,
@@ -72,7 +73,8 @@ class AquaChainComputeStack(Stack):
                 "AUDIT_BUCKET": get_resource_name(self.config, "bucket", f"audit-trail-{self.account}"),
                 "ML_MODELS_BUCKET": get_resource_name(self.config, "bucket", f"ml-models-{self.account}"),
                 "DATA_KEY_ID": self.security_resources["data_key"].key_id,
-                "SIGNING_KEY_ID": self.security_resources["ledger_signing_key"].key_id
+                "SIGNING_KEY_ID": self.security_resources["ledger_signing_key"].key_id,
+                "REDIS_ENDPOINT": os.environ.get("REDIS_ENDPOINT", "")  # Will be set after cache stack deployment
             },
             "tracing": lambda_.Tracing.ACTIVE if self.config["enable_xray_tracing"] else lambda_.Tracing.DISABLED,
             "reserved_concurrent_executions": self.config.get("lambda_reserved_concurrency")

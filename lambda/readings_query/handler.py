@@ -27,6 +27,9 @@ from dynamodb_queries import (
     query_readings_by_alert_level
 )
 
+# Import cache service
+from cache_service import get_cache_service
+
 logger = get_logger(__name__, service='readings-query')
 
 
@@ -39,6 +42,7 @@ class ReadingsQueryService:
         self.region = region
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.readings_table = self.dynamodb.Table('aquachain-readings')
+        self.cache = get_cache_service()
     
     def query_by_metric_type(self, device_id: str, metric_type: str,
                             limit: int = 100, last_key: Optional[Dict] = None) -> Dict:
@@ -137,6 +141,45 @@ class ReadingsQueryService:
             raise DatabaseError("Failed to query readings", details={
                 'alert_level': alert_level
             })
+    
+    def get_latest_reading(self, device_id: str) -> Optional[Dict]:
+        """
+        Get the most recent reading for a device with caching
+        Cached for 1 minute to reduce database load for frequently accessed devices
+        """
+        cache_key = f"reading:latest:{device_id}"
+        
+        try:
+            # Try cache first
+            cached_reading = self.cache.get(cache_key)
+            if cached_reading:
+                logger.info(f"Latest reading found in cache: {device_id}",
+                           device_id=device_id, cache_hit=True)
+                return cached_reading
+            
+            # Cache miss - query DynamoDB
+            response = self.readings_table.query(
+                IndexName='DeviceIndex',
+                KeyConditionExpression='deviceId = :device_id',
+                ExpressionAttributeValues={':device_id': device_id},
+                ScanIndexForward=False,  # Descending order (newest first)
+                Limit=1
+            )
+            
+            reading = response['Items'][0] if response['Items'] else None
+            
+            if reading:
+                # Cache for 1 minute (short TTL for near real-time data)
+                self.cache.set(cache_key, reading, ttl=60)
+                logger.info(f"Latest reading found: {device_id}",
+                           device_id=device_id, cache_hit=False)
+            
+            return reading
+            
+        except Exception as e:
+            logger.error(f"Error getting latest reading: {e}", device_id=device_id)
+            raise DatabaseError("Failed to get latest reading", 
+                              details={'device_id': device_id})
     
     def get_critical_alerts(self, hours: int = 24, limit: int = 100) -> Dict:
         """

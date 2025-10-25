@@ -27,6 +27,9 @@ from dynamodb_queries import (
     query_devices_by_status
 )
 
+# Import cache service
+from cache_service import get_cache_service
+
 logger = get_logger(__name__, service='device-management')
 
 
@@ -39,6 +42,7 @@ class DeviceManagementService:
         self.region = region
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.devices_table = self.dynamodb.Table('aquachain-devices')
+        self.cache = get_cache_service()
     
     def list_user_devices(self, user_id: str, limit: int = 100, 
                          last_key: Optional[Dict] = None) -> Dict:
@@ -104,14 +108,27 @@ class DeviceManagementService:
     
     def get_device(self, device_id: str) -> Optional[Dict]:
         """
-        Get device by ID (primary key lookup)
+        Get device by ID (primary key lookup) with caching
         """
+        cache_key = f"device:{device_id}"
+        
         try:
+            # Try cache first
+            cached_device = self.cache.get(cache_key)
+            if cached_device:
+                logger.info(f"Device found in cache: {device_id}", 
+                           device_id=device_id, cache_hit=True)
+                return cached_device
+            
+            # Cache miss - fetch from DynamoDB
             response = self.devices_table.get_item(Key={'device_id': device_id})
             device = response.get('Item')
             
             if device:
-                logger.info(f"Device found: {device_id}", device_id=device_id)
+                # Cache for 5 minutes
+                self.cache.set(cache_key, device, ttl=300)
+                logger.info(f"Device found: {device_id}", 
+                           device_id=device_id, cache_hit=False)
             else:
                 logger.info(f"Device not found: {device_id}", device_id=device_id)
             
@@ -123,7 +140,7 @@ class DeviceManagementService:
     
     def update_device_status(self, device_id: str, status: str) -> Dict:
         """
-        Update device status and last_seen timestamp
+        Update device status and last_seen timestamp with cache invalidation
         """
         try:
             # Validate status
@@ -146,9 +163,14 @@ class DeviceManagementService:
                 ReturnValues='ALL_NEW'
             )
             
+            # Invalidate cache for this device
+            cache_key = f"device:{device_id}"
+            self.cache.delete(cache_key)
+            
             logger.info(f"Device status updated: {device_id}",
                 device_id=device_id,
-                status=status
+                status=status,
+                cache_invalidated=True
             )
             
             return response['Attributes']

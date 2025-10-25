@@ -63,7 +63,10 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
                 "enable_automated_dr_testing": False,
                 "backup_window_start": "02:00",
                 "backup_window_duration_hours": 1
-            }
+            },
+            "redis_node_type": "cache.t3.micro",
+            "redis_num_nodes": 1,
+            "redis_snapshot_retention": 0
         },
         
         "staging": {
@@ -98,7 +101,10 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
                 "enable_automated_failover": True,
                 "failover_rto_minutes": 240,  # 4 hours
                 "failover_rpo_minutes": 60    # 1 hour
-            }
+            },
+            "redis_node_type": "cache.t3.small",
+            "redis_num_nodes": 1,
+            "redis_snapshot_retention": 7
         },
         
         "prod": {
@@ -140,7 +146,10 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
                 "dr_test_schedule": "cron(0 4 ? * SAT *)",  # Weekly Saturday 4 AM
                 "backup_window_start": "02:00",
                 "backup_window_duration_hours": 2
-            }
+            },
+            "redis_node_type": "cache.m5.large",
+            "redis_num_nodes": 2,
+            "redis_snapshot_retention": 14
         }
     }
     

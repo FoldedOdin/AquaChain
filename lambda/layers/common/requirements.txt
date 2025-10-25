@@ -22,3 +22,6 @@ PyJWT==2.8.0
 
 # Date utilities
 python-dateutil==2.8.2
+
+# Redis client
+redis==5.0.1

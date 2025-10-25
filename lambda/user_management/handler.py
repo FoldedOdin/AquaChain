@@ -25,6 +25,9 @@ from error_handler import handle_errors
 # Import structured logging
 from structured_logger import get_logger
 
+# Import cache service
+from cache_service import get_cache_service
+
 # Configure structured logging
 logger = get_logger(__name__, service='user-management')
 
@@ -41,6 +44,7 @@ class UserManagementService:
         self.cognito_client = boto3.client('cognito-idp', region_name=region)
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.users_table = self.dynamodb.Table('aquachain-users')
+        self.cache = get_cache_service()
     
     def register_user(self, email: str, password: str, first_name: str, 
                      last_name: str, phone: str, role: str = 'consumer',
@@ -167,11 +171,29 @@ class UserManagementService:
     
     def get_user_profile(self, user_id: str) -> Optional[Dict]:
         """
-        Get user profile from DynamoDB.
+        Get user profile from DynamoDB with caching.
         """
+        cache_key = f"user:profile:{user_id}"
+        
         try:
+            # Try cache first
+            cached_profile = self.cache.get(cache_key)
+            if cached_profile:
+                logger.info(f"User profile found in cache: {user_id}",
+                           user_id=user_id, cache_hit=True)
+                return cached_profile
+            
+            # Cache miss - fetch from DynamoDB
             response = self.users_table.get_item(Key={'userId': user_id})
-            return response.get('Item')
+            profile = response.get('Item')
+            
+            if profile:
+                # Cache for 10 minutes
+                self.cache.set(cache_key, profile, ttl=600)
+                logger.info(f"User profile found: {user_id}",
+                           user_id=user_id, cache_hit=False)
+            
+            return profile
         except ClientError as e:
             logger.error(f"Error getting user profile: {e}")
             return None
@@ -228,11 +250,15 @@ class UserManagementService:
                 ReturnValues='ALL_NEW'
             )
             
+            # Invalidate cache for this user
+            cache_key = f"user:profile:{user_id}"
+            self.cache.delete(cache_key)
+            
             # Update Cognito attributes if needed
             if 'profile' in updates:
                 self._update_cognito_attributes(user_id, updates['profile'])
             
-            logger.info(f"User profile updated: {user_id}")
+            logger.info(f"User profile updated: {user_id}", cache_invalidated=True)
             return response['Attributes']
             
         except ClientError as e:
