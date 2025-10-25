@@ -23,6 +23,11 @@ from stacks.ml_model_registry_stack import AquaChainMLModelRegistryStack
 from stacks.phase3_infrastructure_stack import AquaChainPhase3InfrastructureStack
 from stacks.performance_dashboard_stack import PerformanceDashboardStack
 from stacks.cache_stack import AquaChainCacheStack
+from stacks.lambda_layers_stack import LambdaLayersStack
+from stacks.lambda_performance_stack import LambdaPerformanceStack
+from stacks.data_classification_stack import DataClassificationStack
+from stacks.audit_logging_stack import AuditLoggingStack
+from stacks.gdpr_compliance_stack import GDPRComplianceStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -232,6 +237,61 @@ def main():
     performance_dashboard_stack.add_dependency(api_stack)
     performance_dashboard_stack.add_dependency(data_stack)
     performance_dashboard_stack.add_dependency(compute_stack)
+    
+    # ===== Phase 4 Infrastructure Stacks =====
+    
+    # 17. Data Classification Stack (KMS keys for PII and Sensitive data)
+    data_classification_stack = DataClassificationStack(
+        app,
+        f"AquaChain-DataClassification-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain Data Classification and Encryption - {env_name}"
+    )
+    data_classification_stack.add_dependency(security_stack)
+    
+    # 18. Audit Logging Stack (Kinesis Firehose and S3 for audit logs)
+    audit_logging_stack = AuditLoggingStack(
+        app,
+        f"AquaChain-AuditLogging-{env_name}",
+        config=config,
+        kms_key=data_classification_stack.pii_key,  # Use PII key for audit logs
+        env=aws_env,
+        description=f"AquaChain Audit Logging Infrastructure - {env_name}"
+    )
+    audit_logging_stack.add_dependency(data_classification_stack)
+    
+    # 19. GDPR Compliance Stack (S3 buckets and DynamoDB tables for GDPR)
+    gdpr_compliance_stack = GDPRComplianceStack(
+        app,
+        f"AquaChain-GDPRCompliance-{env_name}",
+        config=config,
+        kms_key=data_classification_stack.pii_key,
+        env=aws_env,
+        description=f"AquaChain GDPR Compliance Infrastructure - {env_name}"
+    )
+    gdpr_compliance_stack.add_dependency(data_classification_stack)
+    
+    # 20. Lambda Layers Stack (Shared dependencies for Lambda functions)
+    lambda_layers_stack = LambdaLayersStack(
+        app,
+        f"AquaChain-LambdaLayers-{env_name}",
+        env=aws_env,
+        description=f"AquaChain Lambda Layers - {env_name}"
+    )
+    
+    # 21. Lambda Performance Stack (Provisioned concurrency and optimizations)
+    lambda_performance_stack = LambdaPerformanceStack(
+        app,
+        f"AquaChain-LambdaPerformance-{env_name}",
+        common_layer=lambda_layers_stack.get_common_layer(),
+        ml_layer=lambda_layers_stack.get_ml_layer(),
+        alarm_topic=monitoring_stack.alarm_topic if hasattr(monitoring_stack, 'alarm_topic') else None,
+        env=aws_env,
+        description=f"AquaChain Lambda Performance Optimizations - {env_name}"
+    )
+    lambda_performance_stack.add_dependency(lambda_layers_stack)
+    lambda_performance_stack.add_dependency(monitoring_stack)
     
     # Synthesize the app
     app.synth()
