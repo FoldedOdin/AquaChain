@@ -7,6 +7,7 @@ import LandingPageFooter from './LandingPageFooter';
 import HeroSection from './HeroSection';
 import ScrollNavigation from './ScrollNavigation';
 import SectionTransition from './SectionTransition';
+import AuthModalComponent from './AuthModalComponent';
 import { LoginCredentials, SignupData } from './AuthModal';
 import { useKeyboardNavigation } from '../../hooks/useKeyboardNavigation';
 import { useConversionTracking, useScrollTracking } from '../../hooks/useConversionTracking';
@@ -18,7 +19,6 @@ import {
   LazyFeaturesShowcase,
   LazyRoleSelectionSection,
   LazyContactSection,
-  LazyAuthModal,
   preloadCriticalComponents
 } from '../../utils/codeSplitting';
 import { 
@@ -170,7 +170,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
   // Handle view dashboards click
   const handleViewDashboardsClick = () => {
     // Track dashboard access
-    trackConversion('dashboard_access', 5, {
+    trackConversion('demo_view', 5, {
       access_source: 'landing_page',
       section: 'hero'
     });
@@ -316,20 +316,14 @@ const LandingPage: React.FC<LandingPageProps> = ({
         <LandingPageFooter onContactClick={onContactClick} />
       </AnimationEngineComponent>
 
-      {/* Authentication Modal - Lazy Loaded */}
-      {isAuthModalOpen && (
-        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 z-modal" />}>
-          <LazyAuthModal
-            isOpen={isAuthModalOpen}
-            onClose={handleAuthModalClose}
-            onLogin={handleLogin}
-            onSignup={handleSignup}
-            initialTab={authModalTab}
-          />
-        </Suspense>
-      )}
-
-
+      {/* Authentication Modal */}
+      <AuthModalComponent
+        isOpen={isAuthModalOpen}
+        onClose={handleAuthModalClose}
+        initialTab={authModalTab}
+        onLogin={handleLogin}
+        onSignup={handleSignup}
+      />
     </LandingPageLayout>
   );
 };

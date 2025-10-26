@@ -1,17 +1,21 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import LandingPageWithAnalytics from './components/LandingPage/LandingPageWithAnalytics';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
+import { queryClient } from './lib/react-query';
 import performanceMonitor from './services/performanceMonitor';
 import './App.css';
 
-// Lazy load dashboard components for code splitting
+// ✅ Lazy load dashboard components for code splitting
 const ConsumerDashboard = lazy(() => import('./components/Dashboard/ConsumerDashboard'));
 const TechnicianDashboard = lazy(() => import('./components/Dashboard/TechnicianDashboard'));
 const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboard'));
 
-// Loading component for Suspense fallback
+// ✅ Loading component for Suspense fallback
 const DashboardLoadingFallback = () => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center">
     <div className="text-center">
@@ -44,10 +48,14 @@ function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <Router>
-        <div className="App">
-          <Routes>
+    // ✅ Wrap entire app in Error Boundary
+    <ErrorBoundary>
+      {/* ✅ Provide React Query client */}
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Router>
+            <div className="App">
+              <Routes>
             <Route
               path="/"
               element={<LandingPageWithAnalytics />}
@@ -171,6 +179,11 @@ function App() {
         </div>
       </Router>
     </AuthProvider>
+    
+    {/* ✅ React Query DevTools (development only) */}
+    {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false} />}
+  </QueryClientProvider>
+</ErrorBoundary>
   );
 }
 

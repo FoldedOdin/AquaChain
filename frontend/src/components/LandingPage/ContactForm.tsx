@@ -96,7 +96,7 @@ const ContactForm: React.FC<ContactFormProps> = ({ onSubmit, className = '' }) =
 
   // Handle input changes with sanitization
   const handleInputChange = (field: keyof ContactFormData, value: string) => {
-    const sanitizedValue = sanitizeInput(value, field === 'email' ? 'email' : 'name');
+    const sanitizedValue = sanitizeInput(value);
     
     setFormData(prev => ({
       ...prev,

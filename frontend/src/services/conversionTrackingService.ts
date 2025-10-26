@@ -537,12 +537,11 @@ class ConversionTrackingService {
    */
   private trackInAnalytics(eventType: string, attributes: Record<string, any>): void {
     // Track in AWS Pinpoint
-    analyticsService.trackEvent({
-      eventType,
-      attributes: Object.fromEntries(
+    analyticsService.trackEvent(eventType, {
+      ...Object.fromEntries(
         Object.entries(attributes).map(([key, value]) => [key, String(value)])
       ),
-      sessionId: this.currentSession?.sessionId
+      sessionId: this.currentSession?.sessionId || ''
     });
 
     // Track in Google Analytics

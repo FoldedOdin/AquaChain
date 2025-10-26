@@ -21,5 +21,4 @@ export interface SignupData {
   recaptchaToken?: string;
 }
 
-// Re-export for convenience
-export type { LoginCredentials, SignupData };
+// Types are already exported above, no need to re-export

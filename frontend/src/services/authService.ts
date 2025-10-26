@@ -513,6 +513,55 @@ class AuthService {
   }
 
   /**
+   * Request password reset
+   * Sends verification code to user's email
+   */
+  async requestPasswordReset(email: string): Promise<void> {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - simulate API call
+        console.log('Password reset requested for:', email);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return;
+      }
+
+      // Production: Use AWS Amplify v6
+      const { resetPassword } = await import('aws-amplify/auth');
+      await resetPassword({ username: email });
+    } catch (error: any) {
+      throw this.handleAuthError(error);
+    }
+  }
+
+  /**
+   * Confirm password reset with verification code
+   */
+  async confirmPasswordReset(
+    email: string,
+    verificationCode: string,
+    newPassword: string
+  ): Promise<void> {
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        // Development mode - simulate API call
+        console.log('Password reset confirmed for:', email);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return;
+      }
+
+      // Production: Use AWS Amplify v6
+      const { confirmResetPassword } = await import('aws-amplify/auth');
+      await confirmResetPassword({
+        username: email,
+        confirmationCode: verificationCode,
+        newPassword: newPassword
+      });
+    } catch (error: any) {
+      throw this.handleAuthError(error);
+    }
+  }
+
+  /**
    * Get redirect path based on user role
    */
   private getRedirectPath(role: UserRole): string {

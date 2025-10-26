@@ -27,7 +27,7 @@ const TechnicianDashboard = () => {
   const [view, setView] = useState<'list' | 'map' | 'history'>('list');
 
   // Use shared hooks
-  const { data, loading, error, refetch } = useDashboardData('technician');
+  const { data, isLoading, error, refetch } = useDashboardData('technician');
   const { exportData, exporting } = useDataExport();
 
   // Extract data from the hook
@@ -88,7 +88,7 @@ const TechnicianDashboard = () => {
     setView(newView);
   }, []);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <DashboardLayout
         role="technician"
@@ -123,7 +123,7 @@ const TechnicianDashboard = () => {
           <h3 className="text-red-800 font-semibold mb-2">Error Loading Tasks</h3>
           <p className="text-red-700">{error.message}</p>
           <button
-            onClick={refetch}
+            onClick={() => refetch()}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Try Again

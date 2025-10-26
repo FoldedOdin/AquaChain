@@ -259,3 +259,35 @@ export class CSRFTokenManager {
 
 // Export singleton instance
 export const csrfTokenManager = new CSRFTokenManager();
+
+/**
+ * Validate email address format
+ * @param email - Email address to validate
+ * @returns true if valid, false otherwise
+ */
+export function validateEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+/**
+ * Validate phone number format
+ * @param phone - Phone number to validate
+ * @returns true if valid, false otherwise
+ */
+export function validatePhone(phone: string): boolean {
+  // Remove all non-digit characters
+  const cleaned = phone.replace(/\D/g, '');
+  // Check if it's 10 or 11 digits (with or without country code)
+  return cleaned.length >= 10 && cleaned.length <= 11;
+}
+
+/**
+ * Sanitize user input to prevent XSS
+ * @param input - User input string
+ * @returns Sanitized string
+ */
+export function sanitizeInput(input: string): string {
+  const result = InputSanitizer.sanitizeName(input);
+  return result.value;
+}

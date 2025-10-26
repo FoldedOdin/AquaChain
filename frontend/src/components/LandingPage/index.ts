@@ -10,5 +10,6 @@ export { default as HeroSection } from './HeroSection';
 export { default as FeaturesShowcase } from './FeaturesShowcase';
 export { default as RoleSelectionSection } from './RoleSelectionSection';
 export { default as ContactSection } from './ContactSection';
-export { default as AuthModal } from './AuthModal';
-export { default as DemoDashboardViewer } from './DemoDashboardViewer';
+// AuthModal exports types only, not a default component
+export * from './AuthModal';
+// DemoDashboardViewer removed - no longer used

@@ -644,12 +644,9 @@ class ABTestingService {
 
   private trackTestEvent(eventType: string, attributes: Record<string, any>): void {
     // Track in analytics services
-    analyticsService.trackEvent({
-      eventType,
-      attributes: Object.fromEntries(
-        Object.entries(attributes).map(([key, value]) => [key, String(value)])
-      )
-    });
+    analyticsService.trackEvent(eventType, Object.fromEntries(
+      Object.entries(attributes).map(([key, value]) => [key, String(value)])
+    ));
 
     if (googleAnalyticsService.isReady()) {
       googleAnalyticsService.trackEvent(eventType, attributes);

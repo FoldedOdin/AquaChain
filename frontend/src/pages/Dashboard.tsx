@@ -21,7 +21,7 @@ const Dashboard: React.FC = () => {
   const [currentReading, setCurrentReading] = useState<WaterQualityReading>(mockWaterQualityReading);
 
   // Use shared hooks
-  const { data, loading: isLoading, error, refetch } = useDashboardData('consumer');
+  const { data, isLoading, error, refetch } = useDashboardData('consumer');
   const { latestUpdate } = useRealTimeUpdates('consumer-updates');
   const { exportData, exporting } = useDataExport();
 
@@ -121,7 +121,7 @@ const Dashboard: React.FC = () => {
           <h3 className="text-red-800 font-semibold mb-2">Error Loading Dashboard</h3>
           <p className="text-red-700">{error.message}</p>
           <button
-            onClick={refetch}
+            onClick={() => refetch()}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Retry

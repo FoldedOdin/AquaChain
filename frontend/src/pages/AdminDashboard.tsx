@@ -35,7 +35,7 @@ const AdminDashboard = () => {
   const [performanceMetrics, setPerformanceMetrics] = useState<any[]>([]);
 
   // Use shared hooks
-  const { data, loading, error, refetch } = useDashboardData('admin');
+  const { data, isLoading, error, refetch } = useDashboardData('admin');
   const { latestUpdate } = useRealTimeUpdates('admin-alerts');
   const { exportData, exporting } = useDataExport();
 
@@ -90,7 +90,7 @@ const AdminDashboard = () => {
     setActiveTab(tab);
   }, []);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <DashboardLayout
         role="admin"
@@ -125,7 +125,7 @@ const AdminDashboard = () => {
           <h3 className="text-red-800 font-semibold mb-2">Error Loading Dashboard</h3>
           <p className="text-red-700">{error.message}</p>
           <button
-            onClick={refetch}
+            onClick={() => refetch()}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Retry

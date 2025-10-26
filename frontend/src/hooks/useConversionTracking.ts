@@ -18,7 +18,7 @@ export const useConversionTracking = () => {
       conversionTrackingService.trackConversion(conversionType, value, additionalAttributes);
       
       // Track in analytics service (AWS Pinpoint + GA4)
-      analyticsTrackConversion(conversionType, value, additionalAttributes);
+      analyticsTrackConversion(conversionType, value?.toString(), additionalAttributes);
     },
     [analyticsTrackConversion]
   );

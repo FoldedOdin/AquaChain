@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify';
 import { LoginCredentials, SignupData } from './AuthModal';
 import GoogleOAuthButton from './GoogleOAuthButton';
 import EmailVerificationStatus from './EmailVerificationStatus';
+import PasswordResetModal from './PasswordResetModal';
 import authService from '../../services/authService';
 import { InputSanitizer, RateLimiter, RecaptchaService, csrfTokenManager } from '../../utils/security';
 
@@ -119,6 +120,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPassword, setShowPassword] = useState(false);
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
 
   // Real-time validation
   useEffect(() => {
@@ -404,10 +406,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           type="button"
           className="text-sm text-aqua-600 hover:text-aqua-500 focus:outline-none focus:underline"
           disabled={isLoading}
+          onClick={() => setShowPasswordReset(true)}
         >
           Forgot your password?
         </button>
       </div>
+
+      {/* Password Reset Modal */}
+      <PasswordResetModal
+        isOpen={showPasswordReset}
+        onClose={() => setShowPasswordReset(false)}
+      />
     </motion.form>
   );
 };

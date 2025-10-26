@@ -1,11 +1,11 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import analyticsService, { AnalyticsEvent, UserAttributes } from '../services/analyticsService';
+import analyticsService from '../services/analyticsService';
 import googleAnalyticsService, { GA4UserProperties } from '../services/googleAnalyticsService';
 
 // Analytics context interface
 interface AnalyticsContextType {
   isInitialized: boolean;
-  trackEvent: (event: AnalyticsEvent) => Promise<void>;
+  trackEvent: (eventName: string, properties?: Record<string, string>) => Promise<void>;
   trackPageView: (pageName: string, additionalAttributes?: Record<string, string>) => Promise<void>;
   trackInteraction: (
     elementType: string,
@@ -15,10 +15,10 @@ interface AnalyticsContextType {
   ) => Promise<void>;
   trackConversion: (
     conversionType: 'signup' | 'login' | 'demo_view' | 'contact_form' | 'newsletter_signup',
-    value?: number,
+    value?: string,
     additionalAttributes?: Record<string, string>
   ) => Promise<void>;
-  setUserAttributes: (attributes: UserAttributes) => void;
+  setUserAttributes: (attributes: Record<string, string>) => void;
   setUserRole: (role: 'consumer' | 'technician' | 'admin') => void;
   // Google Analytics specific methods
   trackFormSubmission: (
@@ -68,14 +68,8 @@ export const AnalyticsProvider: React.FC<AnalyticsProviderProps> = ({
 
         // Initialize AWS Pinpoint only if analytics is enabled and credentials are available
         const analyticsEnabled = process.env.REACT_APP_ENABLE_ANALYTICS === 'true';
-        if (analyticsEnabled && analyticsConfig.credentials) {
-          await analyticsService.initialize(analyticsConfig);
-        } else if (process.env.NODE_ENV === 'development') {
-          // In development, initialize with mock mode
-          await analyticsService.initialize({
-            ...analyticsConfig,
-            mockMode: true
-          });
+        if (analyticsEnabled || process.env.NODE_ENV === 'development') {
+          analyticsService.initialize();
         }
 
         // Initialize Google Analytics 4
@@ -131,7 +125,7 @@ export const AnalyticsProvider: React.FC<AnalyticsProviderProps> = ({
 
     // Cleanup on unmount
     return () => {
-      analyticsService.destroy();
+      // Cleanup if needed
     };
   }, [config]);
 
@@ -149,7 +143,7 @@ export const AnalyticsProvider: React.FC<AnalyticsProviderProps> = ({
     action: string,
     additionalAttributes?: Record<string, string>
   ) => {
-    await analyticsService.trackInteraction(elementType, elementId, action, additionalAttributes);
+    await analyticsService.trackEvent(`${elementType}_${action}`, { elementId, ...additionalAttributes });
     if (googleAnalyticsService.isReady()) {
       googleAnalyticsService.trackInteraction(elementType, elementId, action, additionalAttributes);
     }
@@ -157,25 +151,21 @@ export const AnalyticsProvider: React.FC<AnalyticsProviderProps> = ({
 
   const enhancedTrackConversion = async (
     conversionType: 'signup' | 'login' | 'demo_view' | 'contact_form' | 'newsletter_signup',
-    value?: number,
+    value?: string,
     additionalAttributes?: Record<string, string>
   ) => {
-    await analyticsService.trackConversion(conversionType, value, additionalAttributes);
+    await analyticsService.trackConversion(conversionType, undefined, { value, ...additionalAttributes });
     if (googleAnalyticsService.isReady()) {
-      googleAnalyticsService.trackConversion(conversionType, value, additionalAttributes);
+      googleAnalyticsService.trackConversion(conversionType, value ? parseFloat(value) : undefined, additionalAttributes);
     }
   };
 
-  const enhancedSetUserAttributes = (attributes: UserAttributes) => {
-    analyticsService.setUserAttributes(attributes);
-    
+  const enhancedSetUserAttributes = (attributes: Record<string, string>) => {
+    // Store attributes locally if needed
     if (googleAnalyticsService.isReady()) {
       const ga4Properties: GA4UserProperties = {
-        user_role: attributes.role,
-        device_type: attributes.deviceType,
-        preferred_language: attributes.preferences?.language,
-        location_country: attributes.location?.country,
-        location_region: attributes.location?.region
+        user_role: attributes.role as 'consumer' | 'technician' | 'admin' | undefined,
+        device_type: attributes.deviceType as 'mobile' | 'tablet' | 'desktop' | undefined
       };
       googleAnalyticsService.setUserProperties(ga4Properties);
     }
@@ -305,16 +295,11 @@ export const useScrollTracking = () => {
       if (milestone > 0 && !milestones.has(milestone)) {
         setMilestones(prev => new Set(Array.from(prev).concat([milestone])));
         
-        trackEvent({
-          eventType: 'scroll_depth',
-          attributes: {
-            page_url: window.location.href,
-            milestone: milestone.toString()
-          },
-          metrics: {
-            scroll_depth: scrollPercent,
-            time_to_milestone: performance.now()
-          }
+        trackEvent('scroll_depth', {
+          page_url: window.location.href,
+          milestone: milestone.toString(),
+          scroll_depth: scrollPercent.toString(),
+          time_to_milestone: performance.now().toString()
         });
       }
     };

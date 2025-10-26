@@ -62,10 +62,8 @@ export const LazyContactSection = React.lazy(() =>
   }))
 );
 
-// Auth Modal (loaded on demand)
-export const LazyAuthModal = React.lazy(() => 
-  import('../components/LandingPage/AuthModal')
-);
+// Auth Modal - Note: AuthModal only exports types, not a component
+// If you need to lazy load an auth modal component, create one with a default export
 
 
 

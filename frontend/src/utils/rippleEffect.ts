@@ -181,7 +181,7 @@ export const withRipple = <P extends { onClick?: (event: React.MouseEvent<HTMLEl
       }
     };
 
-    return React.createElement(Component, { ...props, ref, onClick: handleClick });
+    return React.createElement(Component, { ...props, ref, onClick: handleClick } as any);
   });
 };
 
