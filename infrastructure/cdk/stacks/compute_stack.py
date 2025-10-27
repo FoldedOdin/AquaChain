@@ -266,6 +266,9 @@ class AquaChainComputeStack(Stack):
             "websocket": self.websocket_function,
             "notification": self.notification_function
         })
+        
+        # Also add to compute_resources for API stack compatibility
+        self.compute_resources.update(self.lambda_functions)
     
     def _create_sns_topics(self) -> None:
         """

@@ -90,7 +90,9 @@ class AquaChainMLModelRegistryStack(Stack):
                 type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            point_in_time_recovery=True,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
             removal_policy=RemovalPolicy.RETAIN,  # Always retain registry
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )

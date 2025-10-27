@@ -59,12 +59,12 @@ class CognitoSetup:
                 'AliasAttributes': ['email'],
                 'UsernameAttributes': ['email'],
                 'SmsVerificationMessage': 'Your AquaChain verification code is {####}',
-                'EmailVerificationMessage': 'Your AquaChain verification code is {####}',
-                'EmailVerificationSubject': 'AquaChain Email Verification',
+                'EmailVerificationMessage': 'Welcome to AquaChain! Your verification code is {####}. Please enter this code to verify your email address and complete your registration.',
+                'EmailVerificationSubject': 'Verify Your AquaChain Account',
                 'VerificationMessageTemplate': {
                     'SmsMessage': 'Your AquaChain verification code is {####}',
-                    'EmailMessage': 'Your AquaChain verification code is {####}',
-                    'EmailSubject': 'AquaChain Email Verification',
+                    'EmailMessage': 'Welcome to AquaChain!\n\nThank you for signing up. To complete your registration and start monitoring your water quality, please verify your email address.\n\nYour verification code is: {####}\n\nThis code will expire in 24 hours.\n\nIf you did not create an AquaChain account, please ignore this email.\n\nBest regards,\nThe AquaChain Team',
+                    'EmailSubject': 'Verify Your AquaChain Account',
                     'DefaultEmailOption': 'CONFIRM_WITH_CODE'
                 },
                 'MfaConfiguration': mfa_configuration,
@@ -73,7 +73,8 @@ class CognitoSetup:
                     'DeviceOnlyRememberedOnUserPrompt': False
                 },
                 'EmailConfiguration': {
-                    'EmailSendingAccount': 'COGNITO_DEFAULT'
+                    'EmailSendingAccount': 'COGNITO_DEFAULT',
+                    'ReplyToEmailAddress': 'noreply@aquachain.io'
                 },
                 'AdminCreateUserConfig': {
                     'AllowAdminCreateUserOnly': False,

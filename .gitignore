@@ -362,6 +362,10 @@ cdk.context.json
 *.sqlite
 *.sqlite3
 
+# Development server data (user accounts, tokens)
+.dev-data.json
+frontend/.dev-data.json
+
 # Generated documentation with potential sensitive info
 generated-docs/
 api-docs/
@@ -406,6 +410,7 @@ internal-docs/
 *.zip
 *.rar
 *.7z
+*.csv
 
 # =============================================================================
 # ALLOW SPECIFIC IMPORTANT FILES

@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify';
 import { LoginCredentials, SignupData } from './AuthModal';
 import GoogleOAuthButton from './GoogleOAuthButton';
 import EmailVerificationStatus from './EmailVerificationStatus';
+import EmailVerificationModal from './EmailVerificationModal';
 import PasswordResetModal from './PasswordResetModal';
 import authService from '../../services/authService';
 import { InputSanitizer, RateLimiter, RecaptchaService, csrfTokenManager } from '../../utils/security';
@@ -454,6 +455,8 @@ export const SignupForm: React.FC<SignupFormProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
   const [passwordStrength, setPasswordStrength] = useState<PasswordStrengthResult | null>(null);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [signupEmail, setSignupEmail] = useState('');
 
   // Real-time validation
   useEffect(() => {
@@ -574,7 +577,13 @@ export const SignupForm: React.FC<SignupFormProps> = ({
         recaptchaToken
       } as any);
       
-      setSuccess('Account created successfully! Please check your email to verify your account.');
+      setSuccess('Account created successfully! Please verify your email to continue.');
+      setSignupEmail(sanitizedEmail.value);
+      
+      // Show verification modal after a brief delay
+      setTimeout(() => {
+        setShowVerificationModal(true);
+      }, 1000);
       
       // Reset rate limit on successful signup
       RateLimiter.resetRateLimit(rateLimitKey);
@@ -960,6 +969,19 @@ export const SignupForm: React.FC<SignupFormProps> = ({
           )}
         </button>
       </div>
+
+      {/* Email Verification Modal */}
+      {signupEmail && (
+        <EmailVerificationModal
+          isOpen={showVerificationModal}
+          onClose={() => setShowVerificationModal(false)}
+          email={signupEmail}
+          onVerified={() => {
+            setSuccess('Email verified! You can now sign in with your credentials.');
+            setShowVerificationModal(false);
+          }}
+        />
+      )}
     </motion.form>
   );
 };

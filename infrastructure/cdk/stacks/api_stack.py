@@ -25,12 +25,15 @@ class AquaChainApiStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str, config: Dict[str, Any],
-                 lambda_functions: Dict[str, Any], security_resources: Dict[str, Any], **kwargs) -> None:
+                 lambda_functions: Dict[str, Any] = None, 
+                 compute_resources: Dict[str, Any] = None,
+                 security_resources: Dict[str, Any] = None, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.config = config
-        self.lambda_functions = lambda_functions
-        self.security_resources = security_resources
+        # Accept either lambda_functions or compute_resources for backward compatibility
+        self.lambda_functions = lambda_functions or compute_resources or {}
+        self.security_resources = security_resources or {}
         self.api_resources = {}
         
         # Create Cognito User Pool

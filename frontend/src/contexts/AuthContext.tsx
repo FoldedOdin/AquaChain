@@ -4,12 +4,11 @@ import { signOut, fetchAuthSession } from 'aws-amplify/auth';
 import { UserProfile } from '../types';
 
 // Configure Amplify (this would be loaded from environment variables)
-Amplify.configure({
+const amplifyConfig: any = {
   Auth: {
     Cognito: {
       userPoolId: process.env.REACT_APP_USER_POOL_ID || 'us-east-1_example',
       userPoolClientId: process.env.REACT_APP_USER_POOL_CLIENT_ID || 'example',
-      identityPoolId: process.env.REACT_APP_IDENTITY_POOL_ID || 'us-east-1:example',
     }
   },
   API: {
@@ -20,7 +19,14 @@ Amplify.configure({
       }
     }
   }
-});
+};
+
+// Add Identity Pool ID only if provided (optional for basic auth)
+if (process.env.REACT_APP_IDENTITY_POOL_ID) {
+  amplifyConfig.Auth.Cognito.identityPoolId = process.env.REACT_APP_IDENTITY_POOL_ID;
+}
+
+Amplify.configure(amplifyConfig);
 
 interface AuthContextType {
   user: UserProfile | null;

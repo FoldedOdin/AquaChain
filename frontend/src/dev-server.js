@@ -8,10 +8,14 @@ const cors = require('cors');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3002;
+
+// File path for persistent storage
+const DEV_DATA_FILE = path.join(__dirname, '../../.dev-data.json');
 
 // Middleware
 app.use(cors());
@@ -57,13 +61,68 @@ app.post('/api/analytics', (req, res) => {
   res.json({ success: true });
 });
 
-// In-memory storage for development (resets on server restart)
+// Persistent storage for development (survives server restarts)
 const devUsers = new Map();
+const validTokens = new Map();
+
+// Load existing users from file
+function loadDevData() {
+  try {
+    if (fs.existsSync(DEV_DATA_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DEV_DATA_FILE, 'utf8'));
+      
+      // Load users
+      if (data.users) {
+        Object.entries(data.users).forEach(([email, user]) => {
+          devUsers.set(email, user);
+        });
+        console.log(`✅ Loaded ${devUsers.size} existing users from storage`);
+      }
+      
+      // Load tokens
+      if (data.tokens) {
+        Object.entries(data.tokens).forEach(([token, tokenData]) => {
+          validTokens.set(token, tokenData);
+        });
+        console.log(`✅ Loaded ${validTokens.size} active tokens from storage`);
+      }
+    } else {
+      console.log('📝 No existing dev data found - starting fresh');
+    }
+  } catch (error) {
+    console.error('⚠️  Error loading dev data:', error.message);
+  }
+}
+
+// Save users to file
+function saveDevData() {
+  try {
+    const data = {
+      users: Object.fromEntries(devUsers),
+      tokens: Object.fromEntries(validTokens),
+      lastUpdated: new Date().toISOString()
+    };
+    fs.writeFileSync(DEV_DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('⚠️  Error saving dev data:', error.message);
+  }
+}
+
+// Load data on startup
+loadDevData();
 
 // Mock auth endpoints
 app.post('/api/auth/signup', (req, res) => {
   const { email, password, name, role } = req.body;
   console.log('Signup attempt:', email);
+  
+  // Check if user already exists
+  if (devUsers.has(email)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'User already exists. Please sign in instead.' 
+    });
+  }
   
   // Store user credentials for later login
   devUsers.set(email, {
@@ -76,11 +135,15 @@ app.post('/api/auth/signup', (req, res) => {
     createdAt: new Date().toISOString()
   });
   
+  // Save to file
+  saveDevData();
+  
   // Auto-verify email after 2 seconds (simulate email verification)
   setTimeout(() => {
     if (devUsers.has(email)) {
       devUsers.get(email).emailVerified = true;
       console.log(`Auto-verified email for: ${email}`);
+      saveDevData();
     }
   }, 2000);
   
@@ -130,6 +193,9 @@ app.post('/api/auth/signin', (req, res) => {
     createdAt: new Date().toISOString()
   });
   
+  // Save to file
+  saveDevData();
+  
   res.json({ 
     success: true, 
     message: 'Sign in successful!',
@@ -162,9 +228,6 @@ app.get('/api/auth/verification-status/:email', (req, res) => {
     email: user.email
   });
 });
-
-// In-memory token storage for development
-const validTokens = new Map();
 
 // Validate user session endpoint
 app.post('/api/auth/validate', (req, res) => {

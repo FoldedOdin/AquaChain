@@ -77,7 +77,9 @@ class AquaChainPhase3InfrastructureStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.RETAIN if self.config.get("enable_deletion_protection", False) else RemovalPolicy.DESTROY,
-            point_in_time_recovery=self.config.get("enable_point_in_time_recovery", False),
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config.get("enable_point_in_time_recovery", False)
+            ),
             time_to_live_attribute="ttl",
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -138,7 +140,9 @@ class AquaChainPhase3InfrastructureStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.RETAIN if self.config.get("enable_deletion_protection", False) else RemovalPolicy.DESTROY,
-            point_in_time_recovery=self.config.get("enable_point_in_time_recovery", False),
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config.get("enable_point_in_time_recovery", False)
+            ),
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         
@@ -210,7 +214,9 @@ class AquaChainPhase3InfrastructureStack(Stack):
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.RETAIN if self.config.get("enable_deletion_protection", False) else RemovalPolicy.DESTROY,
-            point_in_time_recovery=self.config.get("enable_point_in_time_recovery", False),
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config.get("enable_point_in_time_recovery", False)
+            ),
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         

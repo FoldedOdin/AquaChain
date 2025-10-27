@@ -62,7 +62,9 @@ class AquaChainDataStack(Stack):
             write_capacity=self.config.get("dynamodb_write_capacity", 5) if self.config["dynamodb_billing_mode"] == "PROVISIONED" else None,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
+            ),
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"
@@ -127,7 +129,9 @@ class AquaChainDataStack(Stack):
             write_capacity=self.config.get("dynamodb_write_capacity", 5) if self.config["dynamodb_billing_mode"] == "PROVISIONED" else None,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
+            ),
             removal_policy=RemovalPolicy.RETAIN,  # Always retain ledger
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -157,7 +161,9 @@ class AquaChainDataStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
+            ),
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
         )
         
@@ -200,7 +206,9 @@ class AquaChainDataStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
+            ),
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
         )
         
@@ -229,7 +237,9 @@ class AquaChainDataStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
+            ),
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -277,7 +287,9 @@ class AquaChainDataStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery=True,  # Always enabled for audit logs
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True  # Always enabled for audit logs
+            ),
             removal_policy=RemovalPolicy.RETAIN,  # Always retain audit logs
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"  # 7-year retention via TTL

@@ -24,8 +24,11 @@ class AquaChainBackupStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str, 
-                 config: Dict[str, Any], **kwargs) -> None:
+                 config: Dict[str, Any], 
+                 data_resources: Dict[str, Any] = None, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        
+        self.data_resources = data_resources or {}
         
         self.config = config
         
