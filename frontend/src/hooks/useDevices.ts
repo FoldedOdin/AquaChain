@@ -35,7 +35,8 @@ export function useDevices() {
     return () => {
       clearInterval(interval);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   return { data, isLoading, error, refetch: fetchData };
 }
@@ -65,7 +66,8 @@ export function useDevice(deviceId: string) {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]); // Only refetch when deviceId changes
 
   return { data, isLoading, error, refetch: fetchData };
 }

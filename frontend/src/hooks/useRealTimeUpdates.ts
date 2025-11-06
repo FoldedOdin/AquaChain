@@ -134,7 +134,8 @@ export function useRealTimeUpdates(
     return () => {
       disconnect();
     };
-  }, [autoConnect, connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoConnect, subscriptionTopic]); // Only reconnect when topic or autoConnect changes
 
   return {
     updates,

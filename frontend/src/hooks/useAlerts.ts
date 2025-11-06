@@ -35,7 +35,8 @@ export function useAlerts(limit: number = 50) {
     return () => {
       clearInterval(interval);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limit]); // Only refetch when limit changes
 
   return { data, isLoading, error, refetch: fetchData };
 }
@@ -68,7 +69,8 @@ export function useCriticalAlerts() {
     return () => {
       clearInterval(interval);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   return { data, isLoading, error, refetch: fetchData };
 }

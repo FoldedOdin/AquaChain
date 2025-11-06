@@ -35,7 +35,8 @@ export function useWaterQualityData(timeRange: string = '24h') {
     return () => {
       clearInterval(interval);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange]); // Only refetch when timeRange changes
 
   return { data, isLoading, error, refetch: fetchData };
 }
@@ -68,7 +69,8 @@ export function useLatestWaterQuality() {
     return () => {
       clearInterval(interval);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   return { data, isLoading, error, refetch: fetchData };
 }

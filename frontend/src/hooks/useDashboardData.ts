@@ -107,7 +107,8 @@ export function useDashboardData(userRole: UserRole) {
     return () => {
       clearInterval(interval);
     };
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole]); // Only refetch when userRole changes
 
   return { data, isLoading, error, refetch: fetchData };
 }
