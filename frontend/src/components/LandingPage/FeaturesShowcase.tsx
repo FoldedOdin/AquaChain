@@ -5,9 +5,12 @@ import {
   ShieldCheckIcon, 
   BrainCircuitIcon,
   ClockIcon,
-  TrendingUpIcon
+  TrendingUpIcon,
+  RefreshCwIcon
 } from 'lucide-react';
 import { useRippleEffect } from '../../utils/rippleEffect';
+import { trustMetrics as configTrustMetrics, METRICS_UPDATE_INTERVAL } from '../../config/landingPageMetrics';
+import { useLiveMetrics } from '../../hooks/useLiveMetrics';
 
 interface FeatureCard {
   id: string;
@@ -72,34 +75,33 @@ const features: FeatureCard[] = [
   }
 ];
 
-const trustMetrics: TrustMetric[] = [
-  {
-    id: 'uptime',
-    value: '99.8%',
-    label: 'System Uptime',
-    icon: TrendingUpIcon,
-    color: 'aqua'
-  },
-  {
-    id: 'response-time',
-    value: '<30s',
-    label: 'Alert Response',
-    icon: ClockIcon,
-    color: 'teal'
-  },
-  {
-    id: 'data-integrity',
-    value: '100%',
-    label: 'Data Integrity',
-    icon: ShieldCheckIcon,
-    color: 'emerald'
-  }
-];
+// Map icons to metrics from config
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  'uptime': TrendingUpIcon,
+  'response-time': ClockIcon,
+  'data-integrity': ShieldCheckIcon
+};
+
+const colorMap: Record<string, string> = {
+  'uptime': 'aqua',
+  'response-time': 'teal',
+  'data-integrity': 'emerald'
+};
+
+// Build trust metrics from config with icons
+const buildTrustMetrics = (metricsData: typeof configTrustMetrics): TrustMetric[] => {
+  return metricsData.map(metric => ({
+    ...metric,
+    icon: iconMap[metric.id] || ShieldCheckIcon,
+    color: colorMap[metric.id] || 'aqua'
+  }));
+};
 
 /**
  * Features Showcase Component
  * Displays key AquaChain capabilities with interactive cards and trust indicators
  * Implements responsive grid layout with scroll-triggered animations
+ * Supports both static and live metrics
  */
 const FeaturesShowcase: React.FC = () => {
   const sectionRef = useRef<HTMLElement>(null);
@@ -107,6 +109,20 @@ const FeaturesShowcase: React.FC = () => {
   const controls = useAnimation();
   const shouldReduceMotion = useReducedMotion();
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+
+  // Use live metrics if enabled, otherwise use static config
+  const { 
+    metrics: liveMetrics, 
+    isLoading: metricsLoading, 
+    lastUpdated,
+    refetch 
+  } = useLiveMetrics({
+    enabled: METRICS_UPDATE_INTERVAL > 0
+  });
+
+  // Use live metrics if available, otherwise fall back to static config
+  const displayMetrics = liveMetrics || configTrustMetrics;
+  const trustMetrics = buildTrustMetrics(displayMetrics);
 
   // Trigger animations when section comes into view
   useEffect(() => {
@@ -220,7 +236,12 @@ const FeaturesShowcase: React.FC = () => {
           animate={controls}
           variants={trustBarVariants}
         >
-          <TrustIndicatorsBar metrics={trustMetrics} />
+          <TrustIndicatorsBar 
+            metrics={trustMetrics}
+            isLoading={metricsLoading}
+            lastUpdated={lastUpdated}
+            onRefresh={refetch}
+          />
         </motion.div>
       </div>
     </section>
@@ -345,9 +366,17 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
  */
 interface TrustIndicatorsBarProps {
   metrics: TrustMetric[];
+  isLoading?: boolean;
+  lastUpdated?: Date | null;
+  onRefresh?: () => void;
 }
 
-const TrustIndicatorsBar: React.FC<TrustIndicatorsBarProps> = ({ metrics }) => {
+const TrustIndicatorsBar: React.FC<TrustIndicatorsBarProps> = ({ 
+  metrics,
+  isLoading = false,
+  lastUpdated = null,
+  onRefresh
+}) => {
   return (
     <motion.div 
       className="bg-slate-800/30 backdrop-blur-sm rounded-2xl p-8 lg:p-12 border border-slate-700/50 hover:border-slate-600/50 transition-colors duration-300"
@@ -385,16 +414,44 @@ const TrustIndicatorsBar: React.FC<TrustIndicatorsBarProps> = ({ metrics }) => {
         ))}
       </div>
 
-      {/* Additional Context */}
+      {/* Additional Context with Live Update Info */}
       <motion.div 
         className="mt-12 pt-8 border-t border-slate-700/50 text-center"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6, delay: 1 }}
       >
-        <p className="text-sm text-gray-500">
-          Metrics updated in real-time • Last updated: {new Date().toLocaleDateString()}
-        </p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <p className="text-sm text-gray-500">
+            {METRICS_UPDATE_INTERVAL > 0 ? (
+              <>
+                {isLoading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <RefreshCwIcon className="w-4 h-4 animate-spin" />
+                    Updating metrics...
+                  </span>
+                ) : (
+                  <>
+                    Live metrics • Last updated: {lastUpdated?.toLocaleTimeString() || 'Just now'}
+                  </>
+                )}
+              </>
+            ) : (
+              <>Static metrics • Updated: {new Date().toLocaleDateString()}</>
+            )}
+          </p>
+          
+          {METRICS_UPDATE_INTERVAL > 0 && !isLoading && onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="text-sm text-aqua-400 hover:text-aqua-300 transition-colors inline-flex items-center gap-1 group"
+              aria-label="Refresh metrics"
+            >
+              <RefreshCwIcon className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+              Refresh
+            </button>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );

@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import ResponsiveContainer from './ResponsiveContainer';
+import { footerMetrics } from '../../config/landingPageMetrics';
 
 interface LandingPageFooterProps {
   onContactClick?: () => void;
@@ -248,9 +249,9 @@ const LandingPageFooter: React.FC<LandingPageFooterProps> = ({ onContactClick })
                 <div className="flex items-center space-x-4">
                   <span className="flex items-center space-x-2">
                     <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                    <span>System Operational</span>
+                    <span>System {footerMetrics.status}</span>
                   </span>
-                  <span>99.8% Uptime</span>
+                  <span>{footerMetrics.uptime} Uptime</span>
                 </div>
               </div>
 
