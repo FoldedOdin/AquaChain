@@ -49,7 +49,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
         </p>
 
         {/* Call-to-Action Button */}
-        <div className="flex justify-center items-center">
+        <div className="flex justify-center items-center mb-16 lg:mb-20">
           {/* Primary CTA */}
           <button
             onClick={onGetStartedClick}
@@ -60,30 +60,14 @@ const HeroSection: React.FC<HeroSectionProps> = ({
             <div className="absolute inset-0 bg-gradient-to-r from-aqua-400 to-aqua-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-sm"></div>
           </button>
         </div>
-
-        {/* Trust Indicators */}
-        <div className="mt-12 lg:mt-16 grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 max-w-3xl mx-auto">
-          <div className="text-center">
-            <div className="text-2xl lg:text-3xl font-bold text-aqua-400 mb-2">99.8%</div>
-            <div className="text-sm lg:text-base text-gray-300">System Uptime</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl lg:text-3xl font-bold text-aqua-400 mb-2">&lt;30s</div>
-            <div className="text-sm lg:text-base text-gray-300">Alert Response</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl lg:text-3xl font-bold text-aqua-400 mb-2">100%</div>
-            <div className="text-sm lg:text-base text-gray-300">Tamper-Evident</div>
-          </div>
-        </div>
       </div>
 
-      {/* Scroll Indicator */}
+      {/* Scroll Indicator 
       <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 animate-bounce">
         <div className="w-6 h-10 border-2 border-aqua-400 rounded-full flex justify-center">
           <div className="w-1 h-3 bg-aqua-400 rounded-full mt-2 animate-pulse"></div>
         </div>
-      </div>
+      </div>*/}
     </section>
   );
 };
