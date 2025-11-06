@@ -134,8 +134,7 @@ def convert_dynamodb_record(dynamodb_data: Dict[str, Any]) -> Dict[str, Any]:
                 'pH': float(dynamodb_data['readings']['M']['pH']['N']),
                 'turbidity': float(dynamodb_data['readings']['M']['turbidity']['N']),
                 'tds': float(dynamodb_data['readings']['M']['tds']['N']),
-                'temperature': float(dynamodb_data['readings']['M']['temperature']['N']),
-                'humidity': float(dynamodb_data['readings']['M']['humidity']['N'])
+                'temperature': float(dynamodb_data['readings']['M']['temperature']['N'])
             },
             'location': {
                 'latitude': float(dynamodb_data['location']['M']['latitude']['N']),

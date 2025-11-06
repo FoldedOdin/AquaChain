@@ -23,6 +23,7 @@ known_hosts
 # Environment and Configuration Files
 .env*
 !.env.example
+!.env.production
 config.json
 secrets.json
 credentials.json
@@ -35,6 +36,16 @@ service-account*.json
 terraform.tfvars
 terraform.tfstate*
 .terraform/
+
+# Frontend environment files
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# IoT Simulator environment files
+iot-simulator/.env
+iot-simulator/simulation/.env
 
 # Database Files
 *.db
@@ -349,6 +360,9 @@ datasets/
 # IoT device configurations (may contain device keys)
 device-configs/
 iot-certificates/
+iot-simulator/certificates/
+iot-simulator/simulation/__pycache__/
+iot-simulator/simulation/*.pyc
 
 # Lambda deployment packages
 *.zip
@@ -393,6 +407,11 @@ internal-docs/
 *credential*
 *private*
 *confidential*
+
+# Documentation with real AWS account info (should be sanitized before commit)
+# docs/KMS_INCIDENT_RESOLUTION.md - contains real account ID
+# infrastructure/setup-iam-permissions.md - contains real account ID
+# infrastructure/SECURITY_CREDENTIALS_GUIDE.md - contains real account ID
 
 # Backup and temporary versions
 *.backup

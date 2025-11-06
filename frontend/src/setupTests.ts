@@ -5,15 +5,6 @@
 import '@testing-library/jest-dom';
 import 'jest-axe/extend-expect';
 
-// Mock web-vitals for testing
-jest.mock('web-vitals', () => ({
-  getCLS: jest.fn(),
-  getFID: jest.fn(),
-  getFCP: jest.fn(),
-  getLCP: jest.fn(),
-  getTTFB: jest.fn(),
-}));
-
 // Mock framer-motion for testing
 jest.mock('framer-motion', () => ({
   motion: {

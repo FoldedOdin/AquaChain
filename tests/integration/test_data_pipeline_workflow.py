@@ -86,8 +86,7 @@ def sample_iot_message():
             'pH': 7.2,
             'turbidity': 2.5,
             'tds': 350.0,
-            'temperature': 22.5,
-            'humidity': 65.0
+            'temperature': 22.5
         },
         'diagnostics': {
             'batteryLevel': 85.0,
@@ -215,7 +214,7 @@ class TestDataValidationAndSanitization:
             'deviceId': 'DEV-0001',
             'timestamp': '2025-10-25T12:00:00',  # Missing Z
             'location': {'latitude': 37.7749, 'longitude': -122.4194},
-            'readings': {'pH': 7.0, 'turbidity': 2.0, 'tds': 300.0, 'temperature': 20.0, 'humidity': 60.0},
+            'readings': {'pH': 7.0, 'turbidity': 2.0, 'tds': 300.0, 'temperature': 20.0},
             'diagnostics': {'batteryLevel': 80.0, 'signalStrength': -70.0, 'sensorStatus': 'normal'}
         }
         
@@ -608,13 +607,13 @@ class TestCompleteDataPipelineWorkflow:
     def test_pipeline_with_multiple_concurrent_messages(self, mock_aws_environment, mock_aws_clients, sample_ml_results):
         """Test pipeline handling multiple concurrent messages"""
         # Create multiple IoT messages
-        messages = []
+        messages = ''
         for i in range(5):
             message = {
                 'deviceId': f'DEV-000{i}',
                 'timestamp': f'2025-10-25T12:0{i}:00Z',
                 'location': {'latitude': 37.7749, 'longitude': -122.4194},
-                'readings': {'pH': 7.0 + i * 0.1, 'turbidity': 2.0, 'tds': 300.0, 'temperature': 20.0, 'humidity': 60.0},
+                'readings': {'pH': 7.0 + i * 0.1, 'turbidity': 2.0, 'tds': 300.0, 'temperature': 20.0},
                 'diagnostics': {'batteryLevel': 80.0, 'signalStrength': -70.0, 'sensorStatus': 'normal'}
             }
             messages.append(message)
@@ -645,7 +644,7 @@ class TestCompleteDataPipelineWorkflow:
             context.request_id = 'test-request-123'
             
             # Process all messages
-            responses = []
+            responses = ''
             for message in messages:
                 response = lambda_handler(message, context)
                 responses.append(response)

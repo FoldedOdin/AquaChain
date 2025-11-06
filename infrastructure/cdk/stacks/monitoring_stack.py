@@ -366,15 +366,15 @@ class AquaChainMonitoringStack(Stack):
         # Critical alerts topic (P1 incidents)
         self.critical_alerts_topic = sns.Topic(
             self, "CriticalAlertsTopic",
-            topic_name=get_resource_name(self.config, "topic", "critical-alerts"),
-            display_name="AquaChain Critical System Alerts"
+            topic_name=get_resource_name(self.config, "topic", "monitoring-critical"),
+            display_name="AquaChain Monitoring Critical Alerts"
         )
         
         # Warning alerts topic (P2 incidents)
         self.warning_alerts_topic = sns.Topic(
             self, "WarningAlertsTopic",
-            topic_name=get_resource_name(self.config, "topic", "warning-alerts"),
-            display_name="AquaChain Warning Alerts"
+            topic_name=get_resource_name(self.config, "topic", "monitoring-warning"),
+            display_name="AquaChain Monitoring Warning Alerts"
         )
         
         # Add email subscriptions
@@ -431,7 +431,7 @@ class AquaChainMonitoringStack(Stack):
         self.xray_sampling_rule = xray.CfnSamplingRule(
             self, "XRaySamplingRule",
             sampling_rule=xray.CfnSamplingRule.SamplingRuleProperty(
-                rule_name=get_resource_name(self.config, "xray", "sampling-rule"),
+                rule_name=f"aqua-xray-{self.config['environment']}",  # Max 32 chars
                 priority=9000,
                 fixed_rate=0.1,  # 10% sampling rate
                 reservoir_size=1,
@@ -449,7 +449,7 @@ class AquaChainMonitoringStack(Stack):
         self.xray_critical_sampling_rule = xray.CfnSamplingRule(
             self, "XRayCriticalSamplingRule",
             sampling_rule=xray.CfnSamplingRule.SamplingRuleProperty(
-                rule_name=get_resource_name(self.config, "xray", "critical-sampling"),
+                rule_name=f"aqua-critical-{self.config['environment']}",  # Max 32 chars
                 priority=1000,
                 fixed_rate=0.5,  # 50% sampling rate for critical paths
                 reservoir_size=2,

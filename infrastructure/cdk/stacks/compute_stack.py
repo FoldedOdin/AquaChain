@@ -45,8 +45,9 @@ class AquaChainComputeStack(Stack):
         # Create SNS topics for notifications
         self._create_sns_topics()
         
-        # Create SageMaker resources
-        self._create_sagemaker_resources()
+        # Create SageMaker resources (optional - only if model exists)
+        if self.config.get("enable_sagemaker", True):  # Enabled by default
+            self._create_sagemaker_resources()
         
         # Create Location Service resources
         self._create_location_resources()
@@ -140,8 +141,8 @@ class AquaChainComputeStack(Stack):
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
             layers=ml_layers,
-            memory_size=1024,
-            timeout=Duration.seconds(15),
+            memory_size=256,
+            timeout=Duration.seconds(30),
             **{k: v for k, v in common_lambda_config.items() if k not in ["memory_size", "timeout"]}
         )
         
@@ -244,6 +245,15 @@ class AquaChainComputeStack(Stack):
             **common_lambda_config
         )
         
+        # Grant API Gateway permission to invoke WebSocket Lambda
+        # Using resource-based policy to allow API Gateway service to invoke
+        self.websocket_function.add_permission(
+            "AllowAPIGatewayInvoke",
+            principal=iam.ServicePrincipal("apigateway.amazonaws.com"),
+            action="lambda:InvokeFunction",
+            source_arn=f"arn:aws:execute-api:{self.region}:{self.account}:*/*/*"
+        )
+        
         # Notification Service Lambda
         self.notification_function = lambda_python.PythonFunction(
             self, "NotificationFunction",
@@ -310,7 +320,8 @@ class AquaChainComputeStack(Stack):
             model_name=get_resource_name(self.config, "model", "wqi-calculator"),
             execution_role_arn=self.security_resources["sagemaker_role"].role_arn,
             primary_container=sagemaker.CfnModel.ContainerDefinitionProperty(
-                image="382416733822.dkr.ecr.us-east-1.amazonaws.com/sklearn_inference:0.23-1-cpu-py3",
+                # SageMaker SKLearn inference container for ap-south-1 (Mumbai)
+                image="720646828776.dkr.ecr.ap-south-1.amazonaws.com/sagemaker-scikit-learn:0.23-1-cpu-py3",
                 model_data_url=f"s3://{get_resource_name(self.config, 'bucket', f'ml-models-{self.account}')}/models/wqi-model.tar.gz",
                 environment={
                     "SAGEMAKER_PROGRAM": "inference.py",

@@ -112,7 +112,7 @@ class AquaChainBackupStack(Stack):
             function_name=f"aquachain-backup-{self.config['environment']}",
             runtime=_lambda.Runtime.PYTHON_3_11,
             handler="automated_backup_handler.lambda_handler",
-            code=_lambda.Code.from_asset("../lambda/backup"),
+            code=_lambda.Code.from_asset("../../lambda/backup"),
             role=backup_role,
             timeout=Duration.minutes(15),
             memory_size=512,

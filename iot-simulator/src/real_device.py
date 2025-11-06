@@ -104,7 +104,7 @@ class RealESP32Device(DeviceInterface):
         # - pH sensor reading via analog input
         # - Turbidity sensor via I2C
         # - TDS sensor via analog input
-        # - Temperature/humidity via DHT22 or similar
+        # - Temperature sensor via DS18B20 (1-Wire)
         
         raise NotImplementedError(
             "Real sensor reading not implemented. "
@@ -125,15 +125,14 @@ class RealESP32Device(DeviceInterface):
             tds_raw = analogRead(TDS_PIN)
             tds_value = calibrate_tds(tds_raw, temperature)
             
-            # Read temperature/humidity (DHT22)
-            temp_value, humidity_value = dht22.read()
+            # Read temperature sensor (DS18B20)
+            temp_value = temperature_sensor.read()
             
             return SensorReading(
                 pH=ph_value,
                 turbidity=turbidity_value,
                 tds=int(tds_value),
-                temperature=temp_value,
-                humidity=humidity_value
+                temperature=temp_value
             )
         except Exception as e:
             # Handle sensor errors

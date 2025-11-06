@@ -1,77 +1,96 @@
 /**
- * Device Management Hooks with React Query
- * ✅ Automatic caching and background refetching
+ * Device Management Hooks
+ * ✅ Simple data fetching with React hooks
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, useCallback } from 'react';
 import { dataService } from '../services/dataService';
-import { queryKeys, invalidateQueries } from '../lib/react-query';
 import { DeviceStatus } from '../types';
 
 /**
  * Fetch all devices
- * ✅ Cached for 1 minute
- * ✅ Refetches every 2 minutes
  */
 export function useDevices() {
-  return useQuery({
-    queryKey: queryKeys.devices.lists(),
-    queryFn: () => dataService.getDevices(),
-    staleTime: 60000, // 1 minute
-    refetchInterval: 120000, // Refetch every 2 minutes
-  });
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const result = await dataService.getDevices();
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 120000); // Refetch every 2 minutes
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }
 
 /**
  * Fetch single device by ID
- * ✅ Cached for 30 seconds
  */
 export function useDevice(deviceId: string) {
-  return useQuery({
-    queryKey: queryKeys.devices.detail(deviceId),
-    queryFn: () => dataService.getDeviceById(deviceId),
-    staleTime: 30000, // 30 seconds
-    enabled: !!deviceId, // Only fetch if deviceId is provided
-  });
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    if (!deviceId) return;
+
+    try {
+      setIsLoading(true);
+      const result = await dataService.getDeviceById(deviceId);
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [deviceId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }
 
 /**
  * Mutation for updating device status
- * ✅ Optimistic updates
- * ✅ Automatic cache invalidation
  */
 export function useUpdateDeviceStatus() {
-  const queryClient = useQueryClient();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  return useMutation({
-    mutationFn: ({ deviceId, status }: { deviceId: string; status: string }) => {
+  const mutate = useCallback(async ({ deviceId, status }: { deviceId: string; status: string }) => {
+    try {
+      setIsLoading(true);
+      setError(null);
       // This would call an API endpoint
-      return Promise.resolve({ deviceId, status });
-    },
-    onMutate: async ({ deviceId, status }) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: queryKeys.devices.detail(deviceId) });
+      const result = await Promise.resolve({ deviceId, status });
+      return result;
+    } catch (err) {
+      setError(err as Error);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-      // Snapshot previous value
-      const previousDevice = queryClient.getQueryData(queryKeys.devices.detail(deviceId));
-
-      // Optimistically update
-      queryClient.setQueryData(
-        queryKeys.devices.detail(deviceId),
-        (old: any) => old ? { ...old, status } : old
-      );
-
-      return { previousDevice };
-    },
-    onError: (err, { deviceId }, context) => {
-      // Rollback on error
-      if (context?.previousDevice) {
-        queryClient.setQueryData(queryKeys.devices.detail(deviceId), context.previousDevice);
-      }
-    },
-    onSuccess: () => {
-      // Invalidate devices list
-      invalidateQueries.devices();
-    },
-  });
+  return { mutate, isLoading, error };
 }

@@ -15,7 +15,6 @@ class SensorReading(BaseModel):
     turbidity: float  # NTU
     tds: int  # ppm
     temperature: float  # Celsius
-    humidity: float  # %
 
 
 class DeviceDiagnostics(BaseModel):

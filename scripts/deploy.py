@@ -447,8 +447,7 @@ class AquaChainDeployment:
                     "pH": 7.0,
                     "turbidity": 1.0,
                     "tds": 150,
-                    "temperature": 25.0,
-                    "humidity": 60.0
+                    "temperature": 25.0
                 }
             }
         else:

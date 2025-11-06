@@ -1,14 +1,13 @@
 /**
- * Dashboard Data Hook with React Query
- * ✅ Automatic caching, deduplication, and background refetching
+ * Dashboard Data Hook
+ * ✅ Simple data fetching with React hooks
  * ✅ Optimized for role-based dashboards
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useCallback } from 'react';
 import { getSystemHealthMetrics, getDeviceFleetStatus, getPerformanceMetrics, getAlertAnalytics } from '../services/adminService';
 import { technicianService } from '../services/technicianService';
 import { dataService } from '../services/dataService';
-import { queryKeys } from '../lib/react-query';
 
 export type UserRole = 'admin' | 'technician' | 'consumer';
 
@@ -35,17 +34,20 @@ type DashboardData = AdminDashboardData | TechnicianDashboardData | ConsumerDash
 
 /**
  * Custom hook for fetching dashboard data based on user role
- * ✅ Uses React Query for automatic caching and refetching
- * ✅ Deduplicates requests across components
- * ✅ Automatic retry on failure
  * 
  * @param userRole - The role of the current user (admin, technician, consumer)
- * @returns Dashboard data, loading state, error state, and refetch function
+ * @returns Dashboard data, loading state, error state
  */
 export function useDashboardData(userRole: UserRole) {
-  return useQuery({
-    queryKey: queryKeys.dashboard.stats(userRole),
-    queryFn: async (): Promise<DashboardData> => {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async (): Promise<void> => {
+    try {
+      setIsLoading(true);
+      let result: DashboardData;
+
       switch (userRole) {
         case 'admin':
           const [health, fleet, performance, alerts] = await Promise.all([
@@ -54,19 +56,21 @@ export function useDashboardData(userRole: UserRole) {
             getPerformanceMetrics('24h'),
             getAlertAnalytics(7)
           ]);
-          return {
+          result = {
             healthMetrics: health,
             deviceFleet: fleet,
             performanceMetrics: performance,
             alertAnalytics: alerts
           };
+          break;
 
         case 'technician':
           const tasks = await technicianService.getAssignedTasks();
-          return {
+          result = {
             tasks,
             selectedTask: tasks.length > 0 ? tasks[0] : null
           };
+          break;
 
         case 'consumer':
           const [reading, consumerAlerts, devices, stats] = await Promise.all([
@@ -75,20 +79,35 @@ export function useDashboardData(userRole: UserRole) {
             dataService.getDevices(),
             dataService.getDashboardStats()
           ]);
-          return {
+          result = {
             currentReading: reading,
             alerts: consumerAlerts,
             devices,
             stats
           };
+          break;
 
         default:
           throw new Error(`Unknown user role: ${userRole}`);
       }
-    },
-    staleTime: 30000, // 30 seconds
-    refetchInterval: 60000, // Refetch every minute
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-  });
+
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userRole]);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 60000); // Refetch every minute
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }

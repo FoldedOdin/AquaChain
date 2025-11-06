@@ -52,20 +52,20 @@ def generate_synthetic_data(n_samples: int = 10000):
     
     # Combine all features
     features = np.column_stack([
-        pH, turbidity, tds, temperature, humidity,
+        pH, turbidity, tds, temperature,
         latitude, longitude, hour, month, weekday,
         pH_temp_interaction, turbidity_tds_ratio, pH_deviation, temp_deviation
     ])
     
     # Generate WQI targets (synthetic formula)
-    wqi = calculate_synthetic_wqi(pH, turbidity, tds, temperature, humidity)
+    wqi = calculate_synthetic_wqi(pH, turbidity, tds, temperature)
     
     # Generate anomaly labels
-    anomaly_labels = generate_anomaly_labels(pH, turbidity, tds, temperature, humidity)
+    anomaly_labels = generate_anomaly_labels(pH, turbidity, tds, temperature)
     
     return features, wqi, anomaly_labels
 
-def calculate_synthetic_wqi(pH, turbidity, tds, temperature, humidity):
+def calculate_synthetic_wqi(pH, turbidity, tds, temperature):
     """
     Calculate synthetic WQI for training data
     """
@@ -104,7 +104,7 @@ def calculate_synthetic_wqi(pH, turbidity, tds, temperature, humidity):
     wqi += np.random.normal(0, 5, len(wqi))
     return np.clip(wqi, 0, 100)
 
-def generate_anomaly_labels(pH, turbidity, tds, temperature, humidity):
+def generate_anomaly_labels(pH, turbidity, tds, temperature):
     """
     Generate anomaly labels for training data
     """

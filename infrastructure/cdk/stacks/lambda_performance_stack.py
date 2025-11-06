@@ -54,7 +54,7 @@ class LambdaPerformanceStack(Stack):
             "DataProcessingOptimized",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="handler.lambda_handler",
-            code=lambda_.Code.from_asset("lambda/data_processing"),
+            code=lambda_.Code.from_asset("../../lambda/data_processing"),
             layers=[self.common_layer],
             memory_size=1024,  # Optimized based on profiling
             timeout=Duration.seconds(30),
@@ -105,7 +105,7 @@ class LambdaPerformanceStack(Stack):
             "MLInferenceOptimized",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="handler.lambda_handler",
-            code=lambda_.Code.from_asset("lambda/ml_inference"),
+            code=lambda_.Code.from_asset("../../lambda/ml_inference"),
             layers=[self.common_layer, self.ml_layer],
             memory_size=2048,  # Higher memory for ML workloads
             timeout=Duration.seconds(60),

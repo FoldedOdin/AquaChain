@@ -1,79 +1,99 @@
 /**
- * Alerts Hooks with React Query
- * ✅ Automatic caching and real-time updates
+ * Alerts Hooks
+ * ✅ Simple data fetching with React hooks
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, useCallback } from 'react';
 import { dataService } from '../services/dataService';
-import { queryKeys, invalidateQueries } from '../lib/react-query';
 import { Alert } from '../types';
 
 /**
  * Fetch alerts
- * ✅ Cached for 20 seconds (alerts need frequent updates)
- * ✅ Refetches every 30 seconds
  */
 export function useAlerts(limit: number = 50) {
-  return useQuery({
-    queryKey: queryKeys.alerts.list(limit),
-    queryFn: () => dataService.getAlerts(limit),
-    staleTime: 20000, // 20 seconds
-    refetchInterval: 30000, // Refetch every 30 seconds
-  });
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const result = await dataService.getAlerts(limit);
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [limit]);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refetch every 30 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }
 
 /**
  * Fetch critical alerts only
- * ✅ Cached for 10 seconds (critical alerts need immediate updates)
- * ✅ Refetches every 15 seconds
  */
 export function useCriticalAlerts() {
-  return useQuery({
-    queryKey: queryKeys.alerts.critical(),
-    queryFn: () => dataService.getCriticalAlerts(),
-    staleTime: 10000, // 10 seconds
-    refetchInterval: 15000, // Refetch every 15 seconds
-  });
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const result = await dataService.getCriticalAlerts();
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 15000); // Refetch every 15 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }
 
 /**
  * Mutation for acknowledging an alert
- * ✅ Optimistic updates
  */
 export function useAcknowledgeAlert() {
-  const queryClient = useQueryClient();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  return useMutation({
-    mutationFn: (alertId: string) => {
+  const mutate = useCallback(async (alertId: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
       // This would call an API endpoint
-      return Promise.resolve({ alertId, acknowledged: true });
-    },
-    onMutate: async (alertId) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: queryKeys.alerts.all });
+      const result = await Promise.resolve({ alertId, acknowledged: true });
+      return result;
+    } catch (err) {
+      setError(err as Error);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-      // Snapshot previous value
-      const previousAlerts = queryClient.getQueryData(queryKeys.alerts.lists());
-
-      // Optimistically update
-      queryClient.setQueryData(
-        queryKeys.alerts.lists(),
-        (old: Alert[]) => old?.map(alert => 
-          alert.id === alertId ? { ...alert, acknowledged: true } : alert
-        )
-      );
-
-      return { previousAlerts };
-    },
-    onError: (err, alertId, context) => {
-      // Rollback on error
-      if (context?.previousAlerts) {
-        queryClient.setQueryData(queryKeys.alerts.lists(), context.previousAlerts);
-      }
-    },
-    onSuccess: () => {
-      // Invalidate alerts
-      invalidateQueries.alerts();
-    },
-  });
+  return { mutate, isLoading, error };
 }

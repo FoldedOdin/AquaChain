@@ -28,7 +28,7 @@ class PerformanceDashboardStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
-        self.environment = environment
+        self.env_name = environment  # Use different variable name to avoid conflict
         
         # Create main dashboard with auto-refresh
         self.dashboard = cloudwatch.Dashboard(
@@ -58,7 +58,7 @@ class PerformanceDashboardStack(Stack):
                 cloudwatch.Metric(
                     namespace='AWS/ApiGateway',
                     metric_name='Latency',
-                    dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                    dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                     statistic='p50',
                     label='p50 (Median)',
                     color=cloudwatch.Color.BLUE
@@ -66,7 +66,7 @@ class PerformanceDashboardStack(Stack):
                 cloudwatch.Metric(
                     namespace='AWS/ApiGateway',
                     metric_name='Latency',
-                    dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                    dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                     statistic='p95',
                     label='p95',
                     color=cloudwatch.Color.ORANGE
@@ -74,7 +74,7 @@ class PerformanceDashboardStack(Stack):
                 cloudwatch.Metric(
                     namespace='AWS/ApiGateway',
                     metric_name='Latency',
-                    dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                    dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                     statistic='p99',
                     label='p99',
                     color=cloudwatch.Color.RED
@@ -91,7 +91,7 @@ class PerformanceDashboardStack(Stack):
                 cloudwatch.Metric(
                     namespace='AWS/ApiGateway',
                     metric_name='Count',
-                    dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                    dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                     statistic='Sum',
                     label='Total Requests',
                     color=cloudwatch.Color.GREEN
@@ -101,7 +101,7 @@ class PerformanceDashboardStack(Stack):
                 cloudwatch.Metric(
                     namespace='AWS/ApiGateway',
                     metric_name='4XXError',
-                    dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                    dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                     statistic='Sum',
                     label='4XX Errors',
                     color=cloudwatch.Color.ORANGE
@@ -109,7 +109,7 @@ class PerformanceDashboardStack(Stack):
                 cloudwatch.Metric(
                     namespace='AWS/ApiGateway',
                     metric_name='5XXError',
-                    dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                    dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                     statistic='Sum',
                     label='5XX Errors',
                     color=cloudwatch.Color.RED
@@ -127,7 +127,7 @@ class PerformanceDashboardStack(Stack):
                     namespace='AWS/ApiGateway',
                     metric_name='Count',
                     dimensions_map={
-                        'ApiName': f'AquaChain-API-{self.environment}',
+                        'ApiName': f'AquaChain-API-{self.env_name}',
                         'Stage': 'prod'
                     },
                     statistic='Sum',
@@ -148,19 +148,19 @@ class PerformanceDashboardStack(Stack):
                         'm1': cloudwatch.Metric(
                             namespace='AWS/ApiGateway',
                             metric_name='4XXError',
-                            dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                            dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                             statistic='Sum'
                         ),
                         'm2': cloudwatch.Metric(
                             namespace='AWS/ApiGateway',
                             metric_name='5XXError',
-                            dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                            dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                             statistic='Sum'
                         ),
                         'm3': cloudwatch.Metric(
                             namespace='AWS/ApiGateway',
                             metric_name='Count',
-                            dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                            dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                             statistic='Sum'
                         )
                     },
@@ -633,12 +633,12 @@ class PerformanceDashboardStack(Stack):
         # API response time > 1 second (p95)
         api_latency_alarm = cloudwatch.Alarm(
             self, 'APILatencyAlarm',
-            alarm_name=f'AquaChain-API-HighLatency-{self.environment}',
+            alarm_name=f'AquaChain-API-HighLatency-{self.env_name}',
             alarm_description='API response time exceeds 1 second at p95',
             metric=cloudwatch.Metric(
                 namespace='AWS/ApiGateway',
                 metric_name='Latency',
-                dimensions_map={'ApiName': f'AquaChain-API-{self.environment}'},
+                dimensions_map={'ApiName': f'AquaChain-API-{self.env_name}'},
                 statistic='p95'
             ),
             threshold=1000,  # 1 second in milliseconds
@@ -651,7 +651,7 @@ class PerformanceDashboardStack(Stack):
         # Lambda error rate > 1%
         lambda_error_rate_alarm = cloudwatch.Alarm(
             self, 'LambdaErrorRateAlarm',
-            alarm_name=f'AquaChain-Lambda-HighErrorRate-{self.environment}',
+            alarm_name=f'AquaChain-Lambda-HighErrorRate-{self.env_name}',
             alarm_description='Lambda error rate exceeds 1%',
             metric=cloudwatch.MathExpression(
                 expression='errors / invocations * 100',
@@ -678,7 +678,7 @@ class PerformanceDashboardStack(Stack):
         # DynamoDB throttling events
         dynamodb_throttle_alarm = cloudwatch.Alarm(
             self, 'DynamoDBThrottleAlarm',
-            alarm_name=f'AquaChain-DynamoDB-Throttles-{self.environment}',
+            alarm_name=f'AquaChain-DynamoDB-Throttles-{self.env_name}',
             alarm_description='DynamoDB throttling events detected',
             metric=cloudwatch.MathExpression(
                 expression='read_throttles + write_throttles',
@@ -704,7 +704,7 @@ class PerformanceDashboardStack(Stack):
         # IoT connection failures
         iot_connection_alarm = cloudwatch.Alarm(
             self, 'IoTConnectionAlarm',
-            alarm_name=f'AquaChain-IoT-ConnectionFailures-{self.environment}',
+            alarm_name=f'AquaChain-IoT-ConnectionFailures-{self.env_name}',
             alarm_description='IoT device connection failures detected',
             metric=cloudwatch.MathExpression(
                 expression='client_errors + auth_errors',
@@ -731,7 +731,7 @@ class PerformanceDashboardStack(Stack):
         # ML drift score > 0.15
         ml_drift_alarm = cloudwatch.Alarm(
             self, 'MLDriftAlarm',
-            alarm_name=f'AquaChain-ML-HighDrift-{self.environment}',
+            alarm_name=f'AquaChain-ML-HighDrift-{self.env_name}',
             alarm_description='ML model drift score exceeds 0.15 threshold',
             metric=cloudwatch.Metric(
                 namespace='AquaChain/ML',
@@ -748,7 +748,7 @@ class PerformanceDashboardStack(Stack):
         # ML model low confidence alarm
         ml_confidence_alarm = cloudwatch.Alarm(
             self, 'MLConfidenceAlarm',
-            alarm_name=f'AquaChain-ML-LowConfidence-{self.environment}',
+            alarm_name=f'AquaChain-ML-LowConfidence-{self.env_name}',
             alarm_description='ML model prediction confidence is low',
             metric=cloudwatch.Metric(
                 namespace='AquaChain/ML',

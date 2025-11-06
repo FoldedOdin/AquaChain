@@ -188,8 +188,7 @@ class ModelDeploymentManager:
                     'pH': 7.0,
                     'turbidity': 1.5,
                     'tds': 200,
-                    'temperature': 25.0,
-                    'humidity': 60.0
+                    'temperature': 25.0
                 },
                 'location': {'latitude': 10.0, 'longitude': 76.0}
             },
@@ -201,8 +200,7 @@ class ModelDeploymentManager:
                     'pH': 4.5,
                     'turbidity': 50.0,
                     'tds': 2000,
-                    'temperature': 25.0,
-                    'humidity': 60.0
+                    'temperature': 25.0
                 },
                 'location': {'latitude': 10.0, 'longitude': 76.0}
             },
@@ -214,8 +212,7 @@ class ModelDeploymentManager:
                     'pH': 12.0,
                     'turbidity': 1.0,
                     'tds': 200,
-                    'temperature': -5.0,
-                    'humidity': 60.0
+                    'temperature': -5.0
                 },
                 'location': {'latitude': 10.0, 'longitude': 76.0}
             }

@@ -1,40 +1,55 @@
-# AquaChain IoT Device Simulator
+# AquaChain IoT Device Management
 
-This simulator mimics ESP32-based water quality sensors and can be easily replaced with real hardware when available.
+This directory contains everything for both **simulating** and **deploying real** ESP32 water quality sensors.
+
+## Directory Structure
+
+```
+iot-simulator/
+├── simulation/          # Virtual device simulation (no hardware needed)
+│   ├── simulator.py     # Main simulation script
+│   ├── simulated_device.py
+│   ├── devices.json     # Simulated device config
+│   └── aws_config.json  # AWS settings
+├── esp32-firmware/      # Arduino code for real ESP32 devices
+├── src/                 # Shared device interface
+│   ├── device_interface.py  # Common interface
+│   └── real_device.py       # Real ESP32 implementation
+├── provision-device.py  # Register real devices in AWS IoT
+└── config/              # Shared configuration
+```
+
+## Two Modes
+
+### 1. Simulation Mode (Development/Testing)
+Use virtual devices without physical hardware:
+```bash
+cd simulation
+python simulator.py --devices 5
+```
+See `simulation/README.md` for details.
+
+### 2. Real Hardware Mode (Production)
+Deploy actual ESP32 devices:
+1. Flash firmware from `esp32-firmware/`
+2. Provision device: `python provision-device.py`
+3. See `ESP32_IOT_SETUP_GUIDE.md` for full setup
+
+## Quick Start
+
+**For Simulation:**
+```bash
+pip install -r requirements.txt
+python simulation/simulator.py --devices 3
+```
+
+**For Real Devices:**
+See `ESP32_IOT_SETUP_GUIDE.md`
 
 ## Architecture
 
 ```
-Simulator Layer → Device Interface → AWS IoT Core → AquaChain Backend
+Simulated/Real Devices → Device Interface → AWS IoT Core → AquaChain Backend
 ```
 
-## Key Features
-
-- **Hardware Abstraction**: Clean interface that real devices can implement
-- **Realistic Data**: Generates sensor data with seasonal patterns and anomalies
-- **Multiple Scenarios**: Normal operation, contamination events, sensor faults
-- **Easy Transition**: Same MQTT topics and data format as real devices
-- **Configuration Driven**: JSON config for devices, scenarios, and timing
-- **Monitoring**: Built-in metrics and logging for demo purposes
-
-## Quick Start
-
-1. Install dependencies: `pip install -r requirements.txt`
-2. Configure AWS credentials
-3. Update `config/devices.json` with your device settings
-4. Run: `python simulator.py`
-
-## Transitioning to Real Hardware
-
-When you have ESP32 devices:
-1. Flash the ESP32 firmware (see `esp32-firmware/` directory)
-2. Stop the simulator
-3. Real devices will use the same MQTT topics and data format
-4. No backend changes required!
-
-## Demo Scenarios
-
-- **Normal Operation**: Realistic water quality readings
-- **Contamination Event**: pH drops, turbidity increases
-- **Sensor Malfunction**: Invalid readings trigger technician alerts
-- **Load Testing**: Simulate 1000+ concurrent devices
+Both simulated and real devices use the same MQTT topics and data format, allowing seamless transition.

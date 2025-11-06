@@ -90,7 +90,7 @@ def prepare_features(readings: Dict[str, float], location: Dict[str, float],
             readings['turbidity'],
             readings['tds'],
             readings['temperature'],
-            readings['humidity']
+            readings.get('humidity', 0)
         ]
         
         # Location features
@@ -176,8 +176,7 @@ def get_feature_importance(models: Dict[str, Any], features: np.ndarray) -> Dict
     """
     try:
         feature_names = [
-            'pH', 'turbidity', 'tds', 'temperature', 'humidity',
-            'latitude', 'longitude', 'hour', 'month', 'weekday',
+            'pH', 'turbidity', 'tds', 'temperature', 'latitude', 'longitude', 'hour', 'month', 'weekday',
             'pH_temp_interaction', 'turbidity_tds_ratio', 
             'pH_deviation', 'temp_deviation'
         ]
@@ -201,7 +200,7 @@ def get_feature_importance(models: Dict[str, Any], features: np.ndarray) -> Dict
 def calculate_fallback_wqi(features: np.ndarray) -> float:
     """Fallback WQI calculation using simple weighted formula"""
     try:
-        pH, turbidity, tds, temperature, humidity = features[0][:5]
+        pH, turbidity, tds, temperature= features[0][:5]
         
         # Simple WQI calculation
         pH_score = max(0, 100 - abs(pH - 7.0) * 20)
@@ -223,7 +222,7 @@ def calculate_fallback_wqi(features: np.ndarray) -> float:
 def detect_fallback_anomaly(features: np.ndarray) -> Tuple[str, float]:
     """Fallback anomaly detection using rule-based approach"""
     try:
-        pH, turbidity, tds, temperature, humidity = features[0][:5]
+        pH, turbidity, tds, temperature= features[0][:5]
         
         if pH < 6.0 or pH > 9.0:
             return 'contamination' if turbidity > 10 else 'sensor_fault', 0.7
@@ -257,8 +256,7 @@ def test_inference():
                     'pH': 7.0,
                     'turbidity': 1.5,
                     'tds': 200,
-                    'temperature': 25.0,
-                    'humidity': 60.0
+                    'temperature': 25.0
                 },
                 'location': {'latitude': 10.0, 'longitude': 76.0}
             }
@@ -272,8 +270,7 @@ def test_inference():
                     'pH': 4.5,
                     'turbidity': 50.0,
                     'tds': 2000,
-                    'temperature': 25.0,
-                    'humidity': 60.0
+                    'temperature': 25.0
                 },
                 'location': {'latitude': 10.0, 'longitude': 76.0}
             }
@@ -287,8 +284,7 @@ def test_inference():
                     'pH': 12.0,
                     'turbidity': 1.0,
                     'tds': 200,
-                    'temperature': -5.0,
-                    'humidity': 60.0
+                    'temperature': -5.0
                 },
                 'location': {'latitude': 10.0, 'longitude': 76.0}
             }

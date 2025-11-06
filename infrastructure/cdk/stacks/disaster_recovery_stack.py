@@ -135,14 +135,14 @@ class AquaChainDisasterRecoveryStack(Stack):
             get_resource_name(self.config, "table", "service-requests")
         ]
         
-        # Create backup selection using table name patterns
+        # Create backup selection using specific tag without wildcards
         backup.BackupSelection(
             self, "DynamoDBBackupSelection",
             backup_plan=self.dynamodb_backup_plan,
             resources=[
                 backup.BackupResource.from_tag(
-                    key="aws:cloudformation:logical-id",
-                    value="*Table"
+                    key="BackupEnabled",
+                    value="true"
                 )
             ],
             backup_selection_name="CriticalDynamoDBTables",
@@ -165,14 +165,14 @@ class AquaChainDisasterRecoveryStack(Stack):
             delete_after=Duration.days(30)
         ))
         
-        # Backup selection for S3 buckets using tags to avoid cyclic dependencies
+        # Backup selection for S3 buckets using specific tag without wildcards
         backup.BackupSelection(
             self, "S3BackupSelection",
             backup_plan=self.s3_backup_plan,
             resources=[
                 backup.BackupResource.from_tag(
-                    key="aws:cloudformation:logical-id",
-                    value="*Bucket"
+                    key="BackupEnabled",
+                    value="true"
                 )
             ],
             backup_selection_name="CriticalS3Buckets",
@@ -271,7 +271,7 @@ class AquaChainDisasterRecoveryStack(Stack):
             function_name=get_resource_name(self.config, "function", "disaster-recovery"),
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="handler.lambda_handler",
-            code=lambda_.Code.from_asset("../lambda/disaster_recovery"),
+            code=lambda_.Code.from_asset("../../lambda/disaster_recovery"),
             timeout=Duration.minutes(15),
             memory_size=512,
             environment={
@@ -328,7 +328,7 @@ class AquaChainDisasterRecoveryStack(Stack):
             function_name=get_resource_name(self.config, "function", "automated-failover"),
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="failover_handler.lambda_handler",
-            code=lambda_.Code.from_asset("../lambda/disaster_recovery"),
+            code=lambda_.Code.from_asset("../../lambda/disaster_recovery"),
             timeout=Duration.minutes(15),
             memory_size=1024,
             environment={

@@ -19,6 +19,7 @@ from aws_cdk import (
     aws_logs as logs,
     CfnOutput
 )
+from aws_cdk.aws_cloudfront_origins import S3BucketOrigin
 from constructs import Construct
 from typing import Dict, Any
 from config.environment_config import get_resource_name, get_stack_name
@@ -42,7 +43,9 @@ class AquaChainLandingPageStack(Stack):
         self.certificate = None
         
         # Create WAF for security
-        self._create_waf()
+        # NOTE: WAF for CloudFront must be created in us-east-1 region
+        # Skipping WAF creation - can be added separately in us-east-1
+        self.web_acl = None  # self._create_waf()
         
         # Create CloudFront distribution
         self._create_cloudfront_distribution()
@@ -80,17 +83,7 @@ class AquaChainLandingPageStack(Stack):
             ]
         )
         
-        # Create CloudFront Origin Access Control
-        self.oac = cloudfront.CfnOriginAccessControl(
-            self, "LandingPageOAC",
-            origin_access_control_config=cloudfront.CfnOriginAccessControl.OriginAccessControlConfigProperty(
-                name=f"{bucket_name}-oac",
-                description="Origin Access Control for AquaChain Landing Page",
-                origin_access_control_origin_type="s3",
-                signing_behavior="always",
-                signing_protocol="sigv4"
-            )
-        )
+        # S3BucketOrigin will automatically create Origin Access Control
     
     def _create_ssl_certificate(self) -> None:
         """
@@ -264,7 +257,7 @@ class AquaChainLandingPageStack(Stack):
                     override=True
                 ),
                 content_security_policy=cloudfront.ResponseHeadersContentSecurityPolicy(
-                    content_security_policy="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://cognito-idp.us-east-1.amazonaws.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://*.amazonaws.com https://www.google.com/recaptcha/; connect-src 'self' https://*.amazonaws.com https://www.google-analytics.com; font-src 'self' https://fonts.gstatic.com; frame-src https://www.google.com/recaptcha/; object-src 'none'; base-uri 'self'; form-action 'self';",
+                    content_security_policy=f"default-src 'self'; script-src 'self' 'unsafe-inline' https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://cognito-idp.{self.config['region']}.amazonaws.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://*.amazonaws.com https://www.google.com/recaptcha/; connect-src 'self' https://*.amazonaws.com https://www.google-analytics.com; font-src 'self' https://fonts.gstatic.com; frame-src https://www.google.com/recaptcha/; object-src 'none'; base-uri 'self'; form-action 'self';",
                     override=True
                 )
             ),
@@ -288,9 +281,8 @@ class AquaChainLandingPageStack(Stack):
         self.distribution = cloudfront.Distribution(
             self, "LandingPageDistribution",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.S3Origin(
-                    bucket=self.website_bucket,
-                    origin_access_control_id=self.oac.attr_id
+                origin=S3BucketOrigin(
+                    bucket=self.website_bucket
                 ),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
@@ -302,9 +294,8 @@ class AquaChainLandingPageStack(Stack):
             ),
             additional_behaviors={
                 "/static/*": cloudfront.BehaviorOptions(
-                    origin=origins.S3Origin(
-                        bucket=self.website_bucket,
-                        origin_access_control_id=self.oac.attr_id
+                    origin=S3BucketOrigin(
+                        bucket=self.website_bucket
                     ),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
@@ -331,11 +322,13 @@ class AquaChainLandingPageStack(Stack):
             ],
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,
             enable_ipv6=True,
-            web_acl_id=self.web_acl.attr_arn,
+            web_acl_id=self.web_acl.attr_arn if self.web_acl else None,
             enable_logging=True,
             log_bucket=s3.Bucket(
                 self, "CloudFrontLogsBucket",
                 bucket_name=f"{get_resource_name(self.config, 'landing', 'logs')}-cf",
+                # Enable ACLs for CloudFront logging
+                object_ownership=s3.ObjectOwnership.BUCKET_OWNER_PREFERRED,
                 removal_policy=RemovalPolicy.DESTROY if self.config["environment"] != "prod" else RemovalPolicy.RETAIN,
                 lifecycle_rules=[
                     s3.LifecycleRule(
@@ -348,20 +341,7 @@ class AquaChainLandingPageStack(Stack):
             log_file_prefix="cloudfront-logs/"
         )
         
-        # Grant CloudFront access to S3 bucket
-        self.website_bucket.add_to_resource_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
-                actions=["s3:GetObject"],
-                resources=[f"{self.website_bucket.bucket_arn}/*"],
-                conditions={
-                    "StringEquals": {
-                        "AWS:SourceArn": f"arn:aws:cloudfront::{self.account}:distribution/{self.distribution.distribution_id}"
-                    }
-                }
-            )
-        )
+        # S3BucketOrigin automatically grants CloudFront access to S3 bucket
     
     def _create_dns_records(self) -> None:
         """
@@ -490,8 +470,9 @@ class AquaChainLandingPageStack(Stack):
             description="Secret access key for deployment user"
         )
         
-        CfnOutput(
-            self, "WAFWebACLArn",
-            value=self.web_acl.attr_arn,
-            description="WAF Web ACL ARN"
-        )
+        if self.web_acl:
+            CfnOutput(
+                self, "WAFWebACLArn",
+                value=self.web_acl.attr_arn,
+                description="WAF Web ACL ARN"
+            )

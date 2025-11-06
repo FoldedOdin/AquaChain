@@ -109,7 +109,7 @@ class TrainingDataValidationStack(Stack):
             function_name=get_resource_name(self.config, "function", "data-validation"),
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="training_data_validator.lambda_handler",
-            code=lambda_.Code.from_asset("../lambda/ml_training"),
+            code=lambda_.Code.from_asset("../../lambda/ml_training"),
             role=validation_role,
             timeout=Duration.minutes(5),
             memory_size=1024,

@@ -41,7 +41,7 @@ class InputValidator:
     
     # Regex patterns for validation
     PATTERNS = {
-        'email': re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'),
+        'email': re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2}$'),
         'phone': re.compile(r'^\+?1?[2-9]\d{2}[2-9]\d{2}\d{4}$'),
         'device_id': re.compile(r'^DEV-[A-Z0-9]{4,8}$'),
         'uuid': re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
@@ -57,8 +57,8 @@ class InputValidator:
         'turbidity': {'min': 0.0, 'max': 4000.0, 'type': float},
         'tds': {'min': 0.0, 'max': 5000.0, 'type': float},
         'temperature': {'min': -40.0, 'max': 125.0, 'type': float},
-        'humidity': {'min': 0.0, 'max': 100.0, 'type': float},
-        'wqi': {'min': 0.0, 'max': 100.0, 'type': float},
+        
+        'wqi'
         'latitude': {'min': -90.0, 'max': 90.0, 'type': float},
         'longitude': {'min': -180.0, 'max': 180.0, 'type': float},
         'battery_level': {'min': 0, 'max': 100, 'type': int},
@@ -188,7 +188,7 @@ class InputValidator:
         validated_data = {}
         
         # Check required fields
-        required_fields = schema.get('required', [])
+        required_fields = schema.get('required', '')
         for field in required_fields:
             if field not in data:
                 raise ValidationError(f"Required field missing: {field}")

@@ -30,8 +30,7 @@ def create_initial_models():
     
     # Extract features
     feature_columns = [
-        'pH', 'turbidity', 'tds', 'temperature', 'humidity',
-        'latitude', 'longitude', 'hour', 'month', 'weekday',
+        'pH', 'turbidity', 'tds', 'temperature', 'latitude', 'longitude', 'hour', 'month', 'weekday',
         'pH_temp_interaction', 'turbidity_tds_ratio', 
         'pH_deviation', 'temp_deviation'
     ]

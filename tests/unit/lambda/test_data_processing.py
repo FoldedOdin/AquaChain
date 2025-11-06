@@ -42,8 +42,7 @@ def valid_iot_data():
             'pH': 7.2,
             'turbidity': 5.0,
             'tds': 300.0,
-            'temperature': 25.0,
-            'humidity': 60.0
+            'temperature': 25.0
         },
         'diagnostics': {
             'batteryLevel': 85.0,

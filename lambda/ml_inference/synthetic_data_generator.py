@@ -182,7 +182,6 @@ class SyntheticDataGenerator:
             'turbidity': turbidity,
             'tds': tds,
             'temperature': temperature,
-            'humidity': humidity,
             'hour': hours,
             'month': months
         }
@@ -251,7 +250,7 @@ class SyntheticDataGenerator:
             
             # Sensor fault patterns
             fault_type = np.random.choice(['stuck', 'drift', 'noise', 'out_of_range'])
-            faulty_sensor = np.random.choice(['pH', 'turbidity', 'tds', 'temperature', 'humidity'])
+            faulty_sensor = np.random.choice(['pH', 'turbidity', 'tds', 'temperature' ])
             
             if fault_type == 'stuck':
                 # Sensor stuck at constant value
@@ -270,7 +269,7 @@ class SyntheticDataGenerator:
                         np.random.uniform(-5, 5),
                         np.random.uniform(45, 60)
                     ])
-                elif faulty_sensor == 'humidity':
+                # Humidity sensor removed
                     sensor_data[faulty_sensor][idx] = np.random.choice([
                         np.random.uniform(0, 15),
                         np.random.uniform(98, 100)
@@ -295,7 +294,6 @@ class SyntheticDataGenerator:
         sensor_data['turbidity'] = np.clip(sensor_data['turbidity'], 0, 1000)
         sensor_data['tds'] = np.clip(sensor_data['tds'], 0, 5000)
         sensor_data['temperature'] = np.clip(sensor_data['temperature'], -10, 80)
-        sensor_data['humidity'] = np.clip(sensor_data['humidity'], 0, 100)
         
         return sensor_data, anomaly_labels
     
@@ -306,7 +304,6 @@ class SyntheticDataGenerator:
         turbidity = sensor_data['turbidity']
         tds = sensor_data['tds']
         temperature = sensor_data['temperature']
-        humidity = sensor_data['humidity']
         
         # Normalize each parameter to 0-100 scale
         pH_score = 100 - np.abs(pH - 7.0) * 15
@@ -374,8 +371,6 @@ class SyntheticDataGenerator:
             'turbidity': sensor_data['turbidity'],
             'tds': sensor_data['tds'],
             'temperature': sensor_data['temperature'],
-            'humidity': sensor_data['humidity'],
-            
             # Location features
             'latitude': locations['latitude'],
             'longitude': locations['longitude'],

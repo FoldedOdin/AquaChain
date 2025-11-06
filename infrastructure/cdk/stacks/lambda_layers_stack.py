@@ -23,7 +23,7 @@ class LambdaLayersStack(Stack):
         self.common_layer = lambda_.LayerVersion(
             self,
             "CommonLayer",
-            code=lambda_.Code.from_asset("lambda/layers/common"),
+            code=lambda_.Code.from_asset("../../lambda/layers/common"),
             compatible_runtimes=[
                 lambda_.Runtime.PYTHON_3_11,
                 lambda_.Runtime.PYTHON_3_10,
@@ -36,7 +36,7 @@ class LambdaLayersStack(Stack):
         self.ml_layer = lambda_.LayerVersion(
             self,
             "MLLayer",
-            code=lambda_.Code.from_asset("lambda/layers/ml"),
+            code=lambda_.Code.from_asset("../../lambda/layers/ml"),
             compatible_runtimes=[
                 lambda_.Runtime.PYTHON_3_11,
                 lambda_.Runtime.PYTHON_3_10,

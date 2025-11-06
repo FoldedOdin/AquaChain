@@ -18,8 +18,8 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
     # Base configuration
     base_config = {
         "project_name": "aquachain",
-        "region": "us-east-1",
-        "replica_region": "us-west-2",
+        "region": "ap-south-1",  # Mumbai region
+        "replica_region": "ap-southeast-1",  # Singapore for replica
         "retention_days": 2555,  # 7 years
         "alert_latency_seconds": 30,
         "uptime_target": 99.5,
@@ -49,10 +49,11 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
                 "pagerduty_integration_key": None
             },
             "ml_model_config": {
-                "instance_type": "ml.t3.medium",
+                "instance_type": "ml.t2.medium",
                 "enable_auto_scaling": False,
                 "max_capacity": 1
             },
+            "enable_sagemaker": False,  # Disabled due to Lambda size constraints
             "backup_config": {
                 "enable_continuous_backup": False,
                 "backup_retention_days": 7,
@@ -73,7 +74,7 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
             **base_config,
             "environment": "staging",
             "domain_name": "staging.aquachain.io",
-            "certificate_arn": "arn:aws:acm:us-east-1:ACCOUNT:certificate/staging-cert-id",
+            "certificate_arn": None,  # Certificate will be created in ap-south-1
             "enable_deletion_protection": True,
             "enable_point_in_time_recovery": True,
             "dynamodb_billing_mode": "PAY_PER_REQUEST",
@@ -111,7 +112,7 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
             **base_config,
             "environment": "prod",
             "domain_name": "api.aquachain.io",
-            "certificate_arn": "arn:aws:acm:us-east-1:ACCOUNT:certificate/prod-cert-id",
+            "certificate_arn": None,  # Certificate will be created in ap-south-1
             "enable_deletion_protection": True,
             "enable_point_in_time_recovery": True,
             "dynamodb_billing_mode": "PROVISIONED",

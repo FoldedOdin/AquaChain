@@ -172,21 +172,7 @@ class APIGatewaySetup:
         # This will be configured when Lambda functions are deployed
         # Production integration will be added during deployment
         # Placeholder for Lambda integration configuration
-            }
-        )
-        
-        # Add method response
-        self.apigateway.put_method_response(
-            restApiId=api_id,
-            resourceId=resource_id,
-            httpMethod=method,
-            statusCode='200',
-            responseParameters={
-                'method.response.header.Access-Control-Allow-Origin': True,
-                'method.response.header.Access-Control-Allow-Headers': True,
-                'method.response.header.Access-Control-Allow-Methods': True
-            }
-        )
+        pass
         
         # Add integration response
         self.apigateway.put_integration_response(

@@ -257,7 +257,7 @@ def iot_data_ingestion_handler(event: Dict[str, Any], context: Any) -> Dict[str,
         validated_readings = {}
         
         for sensor_type, value in readings.items():
-            if sensor_type in ['pH', 'turbidity', 'tds', 'temperature', 'humidity']:
+            if sensor_type in ['pH', 'turbidity', 'tds', 'temperature', ]:
                 validated_readings[sensor_type] = validator.validate_sensor_reading(sensor_type, value)
         
         # Validate GPS coordinates

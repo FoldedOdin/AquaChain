@@ -256,7 +256,6 @@ const LandingPage: React.FC<LandingPageProps> = ({
         {/* Header with Navigation */}
         <LandingPageHeader
           onGetStartedClick={handleGetStartedClick}
-          onViewDashboardsClick={handleViewDashboardsClick}
         />
 
         {/* Main Content Area */}
@@ -266,7 +265,6 @@ const LandingPage: React.FC<LandingPageProps> = ({
           <SectionTransition direction="fade" duration={0.8}>
             <HeroSection 
               onGetStartedClick={handleGetStartedClick}
-              onViewDashboardsClick={handleViewDashboardsClick}
             />
           </SectionTransition>
         </section>
@@ -288,9 +286,8 @@ const LandingPage: React.FC<LandingPageProps> = ({
             <LazyContent fallback={<RoleSelectionSkeleton />} threshold={0.1} rootMargin="100px">
               <Suspense fallback={<RoleSelectionSkeleton />}>
                 <LazyRoleSelectionSection
-                  onConsumerClick={handleViewDashboardsClick}
+                  onConsumerClick={handleGetStartedClick}
                   onTechnicianClick={handleTechnicianClick}
-                  onViewDashboardsClick={handleViewDashboardsClick}
                 />
               </Suspense>
             </LazyContent>

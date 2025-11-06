@@ -11,7 +11,6 @@ import { useScrollAnimation } from '../../hooks/useScrollAnimation';
 interface RoleSelectionSectionProps {
   onConsumerClick: () => void;
   onTechnicianClick: () => void;
-  onViewDashboardsClick: () => void;
 }
 
 interface RoleCardProps {
@@ -155,8 +154,7 @@ const RoleCard: React.FC<RoleCardProps> = ({
  */
 const RoleSelectionSection: React.FC<RoleSelectionSectionProps> = ({
   onConsumerClick,
-  onTechnicianClick,
-  onViewDashboardsClick
+  onTechnicianClick
 }) => {
   const { ref: sectionRef, isInView: sectionVisible } = useScrollAnimation();
 
@@ -219,8 +217,8 @@ const RoleSelectionSection: React.FC<RoleSelectionSectionProps> = ({
               "Easy-to-use dashboard interface",
               "Mobile app for on-the-go monitoring"
             ]}
-            ctaText="Explore Dashboard"
-            onCtaClick={onViewDashboardsClick}
+            ctaText="Get Started"
+            onCtaClick={onConsumerClick}
             icon={HomeIcon}
             colorScheme={consumerColorScheme}
             delay={0.2}
@@ -246,32 +244,7 @@ const RoleSelectionSection: React.FC<RoleSelectionSectionProps> = ({
           />
         </div>
 
-        {/* Additional CTA Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={sectionVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
-          transition={{ duration: 0.6, delay: 0.6, ease: "easeOut" }}
-          className="text-center mt-16"
-        >
-          <p className="text-gray-400 mb-6">
-            Want to see AquaChain in action first?
-          </p>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={onViewDashboardsClick}
-            className="
-              inline-flex items-center space-x-2 px-8 py-3
-              bg-transparent border-2 border-aqua-500 text-aqua-400
-              hover:bg-aqua-500 hover:text-white
-              rounded-xl font-semibold transition-all duration-300
-              focus:outline-none focus:ring-4 focus:ring-aqua-500/50
-            "
-          >
-            <span>View Demo Dashboards</span>
-            <ArrowRightIcon className="w-5 h-5" />
-          </motion.button>
-        </motion.div>
+
       </div>
     </div>
   );

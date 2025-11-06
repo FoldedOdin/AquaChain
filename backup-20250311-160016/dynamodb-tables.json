@@ -1,0 +1,13 @@
+{
+    "TableNames": [
+        "aquachain-audit-logs-dev",
+        "aquachain-model-registry-dev",
+        "aquachain-table-audit-logs-dev",
+        "aquachain-table-devices-dev",
+        "aquachain-table-ledger-dev",
+        "aquachain-table-readings-dev",
+        "aquachain-table-sequence-dev",
+        "aquachain-table-service-requests-dev",
+        "aquachain-table-users-dev"
+    ]
+}

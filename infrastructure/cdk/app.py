@@ -181,7 +181,8 @@ def main():
         app,
         f"AquaChain-APIThrottling-{env_name}",
         config=config,
-        rest_api=api_stack.api_resources.get('rest_api'),
+        rest_api_id=api_stack.api_resources.get('rest_api').rest_api_id,
+        rest_api_stage_name=config['environment'],
         env=aws_env,
         description=f"AquaChain API Throttling - {env_name}"
     )

@@ -41,7 +41,9 @@ class AquaChainCloudFrontStack(Stack):
         self.oai = self._create_origin_access_identity()
         
         # Create WAF Web ACL
-        self.web_acl = self._create_waf_acl()
+        # NOTE: WAF for CloudFront must be created in us-east-1 region
+        # Skipping WAF creation for now - can be added separately in us-east-1
+        self.web_acl = None  # self._create_waf_acl()
         
         # Create SSL certificate (if domain configured)
         self.certificate = self._create_certificate()
@@ -196,20 +198,27 @@ class AquaChainCloudFrontStack(Stack):
     def _create_certificate(self) -> acm.Certificate:
         """
         Create SSL certificate for custom domain
-        Note: Certificate must be in us-east-1 for CloudFront
+        Note: For CloudFront, certificates MUST be in us-east-1 region (AWS requirement)
+        This is a cross-region resource that CloudFront can use globally.
+        Since we're not using custom domains in dev, this returns None.
         """
         domain_name = self.config.get('domain_name')
         
         if not domain_name:
             return None
         
-        # Certificate must be created in us-east-1 for CloudFront
-        certificate = acm.Certificate(
-            self, "Certificate",
-            domain_name=domain_name,
-            subject_alternative_names=[f"*.{domain_name}"],
-            validation=acm.CertificateValidation.from_dns()
-        )
+        # WARNING: CloudFront requires certificates in us-east-1 ONLY
+        # This would need to be created in a separate us-east-1 stack
+        # For now, we skip certificate creation and use CloudFront default cert
+        return None
+        
+        # Uncomment below if you have a us-east-1 certificate stack:
+        # certificate = acm.Certificate(
+        #     self, "Certificate",
+        #     domain_name=domain_name,
+        #     subject_alternative_names=[f"*.{domain_name}"],
+        #     validation=acm.CertificateValidation.from_dns()
+        # )
         
         return certificate
     
@@ -248,25 +257,8 @@ class AquaChainCloudFrontStack(Stack):
         )
         
         # Cache policy for API (no caching)
-        api_cache_policy = cloudfront.CachePolicy(
-            self, "APICachePolicy",
-            cache_policy_name=f"aquachain-api-{self.config['environment']}",
-            comment="Cache policy for API endpoints - no caching",
-            default_ttl=Duration.seconds(0),
-            min_ttl=Duration.seconds(0),
-            max_ttl=Duration.seconds(0),
-            cookie_behavior=cloudfront.CacheCookieBehavior.all(),
-            header_behavior=cloudfront.CacheHeaderBehavior.allowList(
-                "Authorization",
-                "Content-Type",
-                "Accept",
-                "Origin",
-                "Referer"
-            ),
-            query_string_behavior=cloudfront.CacheQueryStringBehavior.all(),
-            enable_accept_encoding_gzip=True,
-            enable_accept_encoding_brotli=True
-        )
+        # Use AWS managed CachingDisabled policy instead of creating custom one
+        api_cache_policy = cloudfront.CachePolicy.CACHING_DISABLED
         
         # Origin request policy for API
         api_origin_request_policy = cloudfront.OriginRequestPolicy(
@@ -274,8 +266,7 @@ class AquaChainCloudFrontStack(Stack):
             origin_request_policy_name=f"aquachain-api-origin-{self.config['environment']}",
             comment="Origin request policy for API Gateway",
             cookie_behavior=cloudfront.OriginRequestCookieBehavior.all(),
-            header_behavior=cloudfront.OriginRequestHeaderBehavior.allowList(
-                "Authorization",
+            header_behavior=cloudfront.OriginRequestHeaderBehavior.allow_list(
                 "Content-Type",
                 "Accept",
                 "Origin",
@@ -396,13 +387,13 @@ class AquaChainCloudFrontStack(Stack):
                     ttl=Duration.minutes(5)
                 )
             ],
-            certificate=self.certificate,
-            domain_names=[self.config['domain_name']] if self.config.get('domain_name') else None,
+            certificate=self.certificate if self.certificate else None,
+            domain_names=[self.config['domain_name']] if self.certificate and self.config.get('domain_name') else None,
             price_class=cloudfront.PriceClass.PRICE_CLASS_100,  # US, Canada, Europe
             enable_logging=True,
             log_bucket=self._create_logs_bucket(),
             log_file_prefix="cloudfront/",
-            web_acl_id=self.web_acl.attr_arn,
+            web_acl_id=self.web_acl.attr_arn if self.web_acl else None,
             comment=f"AquaChain Frontend and API {self.config['environment']}"
         )
         
@@ -411,12 +402,14 @@ class AquaChainCloudFrontStack(Stack):
     def _create_logs_bucket(self) -> s3.Bucket:
         """
         Create S3 bucket for CloudFront logs
+        CloudFront requires ACL access to write logs
         """
         logs_bucket = s3.Bucket(
             self, "LogsBucket",
             bucket_name=f"aquachain-cloudfront-logs-{self.config['environment']}-{self.account}",
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            object_ownership=s3.ObjectOwnership.OBJECT_WRITER,  # Enable ACL for CloudFront
             removal_policy=RemovalPolicy.DESTROY if self.config['environment'] == 'dev' else RemovalPolicy.RETAIN,
             auto_delete_objects=self.config['environment'] == 'dev',
             lifecycle_rules=[

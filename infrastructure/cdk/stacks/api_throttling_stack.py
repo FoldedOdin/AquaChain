@@ -22,12 +22,13 @@ class AquaChainAPIThrottlingStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str,
-                 config: Dict[str, Any], rest_api: apigateway.RestApi,
+                 config: Dict[str, Any], rest_api_id: str, rest_api_stage_name: str,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.config = config
-        self.rest_api = rest_api
+        self.rest_api_id = rest_api_id
+        self.rest_api_stage_name = rest_api_stage_name
         
         # Create usage plans
         self.usage_plans = self._create_usage_plans()
@@ -48,8 +49,8 @@ class AquaChainAPIThrottlingStack(Stack):
         usage_plans = {}
         
         # Free tier - Limited access
-        usage_plans['free'] = self.rest_api.add_usage_plan(
-            "FreeTier",
+        usage_plans['free'] = apigateway.UsagePlan(
+            self, "FreeTier",
             name=f"aquachain-free-{self.config['environment']}",
             description="Free tier with basic rate limits",
             throttle=apigateway.ThrottleSettings(
@@ -63,8 +64,8 @@ class AquaChainAPIThrottlingStack(Stack):
         )
         
         # Standard tier - Normal usage
-        usage_plans['standard'] = self.rest_api.add_usage_plan(
-            "StandardTier",
+        usage_plans['standard'] = apigateway.UsagePlan(
+            self, "StandardTier",
             name=f"aquachain-standard-{self.config['environment']}",
             description="Standard tier for regular users",
             throttle=apigateway.ThrottleSettings(
@@ -78,8 +79,8 @@ class AquaChainAPIThrottlingStack(Stack):
         )
         
         # Premium tier - High volume
-        usage_plans['premium'] = self.rest_api.add_usage_plan(
-            "PremiumTier",
+        usage_plans['premium'] = apigateway.UsagePlan(
+            self, "PremiumTier",
             name=f"aquachain-premium-{self.config['environment']}",
             description="Premium tier for high-volume users",
             throttle=apigateway.ThrottleSettings(
@@ -93,8 +94,8 @@ class AquaChainAPIThrottlingStack(Stack):
         )
         
         # Internal tier - No limits for internal services
-        usage_plans['internal'] = self.rest_api.add_usage_plan(
-            "InternalTier",
+        usage_plans['internal'] = apigateway.UsagePlan(
+            self, "InternalTier",
             name=f"aquachain-internal-{self.config['environment']}",
             description="Internal services with no rate limits",
             throttle=apigateway.ThrottleSettings(
@@ -110,6 +111,8 @@ class AquaChainAPIThrottlingStack(Stack):
         """
         Create API keys for different tiers
         """
+        from aws_cdk import aws_apigateway as apigw
+        
         api_keys = {}
         
         # Create API keys for each tier
@@ -124,10 +127,15 @@ class AquaChainAPIThrottlingStack(Stack):
             # Associate API key with usage plan
             usage_plan.add_api_key(api_key)
             
-            # Associate usage plan with API stage
-            usage_plan.add_api_stage(
-                stage=self.rest_api.deployment_stage
-            )
+            # Add API stage to usage plan using low-level construct
+            # This avoids circular dependency by using string references
+            cfn_usage_plan = usage_plan.node.default_child
+            cfn_usage_plan.api_stages = [
+                apigw.CfnUsagePlan.ApiStageProperty(
+                    api_id=self.rest_api_id,
+                    stage=self.rest_api_stage_name
+                )
+            ]
             
             api_keys[tier_name] = api_key
         
@@ -153,7 +161,7 @@ class AquaChainAPIThrottlingStack(Stack):
                 namespace="AWS/ApiGateway",
                 metric_name="4XXError",
                 dimensions_map={
-                    "ApiName": self.rest_api.rest_api_name
+                    "ApiId": self.rest_api_id
                 },
                 statistic="Sum",
                 period=Duration.minutes(5)
@@ -177,8 +185,8 @@ class AquaChainAPIThrottlingStack(Stack):
                 namespace="AWS/ApiGateway",
                 metric_name="Count",
                 dimensions_map={
-                    "ApiName": self.rest_api.rest_api_name,
-                    "Stage": self.rest_api.deployment_stage.stage_name
+                    "ApiId": self.rest_api_id,
+                    "Stage": self.rest_api_stage_name
                 },
                 statistic="Sum",
                 period=Duration.minutes(5)
@@ -201,7 +209,7 @@ class AquaChainAPIThrottlingStack(Stack):
                 namespace="AWS/ApiGateway",
                 metric_name="Latency",
                 dimensions_map={
-                    "ApiName": self.rest_api.rest_api_name
+                    "ApiId": self.rest_api_id
                 },
                 statistic="Average",
                 period=Duration.minutes(5)

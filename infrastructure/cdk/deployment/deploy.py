@@ -15,7 +15,7 @@ class AquaChainCDKDeployer:
     CDK deployment manager for AquaChain infrastructure
     """
     
-    def __init__(self, environment: str, region: str = "us-east-1"):
+    def __init__(self, environment: str, region: str = "ap-south-1"):
         self.environment = environment
         self.region = region
         self.account_id = self._get_account_id()
@@ -253,7 +253,7 @@ def main():
     parser.add_argument("--environment", "-e", required=True, 
                        choices=["dev", "staging", "prod"],
                        help="Target environment")
-    parser.add_argument("--region", "-r", default="us-east-1",
+    parser.add_argument("--region", "-r", default="ap-south-1",
                        help="AWS region")
     parser.add_argument("--action", "-a", required=True,
                        choices=["bootstrap", "synth", "deploy", "destroy", "diff", "list"],

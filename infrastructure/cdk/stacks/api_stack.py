@@ -139,9 +139,8 @@ class AquaChainApiStack(Stack):
                 ]
             ),
             supported_identity_providers=[
-                cognito.UserPoolClientIdentityProvider.COGNITO,
-                cognito.UserPoolClientIdentityProvider.GOOGLE
-            ],
+                cognito.UserPoolClientIdentityProvider.COGNITO
+            ] + ([cognito.UserPoolClientIdentityProvider.GOOGLE] if self.config.get("google_client_id") else []),
             access_token_validity=Duration.hours(1),
             id_token_validity=Duration.hours(1),
             refresh_token_validity=Duration.days(30)
@@ -366,12 +365,8 @@ class AquaChainApiStack(Stack):
             target=f"integrations/{self.websocket_integration.ref}"
         )
         
-        # Grant API Gateway permission to invoke Lambda
-        self.lambda_functions["websocket"].add_permission(
-            "WebSocketAPIPermission",
-            principal=iam.ServicePrincipal("apigateway.amazonaws.com"),
-            source_arn=f"arn:aws:execute-api:{self.region}:{self.account}:{self.websocket_api.ref}/*/*"
-        )
+        # Note: Lambda permission for WebSocket API is granted via IAM role
+        # to avoid circular dependency between API and Compute stacks
         
         self.api_resources.update({
             "websocket_api": self.websocket_api,
@@ -451,11 +446,14 @@ class AquaChainApiStack(Stack):
         )
         
         # Associate WAF with API Gateway
+        # Add explicit dependency to ensure API Gateway stage is fully created
         self.waf_association = waf.CfnWebACLAssociation(
             self, "WebACLAssociation",
             resource_arn=f"arn:aws:apigateway:{self.region}::/restapis/{self.rest_api.rest_api_id}/stages/{self.config['environment']}",
             web_acl_arn=self.web_acl.attr_arn
         )
+        # Ensure WAF association happens after API deployment is complete
+        self.waf_association.node.add_dependency(self.rest_api.deployment_stage)
         
         self.api_resources.update({
             "web_acl": self.web_acl,

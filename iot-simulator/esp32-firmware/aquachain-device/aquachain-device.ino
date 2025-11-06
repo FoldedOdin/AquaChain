@@ -72,7 +72,6 @@ void setup() {
   // Initialize sensors
   Serial.println("Initializing sensors...");
   sensorManager.begin();
-  dht.begin();
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   
   // Initialize WiFi
@@ -195,10 +194,8 @@ void readAndPublishSensorData() {
   
   // Read DHT22
   readings.temperature = dht.readTemperature();
-  readings.humidity = dht.readHumidity();
-  
   // Validate readings
-  if (isnan(readings.temperature) || isnan(readings.humidity)) {
+  if (isnan(readings.temperature)) {
     Serial.println("DHT22 sensor error!");
     readings.temperature = -999;
     readings.humidity = -999;
@@ -226,8 +223,6 @@ void readAndPublishSensorData() {
   sensorData["turbidity"] = readings.turbidity;
   sensorData["tds"] = readings.tds;
   sensorData["temperature"] = readings.temperature;
-  sensorData["humidity"] = readings.humidity;
-  
   // Water Quality Index
   doc["wqi"] = wqi;
   doc["anomalyType"] = anomalyType;

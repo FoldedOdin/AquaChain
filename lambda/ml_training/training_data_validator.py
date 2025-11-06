@@ -30,7 +30,7 @@ DEFAULT_FEATURE_RANGES = {
     'turbidity': (0.0, 100.0),  # NTU - normal range, higher indicates contamination
     'tds': (0.0, 2000.0),  # mg/L - Total Dissolved Solids
     'temperature': (0.0, 50.0),  # Celsius - typical water temperature range
-    'humidity': (0.0, 100.0),  # Percentage
+    
     'latitude': (-90.0, 90.0),  # Geographic coordinate
     'longitude': (-180.0, 180.0),  # Geographic coordinate
 }
@@ -40,8 +40,7 @@ RECOMMENDED_FEATURE_RANGES = {
     'pH': (6.5, 8.5),  # WHO recommended range
     'turbidity': (0.0, 5.0),  # NTU - acceptable range
     'tds': (50.0, 500.0),  # mg/L - acceptable range
-    'temperature': (15.0, 30.0),  # Celsius - comfortable range
-    'humidity': (30.0, 70.0),  # Percentage - typical range
+    'temperature': (15.0, 30.0)  # Celsius - comfortable range
 }
 
 
@@ -79,8 +78,8 @@ class DataQualityValidator:
         result = {
             'passed': True,
             'checks': {},
-            'errors': [],
-            'warnings': []
+            'errors': '',
+            'warnings': ''
         }
         
         # Check for NaN values
@@ -127,9 +126,9 @@ class DataQualityValidator:
             'passed': True,
             'distribution': {},
             'underrepresented_classes': {},
-            'recommendations': [],
-            'errors': [],
-            'warnings': []
+            'recommendations': '',
+            'errors': '',
+            'warnings': ''
         }
         
         # Calculate label distribution
@@ -184,7 +183,7 @@ class DataQualityValidator:
         """
         result = {
             'features': {},
-            'warnings': []
+            'warnings': ''
         }
         
         for feature in feature_names:
@@ -210,7 +209,7 @@ class DataQualityValidator:
             }
             
             # Check for distribution anomalies
-            warnings = []
+            warnings = ''
             
             # High skewness indicates asymmetric distribution
             if abs(stats['skewness']) > 2:
@@ -293,8 +292,8 @@ class DataQualityValidator:
     ) -> Dict[str, Any]:
         """Check if feature values fall within expected ranges"""
         out_of_range = {}
-        warnings = []
-        flagged_for_review = []
+        warnings = ''
+        flagged_for_review = ''
         
         for feature in feature_names:
             if feature not in data.columns:
@@ -348,7 +347,7 @@ class DataQualityValidator:
         total: int
     ) -> List[str]:
         """Generate recommendations for data collection to balance classes"""
-        recommendations = []
+        recommendations = ''
         
         for label, current_pct in underrepresented.items():
             current_count = label_counts.get(label, 0)
@@ -404,9 +403,9 @@ class TrainingDataValidator:
             'feature_count': len(feature_columns),
             'checks': {},
             'passed': True,
-            'warnings': [],
-            'errors': [],
-            'recommendations': []
+            'warnings': '',
+            'errors': '',
+            'recommendations': ''
         }
         
         # Initialize validator with custom ranges if provided
@@ -558,7 +557,7 @@ class TrainingDataValidator:
             return {'passed': True, 'message': 'No expected ranges provided'}
         
         out_of_range = {}
-        warnings = []
+        warnings = ''
         
         for col, (min_val, max_val) in expected_ranges.items():
             if col in data.columns:
@@ -622,7 +621,7 @@ class TrainingDataValidator:
         corr_matrix = data[numeric_features].corr()
         
         # Find highly correlated pairs (>0.95)
-        high_corr_pairs = []
+        high_corr_pairs = ''
         for i in range(len(corr_matrix.columns)):
             for j in range(i+1, len(corr_matrix.columns)):
                 if abs(corr_matrix.iloc[i, j]) > 0.95:
@@ -775,8 +774,7 @@ def lambda_handler(event, context):
                     label_column = data.columns[-1]
                     
                     # Filter to only water quality features
-                    water_quality_features = ['pH', 'turbidity', 'tds', 'temperature', 'humidity',
-                                             'latitude', 'longitude', 'hour', 'month', 'weekday']
+                    water_quality_features = ['pH', 'turbidity', 'tds', 'temperature', 'latitude', 'longitude', 'hour', 'month', 'weekday']
                     feature_columns = [col for col in feature_columns if col in water_quality_features or col in data.columns]
                     
                     # Validating data (logging removed for performance)

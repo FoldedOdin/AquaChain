@@ -187,6 +187,43 @@ class AquaChainSecurityStack(Stack):
             )
         )
         
+        self.iot_service_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "s3:PutObject"
+                ],
+                resources=[
+                    f"arn:aws:s3:::aquachain-*/*"
+                ]
+            )
+        )
+        
+        # IoT Provisioning role for device registration
+        self.iot_provisioning_role = iam.Role(
+            self, "IoTProvisioningRole",
+            role_name=get_resource_name(self.config, "role", "iot-provisioning"),
+            assumed_by=iam.ServicePrincipal("iot.amazonaws.com"),
+        )
+        
+        self.iot_provisioning_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "iot:CreateThing",
+                    "iot:CreatePolicy",
+                    "iot:AttachPolicy",
+                    "iot:CreateCertificateFromCsr",
+                    "iot:AttachThingPrincipal",
+                    "iot:DescribeThing",
+                    "iot:DescribeCertificate",
+                    "iot:UpdateCertificate",
+                    "iot:RegisterThing"
+                ],
+                resources=["*"]
+            )
+        )
+        
         # API Gateway execution role
         self.api_gateway_role = iam.Role(
             self, "ApiGatewayRole",
@@ -224,6 +261,7 @@ class AquaChainSecurityStack(Stack):
         self.security_resources.update({
             "data_processing_role": self.data_processing_role,
             "iot_service_role": self.iot_service_role,
+            "iot_provisioning_role": self.iot_provisioning_role,
             "api_gateway_role": self.api_gateway_role,
             "sagemaker_role": self.sagemaker_role
         })
@@ -259,11 +297,12 @@ class AquaChainSecurityStack(Stack):
             ]
         )
         
-        # Create the device policy
+        # Create the device policy and attach it to IoT Service Role
         self.device_policy = iam.CfnPolicy(
             self, "DevicePolicy",
             policy_name=get_resource_name(self.config, "policy", "device"),
-            policy_document=self.device_policy_document.to_json()
+            policy_document=self.device_policy_document.to_json(),
+            roles=[self.iot_service_role.role_name]
         )
         
         self.security_resources.update({

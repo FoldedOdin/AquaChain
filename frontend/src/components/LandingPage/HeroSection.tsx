@@ -5,17 +5,15 @@ import UnderwaterBackground from './UnderwaterBackground';
 
 interface HeroSectionProps {
   onGetStartedClick: () => void;
-  onViewDashboardsClick: () => void;
 }
 
 /**
  * Hero Section Component
  * Full-viewport height section with immersive underwater animations,
- * animated logo, typewriter effect, and call-to-action buttons
+ * animated logo, typewriter effect, and call-to-action button
  */
 const HeroSection: React.FC<HeroSectionProps> = ({
   onGetStartedClick,
-  onViewDashboardsClick,
 }) => {
   return (
     <section
@@ -50,8 +48,8 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           and AI-powered insights for complete peace of mind.
         </p>
 
-        {/* Call-to-Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center">
+        {/* Call-to-Action Button */}
+        <div className="flex justify-center items-center">
           {/* Primary CTA */}
           <button
             onClick={onGetStartedClick}
@@ -60,15 +58,6 @@ const HeroSection: React.FC<HeroSectionProps> = ({
           >
             <span className="relative z-10 text-lg lg:text-xl">Get Started</span>
             <div className="absolute inset-0 bg-gradient-to-r from-aqua-400 to-aqua-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-sm"></div>
-          </button>
-
-          {/* Secondary CTA */}
-          <button
-            onClick={onViewDashboardsClick}
-            className="group border-2 border-aqua-400 text-aqua-400 hover:bg-aqua-400 hover:text-white font-semibold px-8 py-4 lg:px-10 lg:py-5 rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:ring-offset-2 focus:ring-offset-transparent min-w-[200px] backdrop-blur-sm bg-white/5"
-            aria-label="View demonstration dashboards"
-          >
-            <span className="text-lg lg:text-xl">View Demo</span>
           </button>
         </div>
 

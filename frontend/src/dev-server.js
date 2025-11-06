@@ -55,10 +55,194 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// DEV ONLY: Manually verify any email
+app.post('/api/dev/verify-email', (req, res) => {
+  const { email } = req.body;
+  
+  const user = devUsers.get(email);
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  user.emailVerified = true;
+  saveDevData();
+  
+  console.log(`✅ Manually verified email: ${email}`);
+  
+  res.json({ 
+    success: true, 
+    message: 'Email verified successfully',
+    user: {
+      email: user.email,
+      emailVerified: user.emailVerified
+    }
+  });
+});
+
+// DEV ONLY: Delete a user account
+app.delete('/api/dev/delete-user/:email', (req, res) => {
+  const { email } = req.params;
+  
+  if (devUsers.has(email)) {
+    devUsers.delete(email);
+    saveDevData();
+    console.log(`🗑️  Deleted user: ${email}`);
+    res.json({ success: true, message: 'User deleted' });
+  } else {
+    res.status(404).json({ success: false, error: 'User not found' });
+  }
+});
+
+// DEV ONLY: List all users
+app.get('/api/dev/users', (req, res) => {
+  const users = Array.from(devUsers.values()).map(user => ({
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    emailVerified: user.emailVerified,
+    createdAt: user.createdAt
+  }));
+  
+  res.json({ 
+    success: true, 
+    count: users.length,
+    users 
+  });
+});
+
 // Mock analytics endpoint
 app.post('/api/analytics', (req, res) => {
   console.log('Analytics Event:', req.body);
   res.json({ success: true });
+});
+
+// Dashboard stats endpoint
+app.get('/dashboard/stats', (req, res) => {
+  res.json({
+    success: true,
+    stats: {
+      totalDevices: 3,
+      activeDevices: 2,
+      criticalAlerts: 1,
+      averageWQI: 78,
+      totalUsers: devUsers.size,
+      pendingRequests: 2
+    }
+  });
+});
+
+// Water quality latest endpoint
+app.get('/water-quality/latest', (req, res) => {
+  res.json({
+    success: true,
+    reading: {
+      deviceId: 'DEV-3421',
+      timestamp: new Date().toISOString(),
+      wqi: 78,
+      readings: {
+        pH: 7.2,
+        turbidity: 1.5,
+        tds: 150,
+        temperature: 25.0
+      },
+      location: {
+        latitude: 9.9312,
+        longitude: 76.2673
+      },
+      diagnostics: {
+        batteryLevel: 85,
+        signalStrength: -65,
+        sensorStatus: 'normal'
+      },
+      anomalyType: 'normal'
+    }
+  });
+});
+
+// Alerts endpoint
+app.get('/alerts', (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  
+  const mockAlerts = [
+    {
+      id: 'alert-1',
+      deviceId: 'DEV-3421',
+      timestamp: new Date(Date.now() - 3600000).toISOString(),
+      severity: 'warning',
+      wqi: 65,
+      message: 'Water quality below optimal range',
+      acknowledged: false
+    },
+    {
+      id: 'alert-2',
+      deviceId: 'DEV-3422',
+      timestamp: new Date(Date.now() - 7200000).toISOString(),
+      severity: 'info',
+      wqi: 72,
+      message: 'Slight turbidity increase detected',
+      acknowledged: true
+    }
+  ];
+  
+  res.json({
+    success: true,
+    alerts: mockAlerts.slice(0, limit),
+    count: mockAlerts.length
+  });
+});
+
+// Devices endpoint
+app.get('/devices', (req, res) => {
+  const mockDevices = [
+    {
+      deviceId: 'DEV-3421',
+      name: 'Kitchen Sink',
+      status: 'online',
+      location: {
+        latitude: 9.9312,
+        longitude: 76.2673,
+        address: '123 Main St, Kochi, Kerala'
+      },
+      lastReading: new Date().toISOString(),
+      batteryLevel: 85,
+      wqi: 78
+    },
+    {
+      deviceId: 'DEV-3422',
+      name: 'Main Water Line',
+      status: 'online',
+      location: {
+        latitude: 9.9412,
+        longitude: 76.2773,
+        address: '123 Main St, Kochi, Kerala'
+      },
+      lastReading: new Date(Date.now() - 300000).toISOString(),
+      batteryLevel: 92,
+      wqi: 82
+    },
+    {
+      deviceId: 'DEV-3423',
+      name: 'Garden Tap',
+      status: 'offline',
+      location: {
+        latitude: 9.9512,
+        longitude: 76.2873,
+        address: '123 Main St, Kochi, Kerala'
+      },
+      lastReading: new Date(Date.now() - 86400000).toISOString(),
+      batteryLevel: 15,
+      wqi: 0
+    }
+  ];
+  
+  res.json({
+    success: true,
+    devices: mockDevices,
+    count: mockDevices.length
+  });
 });
 
 // Persistent storage for development (survives server restarts)
@@ -344,6 +528,49 @@ wss.on('connection', (ws) => {
   });
 });
 
+// Initialize demo users if they don't exist
+function initializeDemoUsers() {
+  const demoUsers = [
+    {
+      email: 'demo@aquachain.com',
+      password: 'demo123',
+      name: 'Demo Admin',
+      role: 'admin'
+    },
+    {
+      email: 'tech@aquachain.com',
+      password: 'demo123',
+      name: 'Demo Technician',
+      role: 'technician'
+    },
+    {
+      email: 'user@aquachain.com',
+      password: 'demo123',
+      name: 'Demo Consumer',
+      role: 'consumer'
+    }
+  ];
+
+  demoUsers.forEach(user => {
+    if (!devUsers.has(user.email)) {
+      devUsers.set(user.email, {
+        userId: `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        email: user.email,
+        password: user.password,
+        name: user.name,
+        role: user.role,
+        emailVerified: true,
+        createdAt: new Date().toISOString()
+      });
+    }
+  });
+
+  console.log(`👥 Demo users available:`);
+  console.log(`   - demo@aquachain.com / demo123 (Admin)`);
+  console.log(`   - tech@aquachain.com / demo123 (Technician)`);
+  console.log(`   - user@aquachain.com / demo123 (Consumer)`);
+}
+
 // Start server
 server.listen(PORT, () => {
   console.log(`🚀 AquaChain Development Server running on http://localhost:${PORT}`);
@@ -351,6 +578,13 @@ server.listen(PORT, () => {
   console.log(`🔍 Health check: http://localhost:${PORT}/api/health`);
   console.log(`📈 Analytics: http://localhost:${PORT}/api/analytics`);
   console.log(`🔌 WebSocket: ws://localhost:${PORT}/ws`);
+  console.log('');
+  
+  // Initialize demo users
+  initializeDemoUsers();
+  
+  // Save initial state
+  saveDevData();
 });
 
 module.exports = app;

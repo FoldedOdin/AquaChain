@@ -239,8 +239,7 @@ def prepare_features(readings: Dict[str, float], location: Dict[str, float],
             readings['pH'],
             readings['turbidity'],
             readings['tds'],
-            readings['temperature'],
-            readings['humidity']
+            readings['temperature']
         ]
         
         # Location features
@@ -324,8 +323,9 @@ def get_feature_importance(model: Dict[str, Any], features: np.ndarray) -> Dict[
     """
     try:
         feature_names = [
-            'pH', 'turbidity', 'tds', 'temperature', 'humidity',
-            'latitude', 'longitude', 'hour', 'month', 'weekday',
+            'pH', 'turbidity', 'tds', 'temperature', 
+            'latitude', 'longitude', 
+            'hour', 'month', 'weekday',
             'pH_temp_interaction', 'turbidity_tds_ratio', 
             'pH_deviation', 'temp_deviation'
         ]
@@ -350,16 +350,15 @@ def calculate_fallback_wqi(features: np.ndarray) -> float:
     Fallback WQI calculation using simple weighted formula
     """
     try:
-        # Extract basic sensor readings (first 5 features)
-        pH, turbidity, tds, temperature, humidity = features[0][:5]
+        # Extract basic sensor readings (first 4 features)
+        pH, turbidity, tds, temperature = features[0][:4]
         
         # Simple WQI calculation with weights
         weights = {
-            'pH': 0.25,
-            'turbidity': 0.25,
-            'tds': 0.20,
-            'temperature': 0.15,
-            'humidity': 0.15
+            'pH': 0.30,
+            'turbidity': 0.30,
+            'tds': 0.25,
+            'temperature': 0.15
         }
         
         # Normalize each parameter to 0-100 scale
@@ -367,14 +366,12 @@ def calculate_fallback_wqi(features: np.ndarray) -> float:
         turbidity_score = normalize_turbidity(turbidity)
         tds_score = normalize_tds(tds)
         temp_score = normalize_temperature(temperature)
-        humidity_score = normalize_humidity(humidity)
         
         # Calculate weighted WQI
         wqi = (pH_score * weights['pH'] +
                turbidity_score * weights['turbidity'] +
                tds_score * weights['tds'] +
-               temp_score * weights['temperature'] +
-               humidity_score * weights['humidity'])
+               temp_score * weights['temperature'])
         
         return max(0, min(100, wqi))
         
@@ -387,7 +384,7 @@ def detect_fallback_anomaly(features: np.ndarray) -> Tuple[str, float]:
     Fallback anomaly detection using rule-based approach
     """
     try:
-        pH, turbidity, tds, temperature, humidity = features[0][:5]
+        pH, turbidity, tds, temperature = features[0][:4]
         
         # Rule-based anomaly detection
         if pH < 6.0 or pH > 9.0:
@@ -404,9 +401,6 @@ def detect_fallback_anomaly(features: np.ndarray) -> Tuple[str, float]:
         
         if temperature < 0 or temperature > 50:
             return 'sensor_fault', 0.7
-        
-        if humidity > 95 or humidity < 10:
-            return 'sensor_fault', 0.6
         
         return 'normal', 0.8
         
@@ -452,16 +446,6 @@ def normalize_temperature(temperature: float) -> float:
     else:
         deviation = min(abs(temperature - 20), abs(temperature - 30))
         return max(0, 100 - deviation * 5)
-
-def normalize_humidity(humidity: float) -> float:
-    """Normalize humidity to 0-100 scale (40-70% is optimal)"""
-    if 40 <= humidity <= 70:
-        return 100
-    else:
-        if humidity < 40:
-            return max(0, 100 - (40 - humidity) * 2)
-        else:
-            return max(0, 100 - (humidity - 70) * 2)
 
 def get_fallback_model() -> Dict[str, Any]:
     """

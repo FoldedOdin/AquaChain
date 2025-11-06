@@ -34,8 +34,7 @@ def preprocess_data(input_path: str, output_path: str):
     
     # Remove metadata columns
     feature_columns = [
-        'pH', 'turbidity', 'tds', 'temperature', 'humidity',
-        'latitude', 'longitude', 'hour', 'month', 'weekday',
+        'pH', 'turbidity', 'tds', 'temperature', 'latitude', 'longitude', 'hour', 'month', 'weekday',
         'pH_temp_interaction', 'turbidity_tds_ratio', 
         'pH_deviation', 'temp_deviation'
     ]

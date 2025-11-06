@@ -130,49 +130,6 @@ const AnimationEngineComponent: React.FC<AnimationEngineProps> = ({
       <div className="relative z-10">
         {children}
       </div>
-
-      {/* Performance indicator (development only) */}
-      {process.env.NODE_ENV === 'development' && isInitialized && (
-        <PerformanceIndicator 
-          performanceMonitor={performanceMonitorRef.current}
-          animationEngine={engineRef.current}
-        />
-      )}
-    </div>
-  );
-};
-
-// Performance indicator component for development
-interface PerformanceIndicatorProps {
-  performanceMonitor: PerformanceMonitor | null;
-  animationEngine: AnimationEngine | null;
-}
-
-const PerformanceIndicator: React.FC<PerformanceIndicatorProps> = ({
-  performanceMonitor,
-  animationEngine
-}) => {
-  const [metrics, setMetrics] = useState<any>({});
-  const [fps, setFps] = useState(60);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (performanceMonitor) {
-        const currentMetrics = performanceMonitor.getMetrics();
-        setMetrics(currentMetrics);
-        setFps(currentMetrics.animationFrameRate || 60);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [performanceMonitor]);
-
-  return (
-    <div className="fixed top-4 right-4 bg-black/80 text-white p-2 rounded text-xs font-mono z-50">
-      <div>FPS: {fps.toFixed(1)}</div>
-      <div>LCP: {(metrics.largestContentfulPaint || 0).toFixed(0)}ms</div>
-      <div>CLS: {(metrics.cumulativeLayoutShift || 0).toFixed(3)}</div>
-      <div>Memory: {((metrics.memoryUsage || 0) / 1024 / 1024).toFixed(1)}MB</div>
     </div>
   );
 };

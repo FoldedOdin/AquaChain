@@ -77,13 +77,12 @@ IOT_DATA_SCHEMA = {
         },
         "readings": {
             "type": "object",
-            "required": ["pH", "turbidity", "tds", "temperature", "humidity"],
+            "required": ["pH", "turbidity", "tds", "temperature"],
             "properties": {
                 "pH": {"type": "number", "minimum": 0, "maximum": 14},
                 "turbidity": {"type": "number", "minimum": 0, "maximum": 4000},
                 "tds": {"type": "number", "minimum": 0, "maximum": 5000},
-                "temperature": {"type": "number", "minimum": -40, "maximum": 125},
-                "humidity": {"type": "number", "minimum": 0, "maximum": 100}
+                "temperature": {"type": "number", "minimum": -40, "maximum": 125}
             }
         },
         "diagnostics": {
@@ -345,13 +344,6 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
                 details={'value': readings['temperature'], 'valid_range': '-40 to 125'}
             )
         
-        # Humidity validation (0-100%)
-        if not (0 <= readings['humidity'] <= 100):
-            raise AquaChainValidationError(
-                message="Humidity value out of valid range",
-                details={'value': readings['humidity'], 'valid_range': '0-100'}
-            )
-        
         # Sanitize timestamp to ISO format
         timestamp = data['timestamp']
         if not timestamp.endswith('Z'):
@@ -363,7 +355,6 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
         data['readings']['turbidity'] = round(readings['turbidity'], 1)
         data['readings']['tds'] = round(readings['tds'], 0)
         data['readings']['temperature'] = round(readings['temperature'], 1)
-        data['readings']['humidity'] = round(readings['humidity'], 1)
         
         logger.info(
             "Data validation successful",

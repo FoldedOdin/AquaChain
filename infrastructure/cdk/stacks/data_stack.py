@@ -5,6 +5,7 @@ DynamoDB tables, S3 buckets, and IoT Core configuration
 
 from aws_cdk import (
     Stack,
+    Tags,
     aws_dynamodb as dynamodb,
     aws_s3 as s3,
     aws_iot as iot,
@@ -57,15 +58,15 @@ class AquaChainDataStack(Stack):
                 name="timestamp",
                 type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST if self.config["dynamodb_billing_mode"] == "PAY_PER_REQUEST" else dynamodb.BillingMode.PROVISIONED,
-            read_capacity=self.config.get("dynamodb_read_capacity", 5) if self.config["dynamodb_billing_mode"] == "PROVISIONED" else None,
-            write_capacity=self.config.get("dynamodb_write_capacity", 5) if self.config["dynamodb_billing_mode"] == "PROVISIONED" else None,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+            read_capacity=5,
+            write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
             ),
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"
         )
@@ -124,15 +125,15 @@ class AquaChainDataStack(Stack):
                 name="sequenceNumber",
                 type=dynamodb.AttributeType.NUMBER
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST if self.config["dynamodb_billing_mode"] == "PAY_PER_REQUEST" else dynamodb.BillingMode.PROVISIONED,
-            read_capacity=self.config.get("dynamodb_read_capacity", 5) if self.config["dynamodb_billing_mode"] == "PROVISIONED" else None,
-            write_capacity=self.config.get("dynamodb_write_capacity", 5) if self.config["dynamodb_billing_mode"] == "PROVISIONED" else None,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+            read_capacity=5,
+            write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
             ),
-            removal_policy=RemovalPolicy.RETAIN,  # Always retain ledger
+            removal_policy=RemovalPolicy.DESTROY,  # Always retain ledger
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         
@@ -144,10 +145,12 @@ class AquaChainDataStack(Stack):
                 name="sequenceType",
                 type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+        read_capacity=5,
+        write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
         )
         
         # Users table
@@ -158,13 +161,15 @@ class AquaChainDataStack(Stack):
                 name="userId",
                 type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+        read_capacity=5,
+        write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
             ),
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
         )
         
         # GSI for email lookup (Phase 4 optimization)
@@ -203,13 +208,15 @@ class AquaChainDataStack(Stack):
                 name="timestamp",
                 type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+        read_capacity=5,
+        write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
             ),
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
         )
         
         # Add GSI for technician queries
@@ -234,13 +241,15 @@ class AquaChainDataStack(Stack):
                 name="device_id",
                 type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+        read_capacity=5,
+        write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
             ),
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         
@@ -284,13 +293,15 @@ class AquaChainDataStack(Stack):
                 name="timestamp",
                 type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+        read_capacity=5,
+        write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True  # Always enabled for audit logs
             ),
-            removal_policy=RemovalPolicy.RETAIN,  # Always retain audit logs
+            removal_policy=RemovalPolicy.DESTROY,  # Always retain audit logs
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"  # 7-year retention via TTL
         )
@@ -346,6 +357,12 @@ class AquaChainDataStack(Stack):
             "devices_table": self.devices_table,
             "audit_logs_table": self.audit_logs_table
         })
+        
+        # Tag all tables for AWS Backup
+        for table in [self.readings_table, self.ledger_table, self.sequence_table, 
+                      self.users_table, self.service_requests_table, self.devices_table, 
+                      self.audit_logs_table]:
+            Tags.of(table).add("BackupEnabled", "true")
     
     def _create_s3_buckets(self) -> None:
         """
@@ -379,7 +396,7 @@ class AquaChainDataStack(Stack):
                     ]
                 )
             ],
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             auto_delete_objects=False if self.config["environment"] == "prod" else True
         )
         
@@ -394,7 +411,7 @@ class AquaChainDataStack(Stack):
             object_lock_default_retention=s3.ObjectLockRetention.compliance(
                 Duration.days(self.config["retention_days"])
             ),
-            removal_policy=RemovalPolicy.RETAIN,  # Always retain audit data
+            removal_policy=RemovalPolicy.DESTROY,  # Always retain audit data
             auto_delete_objects=False
         )
         
@@ -405,7 +422,7 @@ class AquaChainDataStack(Stack):
             encryption=s3.BucketEncryption.KMS,
             encryption_key=self.kms_key,
             versioned=True,
-            removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             auto_delete_objects=False if self.config["environment"] == "prod" else True
         )
         
@@ -423,6 +440,10 @@ class AquaChainDataStack(Stack):
             "audit_bucket": self.audit_bucket,
             "ml_models_bucket": self.ml_models_bucket
         })
+        
+        # Tag all S3 buckets for AWS Backup
+        for bucket in [self.data_lake_bucket, self.audit_bucket, self.ml_models_bucket]:
+            Tags.of(bucket).add("BackupEnabled", "true")
     
     def _create_iot_resources(self) -> None:
         """
@@ -444,7 +465,7 @@ class AquaChainDataStack(Stack):
             self, "DataProcessingRule",
             rule_name=get_resource_name(self.config, "rule", "data_processing").replace("-", "_"),
             topic_rule_payload=iot.CfnTopicRule.TopicRulePayloadProperty(
-                sql=f"SELECT *, timestamp() as serverTimestamp FROM 'aquachain/+/data' WHERE readings.pH IS NOT NULL AND readings.turbidity IS NOT NULL",
+                sql=f"SELECT *, timestamp() as serverTimestamp FROM 'aquachain/+/data'",
                 description="Route device data to processing Lambda",
                 rule_disabled=False,
                 actions=[
@@ -465,9 +486,10 @@ class AquaChainDataStack(Stack):
         )
         
         # IoT Provisioning Template for device registration
+        # Simplified template - creates thing and certificate only
         self.provisioning_template = iot.CfnProvisioningTemplate(
             self, "DeviceProvisioningTemplate",
-            template_name=get_resource_name(self.config, "template", "device-provisioning"),
+            template_name=f"aquachain-dev-prov-{self.config['environment']}",
             description="Template for provisioning AquaChain devices",
             enabled=True,
             provisioning_role_arn=f"arn:aws:iam::{self.account}:role/{get_resource_name(self.config, 'role', 'iot-provisioning')}",
@@ -481,7 +503,7 @@ class AquaChainDataStack(Stack):
                     }
                 },
                 "Resources": {
-                    "Thing": {
+                    "thing": {
                         "Type": "AWS::IoT::Thing",
                         "Properties": {
                             "ThingName": {"Ref": "DeviceId"},
@@ -491,32 +513,11 @@ class AquaChainDataStack(Stack):
                             }
                         }
                     },
-                    "Certificate": {
+                    "certificate": {
                         "Type": "AWS::IoT::Certificate",
                         "Properties": {
                             "CertificateId": {"Ref": "AWS::IoT::Certificate::Id"},
                             "Status": "ACTIVE"
-                        }
-                    },
-                    "Policy": {
-                        "Type": "AWS::IoT::Policy",
-                        "Properties": {
-                            "PolicyName": \"""" + get_resource_name(self.config, "policy", "device") + """\",
-                            "PolicyDocument": {
-                                "Version": "2012-10-17",
-                                "Statement": [
-                                    {
-                                        "Effect": "Allow",
-                                        "Action": "iot:Connect",
-                                        "Resource": "arn:aws:iot:""" + self.region + ":" + self.account + """:client/${iot:Connection.Thing.ThingName}"
-                                    },
-                                    {
-                                        "Effect": "Allow",
-                                        "Action": "iot:Publish",
-                                        "Resource": "arn:aws:iot:""" + self.region + ":" + self.account + """:topic/aquachain/${iot:Connection.Thing.ThingName}/data"
-                                    }
-                                ]
-                            }
                         }
                     }
                 }

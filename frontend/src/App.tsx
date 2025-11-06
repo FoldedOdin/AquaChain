@@ -1,12 +1,10 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import LandingPageWithAnalytics from './components/LandingPage/LandingPageWithAnalytics';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import ErrorBoundary from './components/ErrorBoundary';
-import { queryClient } from './lib/react-query';
 import performanceMonitor from './services/performanceMonitor';
 import './App.css';
 
@@ -50,9 +48,8 @@ function App() {
   return (
     // ✅ Wrap entire app in Error Boundary
     <ErrorBoundary>
-      {/* ✅ Provide React Query client */}
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
+      <AuthProvider>
+        <NotificationProvider>
           <Router>
             <div className="App">
               <Routes>
@@ -175,15 +172,12 @@ function App() {
                 </div>
               }
             />
-          </Routes>
-        </div>
-      </Router>
-    </AuthProvider>
-    
-    {/* ✅ React Query DevTools (development only) */}
-    {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false} />}
-  </QueryClientProvider>
-</ErrorBoundary>
+              </Routes>
+            </div>
+          </Router>
+        </NotificationProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

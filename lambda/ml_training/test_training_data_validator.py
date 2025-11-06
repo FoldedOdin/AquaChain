@@ -32,10 +32,10 @@ class TestDataQualityValidator:
             'turbidity': [1.0, 2.0, 1.5, 2.5],
             'tds': [200, 250, 300, 280],
             'temperature': [25, 26, 24, 27],
-            'humidity': [60, 65, 55, 70]
+            
         })
         
-        feature_names = ['pH', 'turbidity', 'tds', 'temperature', 'humidity']
+        feature_names = ['pH', 'turbidity', 'tds', 'temperature' ]
         result = self.validator.validate_features(data, feature_names)
         
         assert result['passed'] is True
@@ -125,7 +125,7 @@ class TestDataQualityValidator:
     
     def test_validate_labels_with_empty_data(self):
         """Test label validation with empty data (edge case)"""
-        labels = pd.Series([])
+        labels = pd.Series('')
         
         result = self.validator.validate_labels(labels)
         
@@ -188,11 +188,10 @@ class TestTrainingDataValidator:
             'turbidity': [1.0, 2.0, 1.5, 2.5, 1.8],
             'tds': [200, 250, 300, 280, 260],
             'temperature': [25, 26, 24, 27, 25],
-            'humidity': [60, 65, 55, 70, 62],
             'wqi': [85, 88, 82, 90, 86]
         })
         
-        feature_columns = ['pH', 'turbidity', 'tds', 'temperature', 'humidity']
+        feature_columns = ['pH', 'turbidity', 'tds', 'temperature']
         label_column = 'wqi'
         
         result = self.validator.validate_dataset(
@@ -286,11 +285,10 @@ class TestTrainingDataValidator:
             'turbidity': np.random.lognormal(0, 0.5, n_samples),
             'tds': np.random.normal(300, 100, n_samples),
             'temperature': np.random.normal(25, 3, n_samples),
-            'humidity': np.random.normal(60, 10, n_samples),
             'wqi': np.random.uniform(50, 100, n_samples)
         })
         
-        feature_columns = ['pH', 'turbidity', 'tds', 'temperature', 'humidity']
+        feature_columns = ['pH', 'turbidity', 'tds', 'temperature']
         label_column = 'wqi'
         
         import time
@@ -321,8 +319,8 @@ class TestTrainingDataValidator:
                 'total_rows': 100,
                 'feature_count': 5,
                 'checks': {},
-                'errors': [],
-                'warnings': []
+                'errors': '',
+                'warnings': ''
             }
         })
         
@@ -375,7 +373,6 @@ def test_default_feature_ranges():
     assert 'turbidity' in DEFAULT_FEATURE_RANGES
     assert 'tds' in DEFAULT_FEATURE_RANGES
     assert 'temperature' in DEFAULT_FEATURE_RANGES
-    assert 'humidity' in DEFAULT_FEATURE_RANGES
     
     # Check pH range
     assert DEFAULT_FEATURE_RANGES['pH'] == (0.0, 14.0)

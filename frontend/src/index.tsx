@@ -3,8 +3,6 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import './styles/animations.css';
 import App from './App';
-import reportWebVitals from './reportWebVitals';
-import { initializeRUM } from './services/rumService';
 import { AuthProvider } from './contexts/AuthContext';
 
 // Debug initial state (development only)
@@ -68,34 +66,5 @@ if (process.env.NODE_ENV === 'development' && 'serviceWorker' in navigator) {
   }
 
   // Clear localStorage that might contain routing info
-  localStorage.removeItem('aquachain_rum');
   sessionStorage.clear();
 }
-
-// Initialize Real User Monitoring
-const rum = initializeRUM({
-  apiEndpoint: process.env.REACT_APP_RUM_ENDPOINT || '/api/rum',
-  batchSize: 10,
-  flushInterval: 30000,
-  enableLocalStorage: process.env.NODE_ENV === 'development',
-  enableBeacon: true
-});
-
-// Enhanced Web Vitals reporting with analytics integration
-reportWebVitals((metric) => {
-  // Log to console in development
-  if (process.env.NODE_ENV === 'development') {
-    // eslint-disable-next-line no-console
-    console.log('[Web Vitals]', metric);
-  }
-
-  // Send to RUM service
-  if (rum) {
-    rum.recordCustomEvent('web-vital', {
-      name: metric.name,
-      value: metric.value,
-      delta: metric.delta,
-      id: metric.id
-    });
-  }
-});

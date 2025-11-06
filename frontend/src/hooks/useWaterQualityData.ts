@@ -1,80 +1,99 @@
 /**
- * Water Quality Data Hooks with React Query
- * ✅ Automatic caching, deduplication, and background refetching
+ * Water Quality Data Hooks
+ * ✅ Simple data fetching with React hooks
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, useCallback } from 'react';
 import { dataService } from '../services/dataService';
-import { queryKeys, invalidateQueries } from '../lib/react-query';
 import { WaterQualityReading } from '../types';
 
 /**
  * Fetch water quality data for a time range
- * ✅ Cached for 30 seconds
- * ✅ Refetches every minute in background
- * ✅ Automatic retry on failure
  */
 export function useWaterQualityData(timeRange: string = '24h') {
-  return useQuery({
-    queryKey: queryKeys.waterQuality.list(timeRange),
-    queryFn: () => dataService.getWaterQualityData(timeRange),
-    staleTime: 30000, // 30 seconds
-    refetchInterval: 60000, // Refetch every minute
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-  });
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const result = await dataService.getWaterQualityData(timeRange);
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [timeRange]);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 60000); // Refetch every minute
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }
 
 /**
  * Fetch latest water quality reading
- * ✅ Cached for 10 seconds (more frequent updates)
- * ✅ Refetches every 30 seconds
  */
 export function useLatestWaterQuality() {
-  return useQuery({
-    queryKey: queryKeys.waterQuality.latest(),
-    queryFn: () => dataService.getLatestWaterQuality(),
-    staleTime: 10000, // 10 seconds
-    refetchInterval: 30000, // Refetch every 30 seconds
-    retry: 3,
-  });
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const result = await dataService.getLatestWaterQuality();
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refetch every 30 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchData]);
+
+  return { data, isLoading, error, refetch: fetchData };
 }
 
 /**
  * Mutation for submitting manual water quality reading
- * ✅ Optimistic updates
- * ✅ Automatic cache invalidation on success
  */
 export function useSubmitWaterQualityReading() {
-  const queryClient = useQueryClient();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  return useMutation({
-    mutationFn: (reading: Partial<WaterQualityReading>) => {
+  const mutate = useCallback(async (reading: Partial<WaterQualityReading>) => {
+    try {
+      setIsLoading(true);
+      setError(null);
       // This would call an API endpoint to submit the reading
-      return Promise.resolve(reading);
-    },
-    onMutate: async (newReading) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: queryKeys.waterQuality.all });
+      await Promise.resolve(reading);
+      return reading;
+    } catch (err) {
+      setError(err as Error);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-      // Snapshot previous value
-      const previousReadings = queryClient.getQueryData(queryKeys.waterQuality.latest());
-
-      // Optimistically update
-      queryClient.setQueryData(queryKeys.waterQuality.latest(), newReading);
-
-      // Return context with snapshot
-      return { previousReadings };
-    },
-    onError: (err, newReading, context) => {
-      // Rollback on error
-      if (context?.previousReadings) {
-        queryClient.setQueryData(queryKeys.waterQuality.latest(), context.previousReadings);
-      }
-    },
-    onSuccess: () => {
-      // Invalidate and refetch
-      invalidateQueries.waterQuality();
-    },
-  });
+  return { mutate, isLoading, error };
 }

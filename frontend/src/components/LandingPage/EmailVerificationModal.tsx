@@ -124,8 +124,21 @@ const EmailVerificationModal: React.FC<EmailVerificationModalProps> = ({
                 </Dialog.Title>
 
                 <p className="text-sm text-gray-600 text-center mb-6">
-                  We've sent a 6-digit verification code to<br />
-                  <span className="font-medium text-gray-900">{email}</span>
+                  {process.env.REACT_APP_USE_MOCK_AUTH === 'true' ? (
+                    <>
+                      <span className="inline-block px-3 py-1 mb-2 text-xs font-semibold text-aqua-800 bg-aqua-100 rounded-full">
+                        LOCAL DEV MODE
+                      </span>
+                      <br />
+                      Use code <span className="font-mono font-bold text-aqua-600">{process.env.REACT_APP_LOCAL_OTP_CODE || '123456'}</span> to verify<br />
+                      <span className="font-medium text-gray-900">{email}</span>
+                    </>
+                  ) : (
+                    <>
+                      We've sent a 6-digit verification code to<br />
+                      <span className="font-medium text-gray-900">{email}</span>
+                    </>
+                  )}
                 </p>
 
                 {/* Error/Success Messages */}

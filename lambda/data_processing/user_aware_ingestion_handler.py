@@ -163,7 +163,6 @@ def store_reading_with_user_context(device_id: str, user_id: str, reading: Dict[
         'turbidity': Decimal(str(reading['turbidity'])),
         'tds': Decimal(str(reading['tds'])),
         'temperature': Decimal(str(reading['temperature'])),
-        'humidity': Decimal(str(reading.get('humidity', 0))),
         'metric_type': 'water_quality',
         'alert_level': determine_alert_level(reading),
         'device_firmware': device_info.get('firmware_version', 'unknown'),

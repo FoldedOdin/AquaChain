@@ -115,6 +115,11 @@ class AuthService {
         this.currentUser = user;
         this.currentSession = session;
 
+        // Store token and user info in localStorage for persistence
+        localStorage.setItem('aquachain_token', result.token);
+        localStorage.setItem('aquachain_user', JSON.stringify(user));
+        localStorage.setItem('aquachain_role', userRole);
+
         // Track login event
         await this.trackAuthEvent('login', userRole);
 
@@ -240,10 +245,23 @@ class AuthService {
    */
   async confirmSignUp(email: string, confirmationCode: string): Promise<void> {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        // Development mode - auto-confirm
-        console.log(`Development: Auto-confirming signup for ${email}`);
-        return;
+      // Check if using mock auth (local development)
+      const useMockAuth = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
+      const localOtpCode = process.env.REACT_APP_LOCAL_OTP_CODE || '123456';
+
+      if (useMockAuth) {
+        // Local development mode - validate against hardcoded OTP
+        console.log(`Local Dev: Validating OTP for ${email}`);
+        
+        if (confirmationCode === localOtpCode) {
+          console.log(`✅ Local Dev: OTP verified successfully for ${email}`);
+          return;
+        } else {
+          throw new AuthError(
+            `Invalid verification code. Use ${localOtpCode} for local development.`,
+            'CodeMismatchException'
+          );
+        }
       }
 
       // Production: Use AWS Amplify Cognito
@@ -266,9 +284,14 @@ class AuthService {
    */
   async resendConfirmationCode(email: string): Promise<void> {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        // Development mode - simulate resend
-        console.log(`Development: Simulating resend confirmation for ${email}`);
+      // Check if using mock auth (local development)
+      const useMockAuth = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
+      const localOtpCode = process.env.REACT_APP_LOCAL_OTP_CODE || '123456';
+
+      if (useMockAuth) {
+        // Local development mode - show hardcoded OTP in console
+        console.log(`📧 Local Dev: Verification code for ${email}: ${localOtpCode}`);
+        console.log(`💡 Tip: Use code "${localOtpCode}" to verify your email`);
         return;
       }
 
