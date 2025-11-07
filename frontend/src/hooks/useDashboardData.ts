@@ -20,6 +20,7 @@ interface AdminDashboardData {
 
 interface TechnicianDashboardData {
   tasks: any[];
+  recentActivities?: any[];
   selectedTask: any | null;
 }
 
@@ -65,10 +66,18 @@ export function useDashboardData(userRole: UserRole) {
           break;
 
         case 'technician':
-          const tasks = await technicianService.getAssignedTasks();
+          // Fetch tasks and activities from the API
+          const technicianData = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/v1/technician/tasks`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+              'Content-Type': 'application/json'
+            }
+          }).then(res => res.json()).catch(() => ({ tasks: [], recentActivities: [] }));
+          
           result = {
-            tasks,
-            selectedTask: tasks.length > 0 ? tasks[0] : null
+            tasks: technicianData.tasks || [],
+            recentActivities: technicianData.recentActivities || [],
+            selectedTask: technicianData.tasks?.length > 0 ? technicianData.tasks[0] : null
           };
           break;
 

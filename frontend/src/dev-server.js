@@ -1,3 +1,4 @@
+
 /**
  * Development Server for Missing API Endpoints
  * This handles the RUM API and other missing endpoints during development
@@ -1189,6 +1190,223 @@ function createNotification(userId, type, title, message, priority = 'medium') {
   return notification;
 }
 
+// Technician Tasks Endpoint
+app.get('/api/v1/technician/tasks', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+
+  // Mock technician tasks data
+  const mockTasks = [
+    {
+      taskId: 'TASK-001',
+      serviceRequestId: 'SR-001',
+      deviceId: 'DEV-3421',
+      consumerId: tokenData.userId,
+      priority: 'high',
+      status: 'assigned',
+      title: 'pH sensor showing erratic readings',
+      description: 'pH sensor showing erratic readings, possible calibration issue',
+      location: {
+        latitude: 37.7749,
+        longitude: -122.4194,
+        address: '123 Main St, San Francisco, CA 94102'
+      },
+      estimatedArrival: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      assignedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+      dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      deviceInfo: {
+        model: 'AquaChain Pro v2.1',
+        serialNumber: 'AC-2024-3421'
+      },
+      customerInfo: {
+        name: 'Jane Smith',
+        phone: '+1-555-0123',
+        email: 'jane.smith@email.com'
+      },
+      notes: []
+    },
+    {
+      taskId: 'TASK-002',
+      serviceRequestId: 'SR-002',
+      deviceId: 'DEV-3422',
+      consumerId: tokenData.userId,
+      priority: 'medium',
+      status: 'accepted',
+      title: 'Routine maintenance and calibration check',
+      description: 'Routine maintenance and calibration check',
+      location: {
+        latitude: 37.7849,
+        longitude: -122.4094,
+        address: '456 Oak Ave, San Francisco, CA 94103'
+      },
+      estimatedArrival: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+      assignedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      dueDate: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      deviceInfo: {
+        model: 'AquaChain Standard v1.8',
+        serialNumber: 'AC-2023-3422'
+      },
+      customerInfo: {
+        name: 'Bob Johnson',
+        phone: '+1-555-0456',
+        email: 'bob.johnson@email.com'
+      },
+      notes: []
+    },
+    {
+      taskId: 'TASK-003',
+      serviceRequestId: 'SR-003',
+      deviceId: 'DEV-3423',
+      consumerId: tokenData.userId,
+      priority: 'low',
+      status: 'in_progress',
+      title: 'Temperature sensor calibration',
+      description: 'Regular calibration check for temperature sensor',
+      location: {
+        latitude: 37.7649,
+        longitude: -122.4294,
+        address: '789 Pine St, San Francisco, CA 94104'
+      },
+      estimatedArrival: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString(),
+      assignedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      dueDate: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+      deviceInfo: {
+        model: 'AquaChain Lite v1.5',
+        serialNumber: 'AC-2023-3423'
+      },
+      customerInfo: {
+        name: 'Alice Williams',
+        phone: '+1-555-0789',
+        email: 'alice.williams@email.com'
+      },
+      notes: []
+    }
+  ];
+
+  // Mock recent activities
+  const recentActivities = [
+    {
+      id: 'activity-1',
+      action: 'Completed task',
+      task: 'Turbidity sensor cleaning',
+      time: '2 hours ago'
+    },
+    {
+      id: 'activity-2',
+      action: 'Accepted task',
+      task: 'Routine maintenance check',
+      time: '5 hours ago'
+    },
+    {
+      id: 'activity-3',
+      action: 'Updated status',
+      task: 'pH calibration',
+      time: '1 day ago'
+    }
+  ];
+
+  res.json({
+    success: true,
+    tasks: mockTasks,
+    recentActivities: recentActivities,
+    count: mockTasks.length
+  });
+});
+
+// Update task status endpoint
+app.put('/api/v1/technician/tasks/:taskId/status', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const { taskId } = req.params;
+  const { status, note } = req.body;
+  
+  console.log(`Task ${taskId} status updated to: ${status}`);
+  
+  res.json({
+    success: true,
+    message: `Task status updated to ${status}`,
+    taskId,
+    status,
+    note
+  });
+});
+
+// Add task note endpoint
+app.post('/api/v1/technician/tasks/:taskId/notes', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const { taskId } = req.params;
+  const { content, type } = req.body;
+  
+  console.log(`Note added to task ${taskId}: ${content}`);
+  
+  res.json({
+    success: true,
+    message: 'Note added successfully',
+    note: {
+      id: `note-${Date.now()}`,
+      taskId,
+      content,
+      type,
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
+// Complete task endpoint
+app.post('/api/v1/technician/tasks/:taskId/complete', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const { taskId } = req.params;
+  const completionData = req.body;
+  
+  console.log(`Task ${taskId} completed:`, completionData.workPerformed);
+  
+  res.json({
+    success: true,
+    message: 'Task completed successfully',
+    taskId,
+    completedAt: new Date().toISOString()
+  });
+});
+
 // Catch-all for missing endpoints
 app.use('*', (req, res) => {
   console.log(`Missing endpoint: ${req.method} ${req.originalUrl}`);
@@ -1249,19 +1467,25 @@ function initializeDemoUsers() {
   const demoUsers = [
     {
       email: 'demo@aquachain.com',
-      password: 'demo123',
+      password: 'demo1234',
       name: 'Demo Admin',
       role: 'admin'
     },
     {
+      email: 'admin@aquachain.com',
+      password: 'admin1234',
+      name: 'Admin User',
+      role: 'admin'
+    },
+    {
       email: 'tech@aquachain.com',
-      password: 'demo123',
+      password: 'tech1234',
       name: 'Demo Technician',
       role: 'technician'
     },
     {
       email: 'user@aquachain.com',
-      password: 'demo123',
+      password: 'user1234',
       name: 'Demo Consumer',
       role: 'consumer'
     }
@@ -1282,9 +1506,10 @@ function initializeDemoUsers() {
   });
 
   console.log(`👥 Demo users available:`);
-  console.log(`   - demo@aquachain.com / demo123 (Admin)`);
-  console.log(`   - tech@aquachain.com / demo123 (Technician)`);
-  console.log(`   - user@aquachain.com / demo123 (Consumer)`);
+  console.log(`   - demo@aquachain.com / demo1234 (Admin)`);
+  console.log(`   - admin@aquachain.com / admin1234 (Admin)`);
+  console.log(`   - tech@aquachain.com / tech1234 (Technician)`);
+  console.log(`   - user@aquachain.com / user1234 (Consumer)`);
 }
 
 // Start server

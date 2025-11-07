@@ -75,6 +75,8 @@ def lambda_handler(event, context):
             return get_service_request(path_parameters['requestId'], user_info)
         elif resource == '/api/v1/service-requests/{requestId}/status' and http_method == 'PUT':
             return update_service_request_status(path_parameters['requestId'], body, user_info)
+        elif resource == '/api/v1/technician/tasks' and http_method == 'GET':
+            return get_technician_tasks(query_parameters, user_info)
         elif resource == '/api/v1/technicians/available' and http_method == 'GET':
             return get_available_technicians(query_parameters, user_info)
         elif resource == '/api/v1/technicians/{technicianId}/availability' and http_method == 'PUT':
@@ -284,3 +286,98 @@ def update_technician_schedule(technician_id: str, schedule_data: dict, user_inf
     except Exception as e:
         logger.error(f"Error updating technician schedule: {str(e)}")
         return create_response(500, {'error': 'Failed to update schedule'})
+
+
+def get_technician_tasks(query_params: dict, user_info: dict):
+    """Get assigned tasks for the current technician"""
+    try:
+        # Only technicians can access their own tasks
+        if user_info['role'] != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Get status filter if provided
+        status_filter = query_params.get('status')
+        limit = int(query_params.get('limit', 50))
+        
+        # Get service requests assigned to this technician
+        result = service_request_manager.get_service_request_history(
+            user_info['userId'], 
+            'technician',
+            limit,
+            status_filter
+        )
+        
+        if not result['success']:
+            return create_response(400, {'error': result['error']})
+        
+        # Transform service requests to task format
+        tasks = []
+        for sr in result['service_requests']:
+            task = {
+                'taskId': sr['requestId'],
+                'serviceRequestId': sr['requestId'],
+                'deviceId': sr.get('deviceId'),
+                'consumerId': sr.get('consumerId'),
+                'priority': sr.get('priority', 'normal'),
+                'status': sr.get('status'),
+                'location': sr.get('location'),
+                'estimatedArrival': sr.get('estimatedArrival'),
+                'description': sr.get('description'),
+                'assignedAt': sr.get('createdAt'),
+                'dueDate': sr.get('dueDate'),
+                'notes': sr.get('notes', [])
+            }
+            
+            # Add optional fields if present
+            if 'deviceInfo' in sr:
+                task['deviceInfo'] = sr['deviceInfo']
+            if 'customerInfo' in sr:
+                task['customerInfo'] = sr['customerInfo']
+            if 'acceptedAt' in sr:
+                task['acceptedAt'] = sr['acceptedAt']
+            if 'completedAt' in sr:
+                task['completedAt'] = sr['completedAt']
+                
+            tasks.append(task)
+        
+        # Also get recent activity for the dashboard
+        recent_activities = []
+        for task in tasks[:5]:  # Last 5 tasks
+            if task.get('completedAt'):
+                recent_activities.append({
+                    'id': f"activity-{task['taskId']}",
+                    'action': 'Completed task',
+                    'task': task.get('description', 'Service task'),
+                    'time': _format_relative_time(task['completedAt'])
+                })
+        
+        return create_response(200, {
+            'tasks': tasks,
+            'recentActivities': recent_activities,
+            'count': len(tasks)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting technician tasks: {str(e)}")
+        return create_response(500, {'error': 'Failed to get tasks'})
+
+
+def _format_relative_time(iso_timestamp: str) -> str:
+    """Format ISO timestamp as relative time (e.g., '2 hours ago')"""
+    try:
+        timestamp = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
+        now = datetime.utcnow()
+        delta = now - timestamp
+        
+        if delta.days > 0:
+            return f"{delta.days} day{'s' if delta.days > 1 else ''} ago"
+        elif delta.seconds >= 3600:
+            hours = delta.seconds // 3600
+            return f"{hours} hour{'s' if hours > 1 else ''} ago"
+        elif delta.seconds >= 60:
+            minutes = delta.seconds // 60
+            return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
+        else:
+            return "Just now"
+    except:
+        return iso_timestamp
