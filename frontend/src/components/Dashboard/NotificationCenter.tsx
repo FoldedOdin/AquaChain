@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BellIcon,
@@ -8,15 +8,11 @@ import {
   InformationCircleIcon,
   ClockIcon
 } from '@heroicons/react/24/outline';
+import { notificationService, Notification as ApiNotification } from '../../services/notificationService';
 
-interface Notification {
-  id: string;
-  type: 'success' | 'warning' | 'info' | 'error';
-  title: string;
-  message: string;
+// Local interface with Date type for timestamp
+interface Notification extends Omit<ApiNotification, 'timestamp'> {
   timestamp: Date;
-  read: boolean;
-  priority: 'low' | 'medium' | 'high';
 }
 
 interface NotificationCenterProps {
@@ -25,91 +21,42 @@ interface NotificationCenterProps {
 
 const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([
-    // Consumer notifications
-    ...(userRole === 'consumer' ? [
-      {
-        id: '1',
-        type: 'success' as const,
-        title: 'Water Quality Normal',
-        message: 'All parameters are within safe ranges for your area.',
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-        read: false,
-        priority: 'low' as const
-      },
-      {
-        id: '2',
-        type: 'info' as const,
-        title: 'Maintenance Scheduled',
-        message: 'Routine sensor calibration planned for tomorrow morning.',
-        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
-        read: true,
-        priority: 'medium' as const
-      }
-    ] : []),
-    
-    // Technician notifications
-    ...(userRole === 'technician' ? [
-      {
-        id: '3',
-        type: 'warning' as const,
-        title: 'Sensor Calibration Required',
-        message: 'pH sensor at Station #47 showing drift, requires immediate attention.',
-        timestamp: new Date(Date.now() - 30 * 60 * 1000), // 30 minutes ago
-        read: false,
-        priority: 'high' as const
-      },
-      {
-        id: '4',
-        type: 'info' as const,
-        title: 'Task Assignment',
-        message: 'New maintenance task assigned for North Reservoir.',
-        timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
-        read: false,
-        priority: 'medium' as const
-      },
-      {
-        id: '5',
-        type: 'success' as const,
-        title: 'Equipment Installation Complete',
-        message: 'Successfully installed turbidity sensor at Station #52.',
-        timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-        read: true,
-        priority: 'low' as const
-      }
-    ] : []),
-    
-    // Admin notifications
-    ...(userRole === 'admin' ? [
-      {
-        id: '6',
-        type: 'error' as const,
-        title: 'System Alert',
-        message: 'Backup system showing warnings, requires investigation.',
-        timestamp: new Date(Date.now() - 15 * 60 * 1000), // 15 minutes ago
-        read: false,
-        priority: 'high' as const
-      },
-      {
-        id: '7',
-        type: 'success' as const,
-        title: 'System Update Deployed',
-        message: 'Dashboard v2.1.3 successfully deployed with enhanced security.',
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-        read: false,
-        priority: 'medium' as const
-      },
-      {
-        id: '8',
-        type: 'info' as const,
-        title: 'New User Registrations',
-        message: '5 new consumer accounts created and verified today.',
-        timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000), // 4 hours ago
-        read: true,
-        priority: 'low' as const
-      }
-    ] : [])
-  ]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load notifications on mount and when panel opens
+  useEffect(() => {
+    if (isOpen) {
+      loadNotifications();
+    }
+  }, [isOpen]);
+
+  // Initial load
+  useEffect(() => {
+    loadNotifications();
+  }, []);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await notificationService.getNotifications();
+      // Convert timestamp strings to Date objects for compatibility
+      const processedData = data.map(n => ({
+        ...n,
+        timestamp: new Date(n.timestamp)
+      }));
+      setNotifications(processedData);
+    } catch (err: any) {
+      console.error('Failed to load notifications:', err);
+      setError(err.message || 'Failed to load notifications');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -139,35 +86,52 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
     }
   };
 
-  const markAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
-  };
+  const markAsRead = useCallback(async (id: string) => {
+    try {
+      await notificationService.markAsRead(id);
+      setNotifications(prev => 
+        prev.map(n => n.id === id ? { ...n, read: true } : n)
+      );
+    } catch (err: any) {
+      console.error('Failed to mark as read:', err);
+    }
+  }, []);
 
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
+  const markAllAsRead = useCallback(async () => {
+    try {
+      await notificationService.markAllAsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch (err: any) {
+      console.error('Failed to mark all as read:', err);
+    }
+  }, []);
 
-  const removeNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
+  const removeNotification = useCallback(async (id: string) => {
+    try {
+      await notificationService.deleteNotification(id);
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    } catch (err: any) {
+      console.error('Failed to delete notification:', err);
+    }
+  }, []);
 
-  const formatTimestamp = (timestamp: Date) => {
+  const formatTimestamp = useCallback((timestamp: Date) => {
     const now = new Date();
     const diff = now.getTime() - timestamp.getTime();
     const minutes = Math.floor(diff / (1000 * 60));
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (minutes < 60) {
+    if (minutes < 1) {
+      return 'Just now';
+    } else if (minutes < 60) {
       return `${minutes}m ago`;
     } else if (hours < 24) {
       return `${hours}h ago`;
     } else {
       return `${days}d ago`;
     }
-  };
+  }, []);
 
   return (
     <div className="relative">
@@ -227,7 +191,23 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
 
               {/* Notifications List */}
               <div className="max-h-80 overflow-y-auto">
-                {notifications.length === 0 ? (
+                {isLoading ? (
+                  <div className="p-8 text-center text-gray-500">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                    <p>Loading notifications...</p>
+                  </div>
+                ) : error ? (
+                  <div className="p-8 text-center text-red-500">
+                    <ExclamationTriangleIcon className="w-12 h-12 mx-auto mb-3" />
+                    <p>{error}</p>
+                    <button
+                      onClick={loadNotifications}
+                      className="mt-3 text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                ) : notifications.length === 0 ? (
                   <div className="p-8 text-center text-gray-500">
                     <BellIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     <p>No notifications</p>

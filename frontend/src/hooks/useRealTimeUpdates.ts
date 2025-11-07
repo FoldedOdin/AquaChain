@@ -53,7 +53,8 @@ export function useRealTimeUpdates(
   const messageHandlerRef = useRef<((data: any) => void) | null>(null);
   const { addNotification } = useNotifications();
 
-  const handleUpdate = useCallback((update: any) => {
+  // Use ref to store the latest callback without causing re-renders
+  const handleUpdateRef = useRef((update: any) => {
     // Handle connection error messages
     if (update.type === 'connection_error') {
       setError(new Error(update.message));
@@ -79,7 +80,41 @@ export function useRealTimeUpdates(
     setLatestUpdate(realTimeUpdate);
     setUpdates(prev => [realTimeUpdate, ...prev.slice(0, 99)]); // Keep last 100 updates
     setError(null); // Clear any previous errors on successful message
+  });
+
+  // Update the ref when dependencies change
+  useEffect(() => {
+    handleUpdateRef.current = (update: any) => {
+      if (update.type === 'connection_error') {
+        setError(new Error(update.message));
+        setIsConnected(false);
+        
+        addNotification({
+          type: 'error',
+          title: 'Connection Lost',
+          message: `Unable to maintain connection to ${update.topic}. ${update.message}`,
+          duration: 0
+        });
+        
+        return;
+      }
+
+      const realTimeUpdate: RealTimeUpdate = {
+        type: update.type || 'unknown',
+        data: update.data,
+        timestamp: update.timestamp || new Date().toISOString()
+      };
+
+      setLatestUpdate(realTimeUpdate);
+      setUpdates(prev => [realTimeUpdate, ...prev.slice(0, 99)]);
+      setError(null);
+    };
   }, [addNotification]);
+
+  // Stable callback that uses the ref
+  const handleUpdate = useCallback((update: any) => {
+    handleUpdateRef.current(update);
+  }, []);
 
   // Store the handler reference so we can disconnect properly
   useEffect(() => {
@@ -126,6 +161,7 @@ export function useRealTimeUpdates(
     setLatestUpdate(null);
   }, []);
 
+  // Only connect/disconnect when topic or autoConnect changes
   useEffect(() => {
     if (autoConnect) {
       connect();
@@ -135,7 +171,7 @@ export function useRealTimeUpdates(
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoConnect, subscriptionTopic]); // Only reconnect when topic or autoConnect changes
+  }, [autoConnect, subscriptionTopic]); // Only reconnect when these change, not when callbacks change
 
   return {
     updates,

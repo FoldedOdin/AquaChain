@@ -245,9 +245,246 @@ app.get('/devices', (req, res) => {
   });
 });
 
+// Device registration endpoint
+app.post('/api/devices/register', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { device_id, name, location, water_source_type, pairing_code } = req.body;
+  
+  if (!device_id) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Device ID is required' 
+    });
+  }
+  
+  // Check if device already exists
+  const existingDevices = devDevices.get(tokenData.userId) || [];
+  if (existingDevices.some(d => d.device_id === device_id)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Device with this ID already exists' 
+    });
+  }
+  
+  // Create new device
+  const newDevice = {
+    device_id,
+    user_id: tokenData.userId,
+    name: name || `Device ${device_id}`,
+    location: location || 'Not specified',
+    water_source_type: water_source_type || 'household',
+    status: 'active',
+    created_at: new Date().toISOString(),
+    iot_thing_name: `iot-${device_id}`,
+    certificate_arn: `arn:aws:iot:ap-south-1:123456789012:cert/${device_id}`,
+    pairing_code: pairing_code || null
+  };
+  
+  // Store device
+  const userDevices = devDevices.get(tokenData.userId) || [];
+  userDevices.push(newDevice);
+  devDevices.set(tokenData.userId, userDevices);
+  
+  // Save to file
+  saveDevData();
+  
+  console.log(`✅ Device registered: ${device_id} for user ${tokenData.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Device registered successfully',
+    device: newDevice
+  });
+});
+
+// Get user's devices
+app.get('/api/devices', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const userDevices = devDevices.get(tokenData.userId) || [];
+  
+  res.json({
+    success: true,
+    devices: userDevices,
+    count: userDevices.length
+  });
+});
+
+// Get single device
+app.get('/api/devices/:deviceId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { deviceId } = req.params;
+  const userDevices = devDevices.get(tokenData.userId) || [];
+  const device = userDevices.find(d => d.device_id === deviceId);
+  
+  if (!device) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found' 
+    });
+  }
+  
+  res.json({
+    success: true,
+    device
+  });
+});
+
+// Update device
+app.put('/api/devices/:deviceId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { deviceId } = req.params;
+  const updates = req.body;
+  
+  const userDevices = devDevices.get(tokenData.userId) || [];
+  const deviceIndex = userDevices.findIndex(d => d.device_id === deviceId);
+  
+  if (deviceIndex === -1) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found' 
+    });
+  }
+  
+  // Update device
+  userDevices[deviceIndex] = {
+    ...userDevices[deviceIndex],
+    ...updates,
+    device_id: deviceId, // Don't allow changing device_id
+    user_id: tokenData.userId, // Don't allow changing user_id
+    updated_at: new Date().toISOString()
+  };
+  
+  devDevices.set(tokenData.userId, userDevices);
+  saveDevData();
+  
+  console.log(`✅ Device updated: ${deviceId}`);
+  
+  res.json({
+    success: true,
+    device: userDevices[deviceIndex]
+  });
+});
+
+// Delete device
+app.delete('/api/devices/:deviceId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { deviceId } = req.params;
+  const userDevices = devDevices.get(tokenData.userId) || [];
+  const filteredDevices = userDevices.filter(d => d.device_id !== deviceId);
+  
+  if (filteredDevices.length === userDevices.length) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found' 
+    });
+  }
+  
+  devDevices.set(tokenData.userId, filteredDevices);
+  saveDevData();
+  
+  console.log(`🗑️  Device deleted: ${deviceId}`);
+  
+  res.json({
+    success: true,
+    message: 'Device deleted successfully'
+  });
+});
+
 // Persistent storage for development (survives server restarts)
 const devUsers = new Map();
 const validTokens = new Map();
+const devDevices = new Map(); // Map of userId -> array of devices
+const devNotifications = new Map(); // Map of userId -> array of notifications
 
 // Load existing users from file
 function loadDevData() {
@@ -270,6 +507,24 @@ function loadDevData() {
         });
         console.log(`✅ Loaded ${validTokens.size} active tokens from storage`);
       }
+      
+      // Load devices
+      if (data.devices) {
+        Object.entries(data.devices).forEach(([userId, devices]) => {
+          devDevices.set(userId, devices);
+        });
+        const totalDevices = Array.from(devDevices.values()).reduce((sum, devices) => sum + devices.length, 0);
+        console.log(`✅ Loaded ${totalDevices} devices from storage`);
+      }
+      
+      // Load notifications
+      if (data.notifications) {
+        Object.entries(data.notifications).forEach(([userId, notifications]) => {
+          devNotifications.set(userId, notifications);
+        });
+        const totalNotifications = Array.from(devNotifications.values()).reduce((sum, notifs) => sum + notifs.length, 0);
+        console.log(`✅ Loaded ${totalNotifications} notifications from storage`);
+      }
     } else {
       console.log('📝 No existing dev data found - starting fresh');
     }
@@ -284,6 +539,8 @@ function saveDevData() {
     const data = {
       users: Object.fromEntries(devUsers),
       tokens: Object.fromEntries(validTokens),
+      devices: Object.fromEntries(devDevices),
+      notifications: Object.fromEntries(devNotifications),
       lastUpdated: new Date().toISOString()
     };
     fs.writeFileSync(DEV_DATA_FILE, JSON.stringify(data, null, 2));
@@ -482,6 +739,490 @@ app.get('/api/auth/dev-users', (req, res) => {
   });
 });
 
+// Profile management endpoints
+const pendingOTPs = new Map(); // Store OTPs temporarily
+
+// Request OTP for profile update
+app.post('/api/profile/request-otp', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { email, changes } = req.body;
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  // Generate 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  
+  // Store OTP with expiration (5 minutes)
+  pendingOTPs.set(tokenData.email, {
+    otp,
+    changes,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+    attempts: 0
+  });
+  
+  console.log(`📧 OTP for ${tokenData.email}: ${otp}`);
+  console.log(`💡 Use this OTP to verify profile changes`);
+  
+  res.json({
+    success: true,
+    message: 'OTP sent to your email',
+    // In dev mode, include OTP in response for testing
+    devOtp: process.env.NODE_ENV === 'development' ? otp : undefined
+  });
+});
+
+// Verify OTP and update profile
+app.put('/api/profile/verify-and-update', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { otp, updates } = req.body;
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  // Check OTP
+  const pendingOTP = pendingOTPs.get(tokenData.email);
+  
+  if (!pendingOTP) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'No OTP request found. Please request a new OTP.' 
+    });
+  }
+  
+  if (Date.now() > pendingOTP.expiresAt) {
+    pendingOTPs.delete(tokenData.email);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'OTP expired. Please request a new one.' 
+    });
+  }
+  
+  if (pendingOTP.attempts >= 3) {
+    pendingOTPs.delete(tokenData.email);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Too many failed attempts. Please request a new OTP.' 
+    });
+  }
+  
+  if (pendingOTP.otp !== otp) {
+    pendingOTP.attempts++;
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid OTP. Please try again.',
+      attemptsRemaining: 3 - pendingOTP.attempts
+    });
+  }
+  
+  // OTP verified, update profile
+  const oldEmail = user.email;
+  
+  // Update user data
+  if (updates.firstName) user.firstName = updates.firstName;
+  if (updates.lastName) user.lastName = updates.lastName;
+  if (updates.phone !== undefined) user.phone = updates.phone;
+  if (updates.address !== undefined) user.address = updates.address;
+  
+  // Handle email change
+  if (updates.email && updates.email !== oldEmail) {
+    // Remove old email entry
+    devUsers.delete(oldEmail);
+    user.email = updates.email;
+    devUsers.set(updates.email, user);
+    
+    // Update token data
+    tokenData.email = updates.email;
+    
+    console.log(`✅ Email changed from ${oldEmail} to ${updates.email}`);
+  }
+  
+  user.updatedAt = new Date().toISOString();
+  
+  // Clear OTP
+  pendingOTPs.delete(tokenData.email);
+  
+  // Save to file
+  saveDevData();
+  
+  console.log(`✅ Profile updated for ${user.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    user: {
+      userId: user.userId,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      address: user.address,
+      role: user.role
+    }
+  });
+});
+
+// Update profile without OTP (for non-sensitive fields)
+app.put('/api/profile/update', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const updates = req.body;
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  // Only allow non-sensitive updates
+  if (updates.firstName) user.firstName = updates.firstName;
+  if (updates.lastName) user.lastName = updates.lastName;
+  if (updates.address !== undefined) user.address = updates.address;
+  
+  user.updatedAt = new Date().toISOString();
+  
+  // Save to file
+  saveDevData();
+  
+  console.log(`✅ Profile updated for ${user.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    user: {
+      userId: user.userId,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      address: user.address,
+      role: user.role
+    }
+  });
+});
+
+// Notification endpoints
+// Get user notifications
+app.get('/api/notifications', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  // Get or initialize notifications for user
+  let userNotifications = devNotifications.get(tokenData.userId) || [];
+  
+  // If no notifications exist, create default ones based on role
+  if (userNotifications.length === 0) {
+    userNotifications = generateDefaultNotifications(user.role, tokenData.userId);
+    devNotifications.set(tokenData.userId, userNotifications);
+    saveDevData();
+  }
+  
+  res.json({
+    success: true,
+    notifications: userNotifications
+  });
+});
+
+// Mark notification as read
+app.put('/api/notifications/:notificationId/read', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { notificationId } = req.params;
+  const userNotifications = devNotifications.get(tokenData.userId) || [];
+  
+  const notification = userNotifications.find(n => n.id === notificationId);
+  if (notification) {
+    notification.read = true;
+    devNotifications.set(tokenData.userId, userNotifications);
+    saveDevData();
+  }
+  
+  res.json({
+    success: true,
+    message: 'Notification marked as read'
+  });
+});
+
+// Mark all notifications as read
+app.put('/api/notifications/read-all', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const userNotifications = devNotifications.get(tokenData.userId) || [];
+  userNotifications.forEach(n => n.read = true);
+  devNotifications.set(tokenData.userId, userNotifications);
+  saveDevData();
+  
+  res.json({
+    success: true,
+    message: 'All notifications marked as read'
+  });
+});
+
+// Delete notification
+app.delete('/api/notifications/:notificationId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { notificationId } = req.params;
+  const userNotifications = devNotifications.get(tokenData.userId) || [];
+  const filteredNotifications = userNotifications.filter(n => n.id !== notificationId);
+  
+  devNotifications.set(tokenData.userId, filteredNotifications);
+  saveDevData();
+  
+  res.json({
+    success: true,
+    message: 'Notification deleted'
+  });
+});
+
+// Get unread count
+app.get('/api/notifications/unread-count', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const userNotifications = devNotifications.get(tokenData.userId) || [];
+  const unreadCount = userNotifications.filter(n => !n.read).length;
+  
+  res.json({
+    success: true,
+    count: unreadCount
+  });
+});
+
+// Helper function to generate default notifications
+function generateDefaultNotifications(role, userId) {
+  const now = Date.now();
+  
+  if (role === 'consumer') {
+    return [
+      {
+        id: `notif_${Date.now()}_1`,
+        type: 'success',
+        title: 'Water Quality Normal',
+        message: 'All parameters are within safe ranges for your area.',
+        timestamp: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+        read: false,
+        priority: 'low',
+        userId
+      },
+      {
+        id: `notif_${Date.now()}_2`,
+        type: 'info',
+        title: 'Maintenance Scheduled',
+        message: 'Routine sensor calibration planned for tomorrow morning.',
+        timestamp: new Date(now - 24 * 60 * 60 * 1000).toISOString(),
+        read: true,
+        priority: 'medium',
+        userId
+      }
+    ];
+  } else if (role === 'technician') {
+    return [
+      {
+        id: `notif_${Date.now()}_3`,
+        type: 'warning',
+        title: 'Sensor Calibration Required',
+        message: 'pH sensor at Station #47 showing drift, requires immediate attention.',
+        timestamp: new Date(now - 30 * 60 * 1000).toISOString(),
+        read: false,
+        priority: 'high',
+        userId
+      },
+      {
+        id: `notif_${Date.now()}_4`,
+        type: 'info',
+        title: 'Task Assignment',
+        message: 'New maintenance task assigned for North Reservoir.',
+        timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
+        read: false,
+        priority: 'medium',
+        userId
+      }
+    ];
+  } else if (role === 'admin') {
+    return [
+      {
+        id: `notif_${Date.now()}_5`,
+        type: 'error',
+        title: 'System Alert',
+        message: 'Backup system showing warnings, requires investigation.',
+        timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
+        read: false,
+        priority: 'high',
+        userId
+      },
+      {
+        id: `notif_${Date.now()}_6`,
+        type: 'success',
+        title: 'System Update Deployed',
+        message: 'Dashboard v2.1.3 successfully deployed with enhanced security.',
+        timestamp: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+        read: false,
+        priority: 'medium',
+        userId
+      }
+    ];
+  }
+  
+  return [];
+}
+
 // Catch-all for missing endpoints
 app.use('*', (req, res) => {
   console.log(`Missing endpoint: ${req.method} ${req.originalUrl}`);
@@ -505,8 +1246,13 @@ app.use((err, req, res, next) => {
 // WebSocket server for development
 const wss = new WebSocket.Server({ server, path: '/ws' });
 
+// Toggle to suppress WebSocket connection logs (useful in development with React StrictMode)
+const SUPPRESS_WS_LOGS = true; // Set to false to see all WebSocket logs
+
 wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
+  if (!SUPPRESS_WS_LOGS) {
+    console.log('WebSocket client connected');
+  }
   
   // Send welcome message
   ws.send(JSON.stringify({ 
@@ -515,7 +1261,9 @@ wss.on('connection', (ws) => {
   }));
   
   ws.on('message', (message) => {
-    console.log('WebSocket message received:', message.toString());
+    if (!SUPPRESS_WS_LOGS) {
+      console.log('WebSocket message received:', message.toString());
+    }
     // Echo back for testing
     ws.send(JSON.stringify({ 
       type: 'echo', 
@@ -524,7 +1272,9 @@ wss.on('connection', (ws) => {
   });
   
   ws.on('close', () => {
-    console.log('WebSocket client disconnected');
+    if (!SUPPRESS_WS_LOGS) {
+      console.log('WebSocket client disconnected');
+    }
   });
 });
 

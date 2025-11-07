@@ -223,7 +223,7 @@ const ServiceRequestForm: React.FC<ServiceRequestFormProps> = ({
             id="contactPhone"
             value={formData.contactPhone}
             onChange={(e) => handleInputChange('contactPhone', e.target.value)}
-            placeholder="+1 (555) 123-4567"
+            placeholder="+91 xxxxxxxxxx"
             className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
           />
           <p className="mt-1 text-sm text-gray-500">
