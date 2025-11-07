@@ -410,7 +410,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Member Since</label>
                   <p className="text-gray-900">
-                    {new Date().toLocaleDateString('en-US', { 
+                    {new Date().toLocaleDateString('en-GB', { 
                       year: 'numeric', 
                       month: 'long', 
                       day: 'numeric' 
@@ -601,7 +601,14 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               </div>
             </div>
             <p className="text-sm text-gray-500 mt-4">
-              Last updated: {lastRefreshTime.toLocaleString()}
+              Last updated: {lastRefreshTime.toLocaleString('en-GB', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+              })}
             </p>
           </div>
         </div>

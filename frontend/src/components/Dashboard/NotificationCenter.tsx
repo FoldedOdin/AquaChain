@@ -9,6 +9,7 @@ import {
   ClockIcon
 } from '@heroicons/react/24/outline';
 import { notificationService, Notification as ApiNotification } from '../../services/notificationService';
+import { formatRelativeTime } from '../../utils/dateFormat';
 
 // Local interface with Date type for timestamp
 interface Notification extends Omit<ApiNotification, 'timestamp'> {
@@ -115,23 +116,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
     }
   }, []);
 
-  const formatTimestamp = useCallback((timestamp: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - timestamp.getTime();
-    const minutes = Math.floor(diff / (1000 * 60));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (minutes < 1) {
-      return 'Just now';
-    } else if (minutes < 60) {
-      return `${minutes}m ago`;
-    } else if (hours < 24) {
-      return `${hours}h ago`;
-    } else {
-      return `${days}d ago`;
-    }
-  }, []);
 
   return (
     <div className="relative">
@@ -244,7 +229,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
                                   <div className="flex items-center gap-2 mt-2">
                                     <ClockIcon className="w-3 h-3 text-gray-400" />
                                     <span className="text-xs text-gray-500">
-                                      {formatTimestamp(notification.timestamp)}
+                                      {formatRelativeTime(notification.timestamp)}
                                     </span>
                                     {notification.priority === 'high' && (
                                       <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">

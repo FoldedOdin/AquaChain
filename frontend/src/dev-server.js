@@ -308,6 +308,15 @@ app.post('/api/devices/register', (req, res) => {
   
   console.log(`✅ Device registered: ${device_id} for user ${tokenData.email}`);
   
+  // Create notification for device registration
+  createNotification(
+    tokenData.userId,
+    'success',
+    'Device Registered Successfully',
+    `Your device "${name || device_id}" has been registered and is ready to use.`,
+    'low'
+  );
+  
   res.json({
     success: true,
     message: 'Device registered successfully',
@@ -565,19 +574,30 @@ app.post('/api/auth/signup', (req, res) => {
     });
   }
   
+  const newUserId = 'dev-user-' + Date.now();
+  
   // Store user credentials for later login
   devUsers.set(email, {
     email,
     password,
     name,
     role,
-    userId: 'dev-user-' + Date.now(),
+    userId: newUserId,
     emailVerified: false, // Will be auto-verified after a short delay
     createdAt: new Date().toISOString()
   });
   
   // Save to file
   saveDevData();
+  
+  // Create welcome notification
+  createNotification(
+    newUserId,
+    'success',
+    'Welcome to AquaChain!',
+    `Hi ${name}! Your account has been created successfully. Start by adding your first device to monitor water quality.`,
+    'medium'
+  );
   
   // Auto-verify email after 2 seconds (simulate email verification)
   setTimeout(() => {
@@ -591,7 +611,7 @@ app.post('/api/auth/signup', (req, res) => {
   res.json({ 
     success: true, 
     message: 'Account created! Please check your email for verification.',
-    userId: devUsers.get(email).userId,
+    userId: newUserId,
     confirmationRequired: true
   });
 });
@@ -893,6 +913,15 @@ app.put('/api/profile/verify-and-update', (req, res) => {
   
   console.log(`✅ Profile updated for ${user.email}`);
   
+  // Create notification for profile update
+  createNotification(
+    tokenData.userId,
+    'success',
+    'Profile Updated',
+    'Your profile information has been updated successfully.',
+    'low'
+  );
+  
   res.json({
     success: true,
     message: 'Profile updated successfully',
@@ -996,15 +1025,8 @@ app.get('/api/notifications', (req, res) => {
     });
   }
   
-  // Get or initialize notifications for user
-  let userNotifications = devNotifications.get(tokenData.userId) || [];
-  
-  // If no notifications exist, create default ones based on role
-  if (userNotifications.length === 0) {
-    userNotifications = generateDefaultNotifications(user.role, tokenData.userId);
-    devNotifications.set(tokenData.userId, userNotifications);
-    saveDevData();
-  }
+  // Get notifications for user (no default generation)
+  const userNotifications = devNotifications.get(tokenData.userId) || [];
   
   res.json({
     success: true,
@@ -1145,82 +1167,26 @@ app.get('/api/notifications/unread-count', (req, res) => {
   });
 });
 
-// Helper function to generate default notifications
-function generateDefaultNotifications(role, userId) {
-  const now = Date.now();
+// Helper function to create a notification
+function createNotification(userId, type, title, message, priority = 'medium') {
+  const notification = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    type,
+    title,
+    message,
+    timestamp: new Date().toISOString(),
+    read: false,
+    priority,
+    userId
+  };
   
-  if (role === 'consumer') {
-    return [
-      {
-        id: `notif_${Date.now()}_1`,
-        type: 'success',
-        title: 'Water Quality Normal',
-        message: 'All parameters are within safe ranges for your area.',
-        timestamp: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
-        read: false,
-        priority: 'low',
-        userId
-      },
-      {
-        id: `notif_${Date.now()}_2`,
-        type: 'info',
-        title: 'Maintenance Scheduled',
-        message: 'Routine sensor calibration planned for tomorrow morning.',
-        timestamp: new Date(now - 24 * 60 * 60 * 1000).toISOString(),
-        read: true,
-        priority: 'medium',
-        userId
-      }
-    ];
-  } else if (role === 'technician') {
-    return [
-      {
-        id: `notif_${Date.now()}_3`,
-        type: 'warning',
-        title: 'Sensor Calibration Required',
-        message: 'pH sensor at Station #47 showing drift, requires immediate attention.',
-        timestamp: new Date(now - 30 * 60 * 1000).toISOString(),
-        read: false,
-        priority: 'high',
-        userId
-      },
-      {
-        id: `notif_${Date.now()}_4`,
-        type: 'info',
-        title: 'Task Assignment',
-        message: 'New maintenance task assigned for North Reservoir.',
-        timestamp: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
-        read: false,
-        priority: 'medium',
-        userId
-      }
-    ];
-  } else if (role === 'admin') {
-    return [
-      {
-        id: `notif_${Date.now()}_5`,
-        type: 'error',
-        title: 'System Alert',
-        message: 'Backup system showing warnings, requires investigation.',
-        timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
-        read: false,
-        priority: 'high',
-        userId
-      },
-      {
-        id: `notif_${Date.now()}_6`,
-        type: 'success',
-        title: 'System Update Deployed',
-        message: 'Dashboard v2.1.3 successfully deployed with enhanced security.',
-        timestamp: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
-        read: false,
-        priority: 'medium',
-        userId
-      }
-    ];
-  }
+  const userNotifications = devNotifications.get(userId) || [];
+  userNotifications.unshift(notification); // Add to beginning
+  devNotifications.set(userId, userNotifications);
+  saveDevData();
   
-  return [];
+  console.log(`📬 Notification created for user ${userId}: ${title}`);
+  return notification;
 }
 
 // Catch-all for missing endpoints
