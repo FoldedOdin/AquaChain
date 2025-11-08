@@ -752,10 +752,8 @@ scripts\testing\test-everything.bat  # Windows
 ### Technical Docs
 
 - **[AWS_ACCOUNT_MIGRATION_GUIDE.md](docs/AWS_ACCOUNT_MIGRATION_GUIDE.md)** - Complete AWS account migration guide
-- **[API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - API reference
-- **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Deployment instructions
-- **[SECURITY_GUIDE.md](docs/SECURITY_GUIDE.md)** - Security best practices
 - **[ESP32_CONNECTION_CHECKLIST.md](docs/ESP32_CONNECTION_CHECKLIST.md)** - ESP32 hardware setup
+- **[LOCAL_DEVELOPMENT_GUIDE.md](docs/LOCAL_DEVELOPMENT_GUIDE.md)** - Local development setup
 - **[Frontend Documentation](frontend/README.md)** - Frontend documentation
 - **[Backend Documentation](lambda/README.md)** - Backend documentation
 
@@ -981,10 +979,10 @@ scripts\maintenance\ultra-cost-optimize.bat
 ## 📞 Support
 
 ### Documentation
-- **Complete Guide**: [PROJECT_REPORT.md](PROJECT_REPORT.md)
-- **Quick Start**: [GET_STARTED.md](GET_STARTED.md)
-- **Navigation**: [START_HERE.md](START_HERE.md)
-- **Troubleshooting**: PROJECT_REPORT.md Appendix M
+- **Complete Guide**: [PROJECT_REPORT.md](docs/reports/PROJECT_REPORT.md)
+- **Quick Start**: [GET_STARTED.md](docs/guides/GET_STARTED.md)
+- **Navigation**: [START_HERE.md](docs/guides/START_HERE.md)
+- **Troubleshooting**: [PROJECT_REPORT.md Appendix M](docs/reports/PROJECT_REPORT.md#appendix-m-troubleshooting-guide)
 
 ### Contact
 - **Issues**: Open a GitHub issue
@@ -1046,13 +1044,13 @@ If you find this project useful, please consider giving it a star ⭐
 
 ## 📖 Additional Resources
 
-- **[Complete Documentation](PROJECT_REPORT.md)** - 3,900+ lines of technical docs
-- **[Architecture Guide](PROJECT_REPORT.md#system-architecture)** - System design
-- **[Deployment Guide](PROJECT_REPORT.md#appendix-j-aws-deployment)** - AWS setup
-- **[Security Guide](PROJECT_REPORT.md#appendix-l-security--compliance)** - Security best practices
-- **[API Reference](docs/)** - API documentation
-- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute
+- **[Complete Documentation](docs/reports/PROJECT_REPORT.md)** - 3,900+ lines of technical docs
+- **[Architecture Guide](docs/reports/PROJECT_REPORT.md#system-architecture)** - System design
+- **[Deployment Guide](docs/reports/PROJECT_REPORT.md#appendix-j-aws-deployment)** - AWS setup
+- **[Security Guide](docs/reports/PROJECT_REPORT.md#appendix-l-security--compliance)** - Security best practices
+- **[Cost Optimization](docs/cost-optimization/README.md)** - Cost reduction strategies
+- **[All Documentation](docs/)** - Browse all docs
 
 ---
 
-**For complete documentation, see [PROJECT_REPORT.md](PROJECT_REPORT.md)**
+**For complete documentation, see [PROJECT_REPORT.md](docs/reports/PROJECT_REPORT.md)**
