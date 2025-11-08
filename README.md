@@ -136,37 +136,37 @@ python simulator.py --mode aws --devices 5
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     IoT Devices (ESP32)                      │
-│              pH | Turbidity | TDS | Temperature              │
+│                     IoT Devices (ESP32)                     │
+│              pH | Turbidity | TDS | Temperature             │
 └────────────────────────┬────────────────────────────────────┘
                          │ MQTT/TLS
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                      AWS IoT Core                            │
-│                    (Device Gateway)                          │
+│                      AWS IoT Core                           │
+│                    (Device Gateway)                         │
 └────────────────────────┬────────────────────────────────────┘
                          │ Rules Engine
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                   Lambda Functions (30+)                     │
+│                   Lambda Functions (30+)                    │
 │   Data Processing | ML Inference | Alerts | User Management │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
-│              Data Layer (DynamoDB + S3)                      │
+│              Data Layer (DynamoDB + S3)                     │
 │   Readings | Users | Devices | Alerts | Audit Logs          │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                  API Gateway + Cognito                       │
-│              REST API + WebSocket + Auth                     │
+│                  API Gateway + Cognito                      │
+│              REST API + WebSocket + Auth                    │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                   React Frontend                             │
+│                   React Frontend                            │
 │         Admin | Technician | Consumer Dashboards            │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -308,9 +308,9 @@ DEVICE_ID=AquaChain-Device-001
 
 | Role | Email | Password | Access |
 |------|-------|----------|--------|
-| **Admin** | demo@aquachain.com | demo123 | Full system access |
-| **Technician** | tech@aquachain.com | tech123 | Task management |
-| **Consumer** | user@aquachain.com | user123 | Device monitoring |
+| **Admin** | admin@aquachain.com | demo1234 | Full system access |
+| **Technician** | tech@aquachain.com | tech1234 | Task management |
+| **Consumer** | user@aquachain.com | user1234 | Device monitoring |
 
 ### Consumer Dashboard
 
