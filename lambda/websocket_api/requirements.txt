@@ -4,4 +4,4 @@
 # - PyJWT
 
 # Function-specific dependencies
-cryptography==41.0.0
+cryptography==46.0.3
