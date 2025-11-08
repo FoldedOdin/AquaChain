@@ -29,6 +29,9 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { useAuth } from '../../contexts/AuthContext';
 import { useDashboardData } from '../../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
+import { useNotifications } from '../../hooks/useNotifications';
+import { getAllUsers, getAllDevices, getDeviceFleetStatus } from '../../services/adminService';
+import { formatRelativeTime } from '../../utils/dateFormat';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -49,60 +52,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
   // Fetch dashboard data
   const { data: dashboardData, isLoading, error } = useDashboardData('admin');
   const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: true });
+  const { notifications } = useNotifications();
 
-  // Mock data (replace with API calls later)
-  const mockDevices = [
-    { id: 1, name: 'Device-001', type: 'Water Quality Sensor', location: 'Building A', owner: 'John Doe', status: 'online', wqi: 92, lastSync: '2 mins ago' },
-    { id: 2, name: 'Device-002', type: 'pH Monitor', location: 'Building B', owner: 'Jane Smith', status: 'online', wqi: 88, lastSync: '5 mins ago' },
-    { id: 3, name: 'Device-003', type: 'Water Quality Sensor', location: 'Building C', owner: 'Bob Johnson', status: 'warning', wqi: 75, lastSync: '10 mins ago' },
-    { id: 4, name: 'Device-004', type: 'TDS Sensor', location: 'Building D', owner: 'Alice Brown', status: 'offline', wqi: 0, lastSync: '2 hours ago' },
-  ];
+  // State for dynamic data
+  const [users, setUsers] = useState<any[]>([]);
+  const [devices, setDevices] = useState<any[]>([]);
+  const [deviceFleet, setDeviceFleet] = useState<any[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
-  const mockUsers = [
-    { id: 1, name: 'John Doe', email: 'john@example.com', role: 'consumer', devices: 3, status: 'active', joined: '2024-01-15' },
-    { id: 2, name: 'Jane Smith', email: 'jane@example.com', role: 'technician', devices: 0, status: 'active', joined: '2024-02-20' },
-    { id: 3, name: 'Bob Johnson', email: 'bob@example.com', role: 'consumer', devices: 2, status: 'active', joined: '2024-03-10' },
-    { id: 4, name: 'Alice Brown', email: 'alice@example.com', role: 'admin', devices: 0, status: 'active', joined: '2024-01-05' },
-  ];
+  // Fetch users and devices
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true);
+      try {
+        const [usersData, devicesData, fleetData] = await Promise.all([
+          getAllUsers(),
+          getAllDevices(),
+          getDeviceFleetStatus()
+        ]);
+        setUsers(usersData);
+        setDevices(devicesData);
+        setDeviceFleet(fleetData);
+      } catch (err) {
+        console.error('Failed to fetch admin data:', err);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
 
-  const systemMetrics = [
-    { date: 'Mon', devices: 45, users: 120 },
-    { date: 'Tue', devices: 48, users: 125 },
-    { date: 'Wed', devices: 52, users: 130 },
-    { date: 'Thu', devices: 50, users: 128 },
-    { date: 'Fri', devices: 55, users: 135 },
-    { date: 'Sat', devices: 58, users: 140 },
-    { date: 'Sun', devices: 60, users: 145 },
-  ];
-
-  const deviceStatusData = [
-    { name: 'Online', value: 2, color: '#10b981' },
-    { name: 'Warning', value: 1, color: '#f59e0b' },
-    { name: 'Offline', value: 1, color: '#ef4444' },
-  ];
-
-  const userRoleData = [
-    { role: 'Consumer', count: 2 },
-    { role: 'Technician', count: 1 },
-    { role: 'Admin', count: 1 },
-  ];
-
-  const alertTrends = [
-    { date: 'Mon', alerts: 5 },
-    { date: 'Tue', alerts: 3 },
-    { date: 'Wed', alerts: 7 },
-    { date: 'Thu', alerts: 4 },
-    { date: 'Fri', alerts: 6 },
-    { date: 'Sat', alerts: 2 },
-    { date: 'Sun', alerts: 4 },
-  ];
-
-  const recentActivities = [
-    { id: 1, type: 'device', message: 'Device-003 status changed to warning', time: '10 mins ago', icon: AlertTriangle, color: 'text-amber-600' },
-    { id: 2, type: 'user', message: 'New user registered: Bob Johnson', time: '1 hour ago', icon: UserPlus, color: 'text-green-600' },
-    { id: 3, type: 'system', message: 'System backup completed successfully', time: '2 hours ago', icon: Database, color: 'text-blue-600' },
-    { id: 4, type: 'alert', message: 'High turbidity detected on Device-002', time: '3 hours ago', icon: AlertTriangle, color: 'text-red-600' },
-  ];
+    fetchData();
+  }, []);
 
   // Helper functions
   const getStatusColor = (status: string) => {
@@ -110,6 +89,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
       case 'online': return 'bg-green-100 text-green-800';
       case 'warning': return 'bg-amber-100 text-amber-800';
       case 'offline': return 'bg-red-100 text-red-800';
+      case 'active': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -123,10 +103,115 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
     }
   };
 
+  // Calculate device statistics
+  const deviceStats = useMemo(() => {
+    const online = deviceFleet.filter(d => d.status === 'online').length;
+    const warning = deviceFleet.filter(d => d.status === 'warning').length;
+    const offline = deviceFleet.filter(d => d.status === 'offline').length;
+    return { online, warning, offline, total: deviceFleet.length };
+  }, [deviceFleet]);
+
+  // Calculate user statistics by role
+  const userStats = useMemo(() => {
+    const consumers = users.filter(u => u.role === 'consumer').length;
+    const technicians = users.filter(u => u.role === 'technician').length;
+    const admins = users.filter(u => u.role === 'admin').length;
+    return { consumers, technicians, admins, total: users.length };
+  }, [users]);
+
+  // Device status data for pie chart
+  const deviceStatusData = useMemo(() => [
+    { name: 'Online', value: deviceStats.online, color: '#10b981' },
+    { name: 'Warning', value: deviceStats.warning, color: '#f59e0b' },
+    { name: 'Offline', value: deviceStats.offline, color: '#ef4444' },
+  ].filter(item => item.value > 0), [deviceStats]);
+
+  // User role data for bar chart
+  const userRoleData = useMemo(() => [
+    { role: 'Consumer', count: userStats.consumers },
+    { role: 'Technician', count: userStats.technicians },
+    { role: 'Admin', count: userStats.admins },
+  ], [userStats]);
+
+  // Alert trends from notifications
+  const alertTrends = useMemo(() => {
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - i));
+      return {
+        date: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        alerts: 0
+      };
+    });
+
+    notifications.forEach(notif => {
+      const notifDate = new Date(notif.timestamp);
+      const dayIndex = last7Days.findIndex(day => {
+        const checkDate = new Date();
+        checkDate.setDate(checkDate.getDate() - (6 - last7Days.indexOf(day)));
+        return checkDate.toDateString() === notifDate.toDateString();
+      });
+      if (dayIndex !== -1) {
+        last7Days[dayIndex].alerts++;
+      }
+    });
+
+    return last7Days;
+  }, [notifications]);
+
+  // System metrics from dashboard data
+  const systemMetrics = useMemo(() => {
+    if (!dashboardData || !('performanceMetrics' in dashboardData)) {
+      return [];
+    }
+    const metrics = dashboardData.performanceMetrics || [];
+    return metrics.slice(-7).map((m: any, i: number) => ({
+      date: new Date(m.timestamp).toLocaleDateString('en-US', { weekday: 'short' }),
+      devices: deviceStats.total,
+      users: userStats.total
+    }));
+  }, [dashboardData, deviceStats.total, userStats.total]);
+
+  // Recent activities from notifications
+  const recentActivities = useMemo(() => {
+    return notifications.slice(0, 4).map(notif => {
+      // Determine icon based on notification type
+      let icon = Database;
+      if (notif.type === 'error' || notif.type === 'warning') {
+        icon = AlertTriangle;
+      } else if (notif.type === 'success') {
+        icon = UserPlus;
+      }
+      
+      return {
+        id: notif.id,
+        type: notif.type,
+        message: notif.message,
+        time: formatRelativeTime(notif.timestamp),
+        icon,
+        color: notif.priority === 'high' ? 'text-red-600' : notif.priority === 'medium' ? 'text-amber-600' : 'text-blue-600'
+      };
+    });
+  }, [notifications]);
+
+  // Filtered devices
   const filteredDevices = useMemo(() => {
-    if (deviceFilter === 'all') return mockDevices;
-    return mockDevices.filter(device => device.status === deviceFilter);
-  }, [deviceFilter, mockDevices]);
+    if (deviceFilter === 'all') return deviceFleet;
+    return deviceFleet.filter(device => device.status === deviceFilter);
+  }, [deviceFilter, deviceFleet]);
+
+  // Performance metrics from dashboard data
+  const performanceMetrics = useMemo(() => {
+    if (!dashboardData || !('healthMetrics' in dashboardData)) {
+      return { uptime: 0, accuracy: 0, satisfaction: 0 };
+    }
+    const health = dashboardData.healthMetrics;
+    return {
+      uptime: health?.criticalPathUptime || 0,
+      accuracy: health?.apiUptime || 0,
+      satisfaction: 4.7 // This would come from user feedback system
+    };
+  }, [dashboardData]);
 
   // Memoized handlers
   const handleLogout = useCallback(async () => {
@@ -154,6 +239,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
     return dashboardData;
   }, [dashboardData]);
 
+  // Active alerts count
+  const activeAlertsCount = useMemo(() => {
+    return notifications.filter(n => !n.read && n.priority === 'high').length;
+  }, [notifications]);
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!user) {
@@ -162,7 +252,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
   }, [user, navigate]);
 
   // Loading state
-  if (!user || isLoading) {
+  if (!user || isLoading || isLoadingData) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -364,10 +454,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                   <span className="text-sm font-medium text-gray-700">Total Devices</span>
                   <Database className="w-5 h-5 text-blue-600" />
                 </div>
-                <div className="text-2xl font-bold text-gray-900">{mockDevices.length}</div>
-                <div className="flex items-center gap-1 text-xs text-green-600 mt-1">
-                  <TrendingUp className="w-3 h-3" />
-                  <span>+12% from last week</span>
+                <div className="text-2xl font-bold text-gray-900">{deviceStats.total}</div>
+                <div className="flex items-center gap-1 text-xs text-gray-600 mt-1">
+                  <span>{deviceStats.online} online, {deviceStats.warning} warning, {deviceStats.offline} offline</span>
                 </div>
               </div>
 
@@ -376,10 +465,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                   <span className="text-sm font-medium text-gray-700">Total Users</span>
                   <Users className="w-5 h-5 text-green-600" />
                 </div>
-                <div className="text-2xl font-bold text-gray-900">{mockUsers.length}</div>
-                <div className="flex items-center gap-1 text-xs text-green-600 mt-1">
-                  <TrendingUp className="w-3 h-3" />
-                  <span>+8% from last week</span>
+                <div className="text-2xl font-bold text-gray-900">{userStats.total}</div>
+                <div className="flex items-center gap-1 text-xs text-gray-600 mt-1">
+                  <span>{userStats.consumers} consumers, {userStats.technicians} technicians</span>
                 </div>
               </div>
 
@@ -388,8 +476,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                   <span className="text-sm font-medium text-gray-700">System Health</span>
                   <Activity className="w-5 h-5 text-green-600" />
                 </div>
-                <div className="text-2xl font-bold text-green-600">Good</div>
-                <div className="text-xs text-gray-600 mt-1">All systems operational</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {adminData.healthMetrics?.criticalPathUptime ? 
+                    `${adminData.healthMetrics.criticalPathUptime.toFixed(1)}%` : 
+                    'Good'}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">System uptime</div>
               </div>
 
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -397,10 +489,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                   <span className="text-sm font-medium text-gray-700">Active Alerts</span>
                   <AlertTriangle className="w-5 h-5 text-amber-600" />
                 </div>
-                <div className="text-2xl font-bold text-gray-900">3</div>
-                <div className="flex items-center gap-1 text-xs text-red-600 mt-1">
-                  <TrendingDown className="w-3 h-3" />
-                  <span>-25% from yesterday</span>
+                <div className="text-2xl font-bold text-gray-900">{activeAlertsCount}</div>
+                <div className="flex items-center gap-1 text-xs text-gray-600 mt-1">
+                  <span>Unread high-priority alerts</span>
                 </div>
               </div>
             </div>
@@ -409,42 +500,54 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               {/* 7-Day Trends */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">7-Day Trends</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={systemMetrics}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="devices" stroke="#8b5cf6" strokeWidth={2} />
-                    <Line type="monotone" dataKey="users" stroke="#10b981" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">System Overview</h3>
+                {systemMetrics.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={systemMetrics}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="devices" stroke="#8b5cf6" strokeWidth={2} name="Devices" />
+                      <Line type="monotone" dataKey="users" stroke="#10b981" strokeWidth={2} name="Users" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[250px] flex items-center justify-center text-gray-500">
+                    No data available
+                  </div>
+                )}
               </div>
 
               {/* Device Status Distribution */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Device Status Distribution</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie
-                      data={deviceStatusData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {deviceStatusData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
+                {deviceStatusData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <PieChart>
+                      <Pie
+                        data={deviceStatusData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {deviceStatusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[250px] flex items-center justify-center text-gray-500">
+                    No devices registered
+                  </div>
+                )}
               </div>
             </div>
 
@@ -453,17 +556,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
               {/* Recent Activity */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-                <div className="space-y-3">
-                  {recentActivities.map((activity) => (
-                    <div key={activity.id} className="flex items-start gap-3 p-3 hover:bg-gray-50 rounded-lg transition-colors">
-                      <activity.icon className={`w-5 h-5 ${activity.color} mt-0.5`} />
-                      <div className="flex-1">
-                        <p className="text-sm text-gray-900">{activity.message}</p>
-                        <p className="text-xs text-gray-500 mt-1">{activity.time}</p>
+                {recentActivities.length > 0 ? (
+                  <div className="space-y-3">
+                    {recentActivities.map((activity) => (
+                      <div key={activity.id} className="flex items-start gap-3 p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                        <activity.icon className={`w-5 h-5 ${activity.color} mt-0.5`} />
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-900">{activity.message}</p>
+                          <p className="text-xs text-gray-500 mt-1">{activity.time}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">No recent activity</p>
+                )}
               </div>
 
               {/* Quick Actions */}
@@ -511,10 +618,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                     onChange={(e) => setDeviceFilter(e.target.value)}
                     className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
-                    <option value="all">All Devices</option>
-                    <option value="online">Online</option>
-                    <option value="warning">Warning</option>
-                    <option value="offline">Offline</option>
+                    <option value="all">All Devices ({deviceFleet.length})</option>
+                    <option value="online">Online ({deviceStats.online})</option>
+                    <option value="warning">Warning ({deviceStats.warning})</option>
+                    <option value="offline">Offline ({deviceStats.offline})</option>
                   </select>
                   <button className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
                     <Plus className="w-4 h-4" />
@@ -524,55 +631,59 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Device</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Owner</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">WQI</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Last Sync</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredDevices.map((device) => (
-                      <tr key={device.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{device.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{device.type}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-4 h-4 text-gray-400" />
-                            {device.location}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{device.owner}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(device.status)}`}>
-                            {device.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{device.wqi}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{device.lastSync}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <button className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="View">
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button className="p-1 text-gray-600 hover:bg-gray-50 rounded" title="Edit">
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                {filteredDevices.length > 0 ? (
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Device</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Location</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Owner</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">WQI</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Last Seen</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredDevices.map((device) => (
+                        <tr key={device.deviceId} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{device.deviceId}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-4 h-4 text-gray-400" />
+                              {device.location?.address || 'N/A'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{device.consumerName || 'Unassigned'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(device.status)}`}>
+                              {device.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{device.currentWQI || 0}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{formatRelativeTime(device.lastSeen)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="View">
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button className="p-1 text-gray-600 hover:bg-gray-50 rounded" title="Edit">
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    No devices found
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
@@ -595,52 +706,62 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Email</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Role</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Devices</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Joined</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {mockUsers.map((user) => (
-                      <tr key={user.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{user.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{user.email}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleColor(user.role)}`}>
-                            {user.role}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{user.devices}</td>
-                        <td className="px-4 py-3">
-                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                            {user.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{user.joined}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <button className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="View">
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button className="p-1 text-gray-600 hover:bg-gray-50 rounded" title="Edit">
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                {users.length > 0 ? (
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Email</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Role</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Devices</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Last Login</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {users.map((user) => (
+                        <tr key={user.userId} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                            {user.profile?.firstName} {user.profile?.lastName}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{user.email}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRoleColor(user.role)}`}>
+                              {user.role}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{user.deviceCount || 0}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(user.status)}`}>
+                              {user.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {user.lastLogin ? formatRelativeTime(user.lastLogin) : 'Never'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="View">
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button className="p-1 text-gray-600 hover:bg-gray-50 rounded" title="Edit">
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    No users found
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
@@ -658,15 +779,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
               {/* User Role Distribution */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">User Role Distribution</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={userRoleData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="role" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#8b5cf6" />
-                  </BarChart>
-                </ResponsiveContainer>
+                {userRoleData.some(d => d.count > 0) ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={userRoleData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="role" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#8b5cf6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[250px] flex items-center justify-center text-gray-500">
+                    No user data available
+                  </div>
+                )}
               </div>
 
               {/* Alert Trends */}
@@ -689,17 +816,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">System Performance Metrics</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
-                  <div className="text-3xl font-bold text-blue-600 mb-2">99.5%</div>
-                  <div className="text-sm font-medium text-gray-700">Average Uptime</div>
-                  <div className="text-xs text-gray-600 mt-1">Last 30 days</div>
+                  <div className="text-3xl font-bold text-blue-600 mb-2">
+                    {performanceMetrics.uptime.toFixed(1)}%
+                  </div>
+                  <div className="text-sm font-medium text-gray-700">System Uptime</div>
+                  <div className="text-xs text-gray-600 mt-1">Critical path availability</div>
                 </div>
                 <div className="text-center p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-                  <div className="text-3xl font-bold text-green-600 mb-2">98.2%</div>
-                  <div className="text-sm font-medium text-gray-700">Data Accuracy</div>
-                  <div className="text-xs text-gray-600 mt-1">Sensor readings</div>
+                  <div className="text-3xl font-bold text-green-600 mb-2">
+                    {performanceMetrics.accuracy.toFixed(1)}%
+                  </div>
+                  <div className="text-sm font-medium text-gray-700">API Uptime</div>
+                  <div className="text-xs text-gray-600 mt-1">Service availability</div>
                 </div>
                 <div className="text-center p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
-                  <div className="text-3xl font-bold text-purple-600 mb-2">4.7/5.0</div>
+                  <div className="text-3xl font-bold text-purple-600 mb-2">
+                    {performanceMetrics.satisfaction.toFixed(1)}/5.0
+                  </div>
                   <div className="text-sm font-medium text-gray-700">User Satisfaction</div>
                   <div className="text-xs text-gray-600 mt-1">Based on feedback</div>
                 </div>
