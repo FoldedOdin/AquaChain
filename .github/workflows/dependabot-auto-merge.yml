@@ -1,0 +1,175 @@
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # Check if PR is from Dependabot and eligible for auto-merge
+  check-dependabot:
+    name: Check Dependabot PR
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    outputs:
+      auto-merge: ${{ steps.check-update.outputs.auto-merge }}
+      update-type: ${{ steps.check-update.outputs.update-type }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch Dependabot metadata
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if eligible for auto-merge
+        id: check-update
+        run: |
+          UPDATE_TYPE="${{ steps.dependabot-metadata.outputs.update-type }}"
+          DEPENDENCY_NAME="${{ steps.dependabot-metadata.outputs.dependency-names }}"
+          
+          echo "Update type: $UPDATE_TYPE"
+          echo "Dependency: $DEPENDENCY_NAME"
+          echo "update-type=$UPDATE_TYPE" >> $GITHUB_OUTPUT
+          
+          # Auto-merge patch updates only
+          if [ "$UPDATE_TYPE" == "version-update:semver-patch" ]; then
+            echo "✅ Patch update detected - eligible for auto-merge"
+            echo "auto-merge=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  $UPDATE_TYPE update - requires manual review"
+            echo "auto-merge=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Add labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const updateType = '${{ steps.check-update.outputs.update-type }}';
+            const labels = ['dependencies'];
+            
+            if (updateType === 'version-update:semver-patch') {
+              labels.push('auto-merge-candidate');
+            } else if (updateType === 'version-update:semver-minor') {
+              labels.push('minor-update');
+            } else if (updateType === 'version-update:semver-major') {
+              labels.push('major-update', 'requires-review');
+            }
+            
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: labels
+            });
+
+  # Wait for CI checks to pass
+  wait-for-ci:
+    name: Wait for CI Checks
+    runs-on: ubuntu-latest
+    needs: check-dependabot
+    if: needs.check-dependabot.outputs.auto-merge == 'true'
+    steps:
+      - name: Wait for status checks
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          check-regexp: '(Code Quality Checks|Security Scan|Frontend Tests|Lambda Tests)'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 30
+          allowed-conclusions: success,skipped
+
+  # Auto-approve patch updates
+  auto-approve:
+    name: Auto-Approve Patch Updates
+    runs-on: ubuntu-latest
+    needs: [check-dependabot, wait-for-ci]
+    if: needs.check-dependabot.outputs.auto-merge == 'true'
+    steps:
+      - name: Approve PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: '✅ Auto-approved by Dependabot Auto-Merge workflow.\n\nThis is a patch update that passed all CI checks.'
+            });
+
+  # Auto-merge patch updates
+  auto-merge:
+    name: Auto-Merge Patch Updates
+    runs-on: ubuntu-latest
+    needs: [check-dependabot, wait-for-ci, auto-approve]
+    if: needs.check-dependabot.outputs.auto-merge == 'true'
+    steps:
+      - name: Enable auto-merge
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'squash',
+              commit_title: `chore(deps): ${context.payload.pull_request.title}`,
+              commit_message: 'Auto-merged by Dependabot Auto-Merge workflow'
+            });
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '✅ **Auto-merged** by Dependabot Auto-Merge workflow.\n\nThis patch update passed all CI checks and was automatically merged.'
+            });
+
+  # Comment on PRs that require manual review
+  require-manual-review:
+    name: Require Manual Review
+    runs-on: ubuntu-latest
+    needs: check-dependabot
+    if: needs.check-dependabot.outputs.auto-merge == 'false'
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const updateType = '${{ needs.check-dependabot.outputs.update-type }}';
+            let message = '⚠️ **Manual review required**\n\n';
+            
+            if (updateType === 'version-update:semver-minor') {
+              message += 'This is a **minor version update** that may include new features.\n\n';
+              message += '**Action Required:**\n';
+              message += '1. Review the changelog for breaking changes\n';
+              message += '2. Test the changes locally\n';
+              message += '3. Approve and merge if everything looks good\n';
+            } else if (updateType === 'version-update:semver-major') {
+              message += 'This is a **major version update** that may include breaking changes.\n\n';
+              message += '**Action Required:**\n';
+              message += '1. ⚠️ Review the changelog carefully for breaking changes\n';
+              message += '2. Update code to handle any breaking changes\n';
+              message += '3. Test thoroughly in a development environment\n';
+              message += '4. Approve and merge only after thorough testing\n';
+            }
+            
+            message += '\n📋 This PR will not be auto-merged and requires manual approval.';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: message
+            });

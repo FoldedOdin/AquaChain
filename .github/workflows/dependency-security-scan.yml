@@ -1,0 +1,384 @@
+name: Dependency Security Scan
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**/requirements.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**/requirements.txt'
+      - '**/package.json'
+      - '**/package-lock.json'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Scan frontend dependencies
+  scan-frontend:
+    name: Scan Frontend Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run npm audit
+        id: npm-audit
+        continue-on-error: true
+        run: |
+          cd frontend
+          npm audit --json > npm-audit-report.json
+          npm audit --audit-level=moderate
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: frontend/npm-audit-report.json
+          retention-days: 30
+
+      - name: Run Snyk security scan
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=frontend/package.json
+
+      - name: Check for critical vulnerabilities
+        run: |
+          cd frontend
+          CRITICAL_COUNT=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-report.json)
+          HIGH_COUNT=$(jq '.metadata.vulnerabilities.high // 0' npm-audit-report.json)
+          
+          echo "Critical vulnerabilities: $CRITICAL_COUNT"
+          echo "High vulnerabilities: $HIGH_COUNT"
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "❌ CRITICAL: Found $CRITICAL_COUNT critical vulnerabilities in frontend dependencies!"
+            echo "Please review and fix these vulnerabilities immediately."
+            exit 1
+          fi
+          
+          if [ "$HIGH_COUNT" -gt 5 ]; then
+            echo "⚠️  WARNING: Found $HIGH_COUNT high severity vulnerabilities in frontend dependencies"
+            echo "Please review and address these issues."
+          fi
+
+  # Scan Python Lambda dependencies
+  scan-lambda-dependencies:
+    name: Scan Lambda Dependencies
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lambda-function:
+          - data_processing
+          - ml_inference
+          - auth_service
+          - user_management
+          - technician_service
+          - notification_service
+          - alert_detection
+          - ledger_service
+          - audit_trail_processor
+          - api_gateway
+          - websocket_api
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install safety
+        run: pip install safety pip-audit
+
+      - name: Check if requirements.txt exists
+        id: check-requirements
+        run: |
+          if [ -f "lambda/${{ matrix.lambda-function }}/requirements.txt" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No requirements.txt found for ${{ matrix.lambda-function }}"
+          fi
+
+      - name: Run Safety check
+        if: steps.check-requirements.outputs.exists == 'true'
+        id: safety-check
+        continue-on-error: true
+        run: |
+          cd lambda/${{ matrix.lambda-function }}
+          safety check --json --file requirements.txt > safety-report.json || true
+          safety check --file requirements.txt
+
+      - name: Run pip-audit
+        if: steps.check-requirements.outputs.exists == 'true'
+        id: pip-audit
+        continue-on-error: true
+        run: |
+          cd lambda/${{ matrix.lambda-function }}
+          pip-audit --requirement requirements.txt --format json > pip-audit-report.json || true
+          pip-audit --requirement requirements.txt
+
+      - name: Upload security reports
+        if: always() && steps.check-requirements.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-${{ matrix.lambda-function }}
+          path: |
+            lambda/${{ matrix.lambda-function }}/safety-report.json
+            lambda/${{ matrix.lambda-function }}/pip-audit-report.json
+          retention-days: 30
+
+      - name: Check for critical vulnerabilities
+        if: steps.check-requirements.outputs.exists == 'true'
+        run: |
+          cd lambda/${{ matrix.lambda-function }}
+          
+          # Check pip-audit results
+          if [ -f pip-audit-report.json ]; then
+            VULN_COUNT=$(jq 'length' pip-audit-report.json 2>/dev/null || echo "0")
+            echo "Found $VULN_COUNT vulnerabilities in ${{ matrix.lambda-function }}"
+            
+            if [ "$VULN_COUNT" -gt 0 ]; then
+              # Check for critical/high severity
+              CRITICAL_COUNT=$(jq '[.[] | select(.severity == "critical" or .severity == "high")] | length' pip-audit-report.json 2>/dev/null || echo "0")
+              
+              if [ "$CRITICAL_COUNT" -gt 0 ]; then
+                echo "❌ CRITICAL: Found $CRITICAL_COUNT critical/high vulnerabilities in ${{ matrix.lambda-function }}!"
+                jq -r '.[] | select(.severity == "critical" or .severity == "high") | "- \(.package): \(.vulnerability_id) (\(.severity))"' pip-audit-report.json
+                exit 1
+              fi
+            fi
+          fi
+
+  # Scan infrastructure dependencies
+  scan-infrastructure:
+    name: Scan Infrastructure Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: pip install safety pip-audit
+
+      - name: Run Safety check
+        continue-on-error: true
+        run: |
+          cd infrastructure
+          safety check --json --file requirements.txt > safety-report.json || true
+          safety check --file requirements.txt
+
+      - name: Run pip-audit
+        continue-on-error: true
+        run: |
+          cd infrastructure
+          pip-audit --requirement requirements.txt --format json > pip-audit-report.json || true
+          pip-audit --requirement requirements.txt
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-infrastructure
+          path: |
+            infrastructure/safety-report.json
+            infrastructure/pip-audit-report.json
+          retention-days: 30
+
+  # Aggregate and report results
+  aggregate-results:
+    name: Aggregate Security Results
+    runs-on: ubuntu-latest
+    needs: [scan-frontend, scan-lambda-dependencies, scan-infrastructure]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: security-reports
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Generate summary report
+        run: |
+          python - <<'EOF'
+          import json
+          import os
+          from pathlib import Path
+          from collections import defaultdict
+          
+          summary = {
+              'total_vulnerabilities': 0,
+              'critical': 0,
+              'high': 0,
+              'medium': 0,
+              'low': 0,
+              'by_component': {}
+          }
+          
+          # Process all security reports
+          for report_dir in Path('security-reports').iterdir():
+              if not report_dir.is_dir():
+                  continue
+              
+              component_name = report_dir.name.replace('security-reports-', '')
+              component_summary = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+              
+              # Check npm audit reports
+              npm_report = report_dir / 'npm-audit-report.json'
+              if npm_report.exists():
+                  with open(npm_report) as f:
+                      data = json.load(f)
+                      vulns = data.get('metadata', {}).get('vulnerabilities', {})
+                      component_summary['critical'] = vulns.get('critical', 0)
+                      component_summary['high'] = vulns.get('high', 0)
+                      component_summary['medium'] = vulns.get('moderate', 0)
+                      component_summary['low'] = vulns.get('low', 0)
+              
+              # Check pip-audit reports
+              pip_report = report_dir / 'pip-audit-report.json'
+              if pip_report.exists():
+                  with open(pip_report) as f:
+                      try:
+                          data = json.load(f)
+                          for vuln in data:
+                              severity = vuln.get('severity', 'unknown').lower()
+                              if severity in component_summary:
+                                  component_summary[severity] += 1
+                      except:
+                          pass
+              
+              # Update totals
+              for severity in ['critical', 'high', 'medium', 'low']:
+                  summary[severity] += component_summary[severity]
+                  summary['total_vulnerabilities'] += component_summary[severity]
+              
+              summary['by_component'][component_name] = component_summary
+          
+          # Write summary
+          with open('security-summary.json', 'w') as f:
+              json.dump(summary, f, indent=2)
+          
+          # Print summary
+          print("\n" + "="*60)
+          print("SECURITY VULNERABILITY SUMMARY")
+          print("="*60)
+          print(f"Total Vulnerabilities: {summary['total_vulnerabilities']}")
+          print(f"  🔴 Critical: {summary['critical']}")
+          print(f"  🟠 High: {summary['high']}")
+          print(f"  🟡 Medium: {summary['medium']}")
+          print(f"  🟢 Low: {summary['low']}")
+          print("\nBy Component:")
+          for component, vulns in summary['by_component'].items():
+              total = sum(vulns.values())
+              if total > 0:
+                  print(f"  {component}: {total} vulnerabilities")
+                  print(f"    Critical: {vulns['critical']}, High: {vulns['high']}, Medium: {vulns['medium']}, Low: {vulns['low']}")
+          print("="*60)
+          EOF
+
+      - name: Upload summary report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: security-summary.json
+          retention-days: 90
+
+      - name: Comment on PR with security summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            if (!fs.existsSync('security-summary.json')) {
+              console.log('No security summary found');
+              return;
+            }
+            
+            const summary = JSON.parse(fs.readFileSync('security-summary.json', 'utf8'));
+            
+            let comment = '## 🔒 Dependency Security Scan Results\n\n';
+            comment += `**Total Vulnerabilities:** ${summary.total_vulnerabilities}\n\n`;
+            comment += '| Severity | Count |\n';
+            comment += '|----------|-------|\n';
+            comment += `| 🔴 Critical | ${summary.critical} |\n`;
+            comment += `| 🟠 High | ${summary.high} |\n`;
+            comment += `| 🟡 Medium | ${summary.medium} |\n`;
+            comment += `| 🟢 Low | ${summary.low} |\n\n`;
+            
+            if (summary.critical > 0) {
+              comment += '⚠️ **Action Required:** Critical vulnerabilities detected! Please address immediately.\n\n';
+            } else if (summary.high > 0) {
+              comment += '⚠️ **Warning:** High severity vulnerabilities detected. Please review and address.\n\n';
+            } else {
+              comment += '✅ No critical or high severity vulnerabilities detected.\n\n';
+            }
+            
+            comment += '### Vulnerabilities by Component\n\n';
+            for (const [component, vulns] of Object.entries(summary.by_component)) {
+              const total = vulns.critical + vulns.high + vulns.medium + vulns.low;
+              if (total > 0) {
+                comment += `- **${component}**: ${total} (Critical: ${vulns.critical}, High: ${vulns.high}, Medium: ${vulns.medium}, Low: ${vulns.low})\n`;
+              }
+            }
+            
+            comment += '\n📊 Full security reports are available in the workflow artifacts.\n';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Fail on critical vulnerabilities
+        run: |
+          CRITICAL_COUNT=$(jq '.critical' security-summary.json)
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "❌ Build failed due to $CRITICAL_COUNT critical vulnerabilities!"
+            exit 1
+          fi
+          
+          echo "✅ No critical vulnerabilities found"

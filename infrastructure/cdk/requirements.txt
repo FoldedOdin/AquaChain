@@ -1,0 +1,16 @@
+# AWS CDK dependencies
+aws-cdk-lib>=2.100.0
+constructs>=10.0.0
+
+# CDK construct libraries
+aws-cdk.aws-lambda-python-alpha>=2.100.0a0
+
+# Python dependencies
+boto3>=1.34.0
+botocore>=1.34.0
+
+# Development and testing
+pytest>=7.4.0
+moto>=4.2.0
+black>=23.0.0
+flake8>=6.0.0

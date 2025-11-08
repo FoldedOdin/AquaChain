@@ -1,0 +1,473 @@
+# =============================================================================
+# SECURITY-CRITICAL FILES - NEVER COMMIT THESE
+# =============================================================================
+
+# Credentials and API Keys
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.csr
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+*.ppk
+*.pub
+authorized_keys
+known_hosts
+
+# Environment and Configuration Files
+.env*
+!.env.example
+!.env.production
+config.json
+secrets.json
+credentials.json
+service-account*.json
+*-credentials.json
+*.credentials
+.aws/
+.azure/
+.gcp/
+terraform.tfvars
+terraform.tfstate*
+.terraform/
+
+# Frontend environment files
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# IoT Simulator environment files
+iot-simulator/.env
+iot-simulator/simulation/.env
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+*.mdb
+*.accdb
+dump.sql
+*.dump
+backup.sql
+
+# Certificate and Key Files
+ssl/
+certs/
+certificates/
+*.crt
+*.cert
+*.ca-bundle
+*.p7b
+*.p7c
+*.p7s
+*.spc
+
+# =============================================================================
+# DEVELOPMENT FILES
+# =============================================================================
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+jspm_packages/
+bower_components/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+out/
+target/
+bin/
+obj/
+
+# CDK outputs
+cdk.out/
+*.d.ts
+cdk.context.json
+
+# =============================================================================
+# IDE AND EDITOR FILES
+# =============================================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Eclipse
+.metadata
+.classpath
+.project
+.settings/
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.loadpath
+
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# LOGS AND TEMPORARY FILES
+# =============================================================================
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.npm
+.eslintcache
+.stylelintcache
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage reports
+coverage/
+.nyc_output/
+*.lcov
+.c8
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+.cache/
+
+# =============================================================================
+# CLOUD AND DEPLOYMENT FILES
+# =============================================================================
+
+# AWS
+.aws/
+*.zip
+.serverless/
+.chalice/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+terraform.tfvars.json
+*.tfplan
+*.tfplan.*
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+.docker/
+
+# Kubernetes
+*.kubeconfig
+kube-config
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# Backup directories
+backup-*/
+backup-20250311-160016/
+
+
+# =============================================================================
+# PACKAGE MANAGER FILES
+# =============================================================================
+
+# npm
+package-lock.json
+npm-shrinkwrap.json
+
+# Yarn
+yarn.lock
+.yarn/
+.pnp.*
+
+# pnpm
+pnpm-lock.yaml
+
+# =============================================================================
+# TESTING AND QUALITY ASSURANCE
+# =============================================================================
+
+# Test results
+test-results/
+junit.xml
+*.xml
+.pytest_cache/
+
+# Audit and security scan results
+audit_artifacts/
+security-scan-results/
+vulnerability-reports/
+
+# =============================================================================
+# DOCUMENTATION AND NOTES (POTENTIALLY SENSITIVE)
+# =============================================================================
+
+# Personal notes that might contain sensitive info
+notes/
+scratch/
+*.notes
+*.todo
+TODO.md
+NOTES.md
+SECRETS.md
+PASSWORDS.md
+CREDENTIALS.md
+project_report/*
+# Meeting notes and planning docs that might have sensitive info
+meeting-notes/
+planning/
+architecture-decisions/
+*.meeting
+*.planning
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# Backup directories
+backup-*/
+backup-20250311-160016/
+
+# =============================================================================
+# PROJECT-SPECIFIC EXCLUSIONS
+# =============================================================================
+
+# Frontend build
+frontend/build/
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# ML Training artifacts (may contain sensitive data)
+ml-training/
+models/
+*.pkl
+*.joblib
+*.h5
+*.pb
+training-data/
+datasets/
+
+# IoT device configurations (may contain device keys)
+device-configs/
+iot-certificates/
+iot-simulator/certificates/
+iot-simulator/simulation/__pycache__/
+iot-simulator/simulation/*.pyc
+
+# Lambda deployment packages
+*.zip
+lambda-packages/
+
+# CDK context (may contain account info)
+cdk.context.json
+
+# Local development databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Development server data (user accounts, tokens)
+.dev-data.json
+frontend/.dev-data.json
+
+# Generated documentation with potential sensitive info
+generated-docs/
+api-docs/
+internal-docs/
+
+# =============================================================================
+# KIRO SPECIFIC (AI ASSISTANT FILES)
+# =============================================================================
+
+.kiro/
+
+# =============================================================================
+# HUSKY AND GIT HOOKS
+# =============================================================================
+
+.husky/
+
+# =============================================================================
+# SPECIFIC FILE PATTERNS TO EXCLUDE
+# =============================================================================
+
+# Any file with 'secret', 'password', 'key' in name
+*secret*
+*password*
+*credential*
+*private*
+*confidential*
+
+# Documentation with real AWS account info (should be sanitized before commit)
+# docs/KMS_INCIDENT_RESOLUTION.md - contains real account ID
+# infrastructure/setup-iam-permissions.md - contains real account ID
+# infrastructure/SECURITY_CREDENTIALS_GUIDE.md - contains real account ID
+
+# Backup and temporary versions
+*.backup
+*.bak
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+
+# Archive files that might contain sensitive data
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+*.7z
+*.csv
+
+# =============================================================================
+# ALLOW SPECIFIC IMPORTANT FILES
+# =============================================================================
+
+# Allow important documentation
+!README.md
+!README.txt
+!LICENSE
+!LICENSE.txt
+!CHANGELOG.md
+!CHANGELOG.txt
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+
+# Allow requirements files
+!requirements.txt
+!**/requirements.txt
+!package.json
+!**/package.json
+
+# Allow example configurations (but not real ones)
+!*.example
+!*.template
+!*.sample 

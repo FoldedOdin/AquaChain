@@ -1,0 +1,224 @@
+version: 0.2
+
+# AWS CodeBuild buildspec for AquaChain CI/CD Pipeline
+# Alternative to GitHub Actions for AWS-native CI/CD
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: us-east-1
+    NODE_VERSION: "18"
+    PYTHON_VERSION: "3.11"
+  parameter-store:
+    STAGING_API_BASE_URL: /aquachain/staging/api-base-url
+    PRODUCTION_API_BASE_URL: /aquachain/production/api-base-url
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+      nodejs: 18
+    commands:
+      - echo "Installing dependencies..."
+      - pip install --upgrade pip
+      - pip install boto3 pytest pytest-cov moto[all] requests
+      - npm install -g npm@latest
+      
+      # Install Trivy for security scanning
+      - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+      - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
+      - apt-get update && apt-get install -y trivy
+      
+      # Install SAM CLI
+      - pip install aws-sam-cli
+
+  pre_build:
+    commands:
+      - echo "Running pre-build phase..."
+      - echo "Build started on `date`"
+      - echo "Current directory: $(pwd)"
+      - echo "Environment: $ENVIRONMENT"
+      
+      # Security scanning
+      - echo "Running security scans..."
+      - trivy fs --format json --output trivy-results.json .
+      
+      # Check for high/critical vulnerabilities
+      - |
+        if [ -f trivy-results.json ]; then
+          CRITICAL_COUNT=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length')
+          HIGH_COUNT=$(cat trivy-results.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length')
+          echo "Critical vulnerabilities: $CRITICAL_COUNT"
+          echo "High vulnerabilities: $HIGH_COUNT"
+          
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found, failing build"
+            exit 1
+          fi
+        fi
+
+  build:
+    commands:
+      - echo "Running build phase..."
+      
+      # Frontend tests and build
+      - echo "Building and testing frontend..."
+      - cd frontend
+      - npm ci
+      - npm run test -- --coverage --watchAll=false
+      - npm run build
+      - cd ..
+      
+      # Lambda function tests
+      - echo "Testing Lambda functions..."
+      - |
+        for function_dir in lambda/*/; do
+          if [ -f "$function_dir/handler.py" ]; then
+            function_name=$(basename "$function_dir")
+            echo "Testing $function_name"
+            cd "$function_dir"
+            
+            # Install dependencies if requirements.txt exists
+            if [ -f requirements.txt ]; then
+              pip install -r requirements.txt
+            fi
+            
+            # Run tests if test file exists
+            if [ -f test_handler.py ]; then
+              python -m pytest test_handler.py -v --cov=handler --cov-report=xml
+            fi
+            
+            cd - > /dev/null
+          fi
+        done
+      
+      # Infrastructure tests
+      - echo "Testing infrastructure..."
+      - cd infrastructure
+      - python -m pytest tests/ -v --cov=. --cov-report=xml
+      - cd ..
+      
+      # Integration tests (using LocalStack)
+      - echo "Running integration tests..."
+      - |
+        # Start LocalStack in background
+        docker run -d --name localstack -p 4566:4566 -e SERVICES=dynamodb,s3,sns,sqs,iot,lambda,apigateway localstack/localstack:latest
+        
+        # Wait for LocalStack to be ready
+        timeout 60 bash -c 'until curl -s http://localhost:4566/health; do sleep 2; done'
+        
+        # Run integration tests
+        export AWS_ACCESS_KEY_ID=test
+        export AWS_SECRET_ACCESS_KEY=test
+        export AWS_DEFAULT_REGION=us-east-1
+        export LOCALSTACK_ENDPOINT=http://localhost:4566
+        
+        python -m pytest tests/integration/ -v
+        
+        # Stop LocalStack
+        docker stop localstack
+      
+      # Package Lambda functions
+      - echo "Packaging Lambda functions..."
+      - |
+        for function_dir in lambda/*/; do
+          if [ -f "$function_dir/handler.py" ]; then
+            function_name=$(basename "$function_dir")
+            echo "Packaging $function_name"
+            cd "$function_dir"
+            
+            # Install dependencies
+            if [ -f requirements.txt ]; then
+              pip install -r requirements.txt -t .
+            fi
+            
+            # Create deployment package
+            zip -r "../${function_name}-deployment.zip" . -x "*.pyc" "__pycache__/*" "tests/*" "*.md" "test_*"
+            cd - > /dev/null
+          fi
+        done
+      
+      # Validate CloudFormation templates
+      - echo "Validating CloudFormation templates..."
+      - aws cloudformation validate-template --template-body file://lambda/deployment_config.yaml --region $AWS_DEFAULT_REGION
+
+  post_build:
+    commands:
+      - echo "Running post-build phase..."
+      - echo "Build completed on `date`"
+      
+      # Upload test results and coverage reports
+      - |
+        if [ -d frontend/coverage ]; then
+          aws s3 cp frontend/coverage/ s3://aquachain-build-artifacts-$AWS_ACCOUNT_ID/coverage/frontend/ --recursive
+        fi
+      
+      # Upload Lambda packages to S3
+      - |
+        for zip_file in lambda/*-deployment.zip; do
+          if [ -f "$zip_file" ]; then
+            aws s3 cp "$zip_file" s3://aquachain-build-artifacts-$AWS_ACCOUNT_ID/lambda-packages/
+          fi
+        done
+      
+      # Upload frontend build
+      - aws s3 cp frontend/build/ s3://aquachain-build-artifacts-$AWS_ACCOUNT_ID/frontend-build/ --recursive
+      
+      # Run deployment based on branch
+      - |
+        if [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/main" ]; then
+          echo "Deploying to production..."
+          python scripts/deploy.py --region $AWS_DEFAULT_REGION --environment production --package-path .
+        elif [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/develop" ]; then
+          echo "Deploying to staging..."
+          python scripts/deploy.py --region $AWS_DEFAULT_REGION --environment staging --package-path .
+        else
+          echo "Branch $CODEBUILD_WEBHOOK_HEAD_REF - skipping deployment"
+        fi
+      
+      # Run smoke tests after deployment
+      - |
+        if [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/develop" ]; then
+          echo "Running staging smoke tests..."
+          python tests/smoke/staging_smoke_tests.py
+        elif [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/main" ]; then
+          echo "Running production validation tests..."
+          export ENVIRONMENT=production
+          python tests/smoke/production_validation_tests.py
+        fi
+
+reports:
+  frontend-test-results:
+    files:
+      - frontend/coverage/lcov.info
+    base-directory: frontend
+    file-format: CLOVERXML
+  
+  lambda-test-results:
+    files:
+      - lambda/*/coverage.xml
+    file-format: COBERTURAXML
+  
+  infrastructure-test-results:
+    files:
+      - infrastructure/coverage.xml
+    file-format: COBERTURAXML
+  
+  security-scan-results:
+    files:
+      - trivy-results.json
+    file-format: OTHER
+
+artifacts:
+  files:
+    - lambda/*-deployment.zip
+    - frontend/build/**/*
+    - scripts/deploy.py
+    - tests/smoke/*.py
+  name: aquachain-build-$CODEBUILD_BUILD_NUMBER
+  base-directory: .
+
+cache:
+  paths:
+    - frontend/node_modules/**/*
+    - /root/.cache/pip/**/*
+    - /root/.npm/**/*

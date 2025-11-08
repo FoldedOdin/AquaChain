@@ -1,0 +1,102 @@
+{
+  "short_name": "AquaChain",
+  "name": "AquaChain - Real-Time Water Quality You Can Trust",
+  "description": "Professional water quality monitoring platform with real-time alerts, tamper-evident blockchain ledger, and AI-powered insights for consumers and technicians.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon",
+      "purpose": "any"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "theme_color": "#06b6d4",
+  "background_color": "#001f2e",
+  "categories": ["utilities", "health", "productivity", "business"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "shortcuts": [
+    {
+      "name": "Consumer Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your water quality dashboard",
+      "url": "/dashboard/consumer",
+      "icons": [
+        {
+          "src": "shortcut-dashboard.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+
+    {
+      "name": "Contact Support",
+      "short_name": "Support",
+      "description": "Get help with AquaChain",
+      "url": "/contact",
+      "icons": [
+        {
+          "src": "shortcut-support.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "AquaChain Dashboard - Desktop View"
+    },
+    {
+      "src": "screenshot-narrow.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "AquaChain Dashboard - Mobile View"
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://aquachain.io/manifest.json"
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+aquachain",
+      "url": "/device/%s"
+    }
+  ]
+}

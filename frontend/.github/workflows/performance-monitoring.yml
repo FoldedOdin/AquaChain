@@ -1,0 +1,210 @@
+name: Performance Monitoring
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['frontend/**']
+  pull_request:
+    branches: [main]
+    paths: ['frontend/**']
+
+jobs:
+  performance-budget:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+      
+      - name: Build application
+        run: npm run build
+        working-directory: frontend
+        env:
+          REACT_APP_COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          REACT_APP_COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
+          REACT_APP_API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          REACT_APP_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      
+      - name: Analyze bundle size
+        run: npm run analyze
+        working-directory: frontend
+      
+      - name: Check performance budget
+        run: npm run performance:budget
+        working-directory: frontend
+      
+      - name: Upload bundle analysis
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: bundle-analysis
+          path: frontend/build/static/js/*.js
+
+  lighthouse-ci:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+      
+      - name: Build application
+        run: npm run build
+        working-directory: frontend
+        env:
+          REACT_APP_COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          REACT_APP_COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
+          REACT_APP_API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          REACT_APP_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      
+      - name: Serve application
+        run: |
+          npm install -g serve
+          serve -s build -l 3000 &
+          sleep 5
+        working-directory: frontend
+      
+      - name: Run Lighthouse CI
+        run: npm run lighthouse
+        working-directory: frontend
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+      
+      - name: Upload Lighthouse results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: lighthouse-results
+          path: frontend/.lighthouseci/
+
+  performance-regression:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+      
+      - name: Build application
+        run: npm run build
+        working-directory: frontend
+        env:
+          REACT_APP_COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          REACT_APP_COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
+          REACT_APP_API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          REACT_APP_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      
+      - name: Download baseline metrics
+        uses: actions/download-artifact@v3
+        with:
+          name: performance-baseline
+          path: frontend/
+        continue-on-error: true
+      
+      - name: Serve application
+        run: |
+          npm install -g serve
+          serve -s build -l 3000 &
+          sleep 5
+        working-directory: frontend
+      
+      - name: Run performance regression detection
+        run: npm run performance:regression
+        working-directory: frontend
+        continue-on-error: true
+      
+      - name: Upload performance metrics
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-baseline
+          path: frontend/performance-baseline.json
+
+  performance-comment:
+    runs-on: ubuntu-latest
+    needs: [performance-budget, lighthouse-ci, performance-regression]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts/
+      
+      - name: Comment PR with performance results
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            
+            let comment = '## 📊 Performance Report\n\n';
+            
+            // Add bundle analysis results
+            try {
+              const bundleFiles = fs.readdirSync('artifacts/bundle-analysis/');
+              const totalSize = bundleFiles.reduce((total, file) => {
+                const stats = fs.statSync(`artifacts/bundle-analysis/${file}`);
+                return total + stats.size;
+              }, 0);
+              
+              comment += `### Bundle Size\n`;
+              comment += `- Total JavaScript: ${(totalSize / 1024).toFixed(2)} KB\n`;
+              comment += `- Files: ${bundleFiles.length}\n\n`;
+            } catch (e) {
+              comment += '### Bundle Size\n❌ Analysis failed\n\n';
+            }
+            
+            // Add Lighthouse results
+            try {
+              const lighthouseDir = 'artifacts/lighthouse-results/';
+              if (fs.existsSync(lighthouseDir)) {
+                comment += '### Lighthouse Scores\n';
+                comment += '✅ Lighthouse CI passed\n\n';
+              }
+            } catch (e) {
+              comment += '### Lighthouse Scores\n❌ Analysis failed\n\n';
+            }
+            
+            comment += '---\n';
+            comment += '*Performance monitoring powered by AquaChain CI/CD*';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

@@ -1,0 +1,25 @@
+{
+  "version": "v1.0",
+  "created_at": "2025-10-20T05:42:54.135313",
+  "models": {
+    "WQI": "XGBRegressor_GPU",
+    "Anomaly": "XGBClassifier_GPU"
+  },
+  "scaler": "StandardScaler",
+  "features": [
+    "pH",
+    "turbidity",
+    "tds",
+    "temperature",
+    "humidity",
+    "latitude",
+    "longitude",
+    "hour",
+    "month",
+    "weekday",
+    "pH_temp_interaction",
+    "turbidity_tds_ratio",
+    "pH_deviation",
+    "temp_deviation"
+  ]
+}

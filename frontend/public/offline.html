@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#06b6d4" />
+    <meta name="description" content="AquaChain - Offline Mode" />
+    <title>AquaChain - Offline</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(180deg, #001f2e 0%, #003d5b 50%, #01579b 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .offline-container {
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 2rem;
+            background: #06b6d4;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: #06b6d4;
+        }
+        
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            color: #1de9b6;
+            font-weight: 400;
+        }
+        
+        p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+            color: #e2e8f0;
+        }
+        
+        .features {
+            text-align: left;
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: rgba(6, 182, 212, 0.1);
+            border-radius: 12px;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+        
+        .features h3 {
+            color: #06b6d4;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        
+        .features ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .features li {
+            padding: 0.5rem 0;
+            color: #cbd5e1;
+            position: relative;
+            padding-left: 1.5rem;
+        }
+        
+        .features li::before {
+            content: "💧";
+            position: absolute;
+            left: 0;
+            top: 0.5rem;
+        }
+        
+        .retry-button {
+            background: linear-gradient(135deg, #06b6d4, #088395);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 1rem 0.5rem;
+            min-width: 140px;
+        }
+        
+        .retry-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(6, 182, 212, 0.3);
+        }
+        
+        .retry-button:active {
+            transform: translateY(0);
+        }
+        
+        .status {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 8px;
+            color: #fca5a5;
+        }
+        
+        .status.online {
+            background: rgba(34, 197, 94, 0.1);
+            border-color: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+            
+            h2 {
+                font-size: 1.2rem;
+            }
+            
+            .offline-container {
+                padding: 1rem;
+            }
+            
+            .retry-button {
+                width: 100%;
+                margin: 0.5rem 0;
+            }
+        }
+        
+        /* Underwater animation */
+        .bubble {
+            position: absolute;
+            background: rgba(6, 182, 212, 0.3);
+            border-radius: 50%;
+            animation: bubble-rise 8s linear infinite;
+        }
+        
+        @keyframes bubble-rise {
+            0% {
+                transform: translateY(100vh) scale(0);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 0.8;
+            }
+            100% {
+                transform: translateY(-100px) scale(1);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="logo">🌊</div>
+        <h1>You're Offline</h1>
+        <h2>AquaChain is temporarily unavailable</h2>
+        
+        <p>
+            Don't worry! While you're offline, you can still learn about our water quality monitoring features.
+            We'll automatically reconnect when your internet connection is restored.
+        </p>
+        
+        <div class="features">
+            <h3>What AquaChain Offers:</h3>
+            <ul>
+                <li>Real-time water quality monitoring</li>
+                <li>Tamper-evident blockchain ledger</li>
+                <li>AI-powered anomaly detection</li>
+                <li>Instant safety alerts</li>
+                <li>Historical trend analysis</li>
+            </ul>
+        </div>
+        
+        <button class="retry-button" onclick="retryConnection()">
+            Try Again
+        </button>
+        
+        <button class="retry-button" onclick="goHome()" style="background: linear-gradient(135deg, #088395, #0f766e);">
+            Go Home
+        </button>
+        
+        <div class="status" id="connection-status">
+            <strong>Status:</strong> <span id="status-text">Checking connection...</span>
+        </div>
+    </div>
+    
+    <!-- Animated bubbles -->
+    <div class="bubble" style="left: 10%; width: 20px; height: 20px; animation-delay: 0s;"></div>
+    <div class="bubble" style="left: 20%; width: 15px; height: 15px; animation-delay: 2s;"></div>
+    <div class="bubble" style="left: 35%; width: 25px; height: 25px; animation-delay: 4s;"></div>
+    <div class="bubble" style="left: 50%; width: 18px; height: 18px; animation-delay: 1s;"></div>
+    <div class="bubble" style="left: 65%; width: 22px; height: 22px; animation-delay: 3s;"></div>
+    <div class="bubble" style="left: 80%; width: 16px; height: 16px; animation-delay: 5s;"></div>
+    <div class="bubble" style="left: 90%; width: 20px; height: 20px; animation-delay: 6s;"></div>
+    
+    <script>
+        // Check connection status
+        function updateConnectionStatus() {
+            const statusElement = document.getElementById('connection-status');
+            const statusText = document.getElementById('status-text');
+            
+            if (navigator.onLine) {
+                statusElement.className = 'status online';
+                statusText.textContent = 'Connection restored! You can try again.';
+            } else {
+                statusElement.className = 'status';
+                statusText.textContent = 'No internet connection detected.';
+            }
+        }
+        
+        // Retry connection
+        function retryConnection() {
+            if (navigator.onLine) {
+                window.location.reload();
+            } else {
+                alert('Please check your internet connection and try again.');
+            }
+        }
+        
+        // Go to home page
+        function goHome() {
+            window.location.href = '/';
+        }
+        
+        // Listen for connection changes
+        window.addEventListener('online', updateConnectionStatus);
+        window.addEventListener('offline', updateConnectionStatus);
+        
+        // Initial status check
+        updateConnectionStatus();
+        
+        // Auto-retry when connection is restored
+        window.addEventListener('online', () => {
+            setTimeout(() => {
+                if (navigator.onLine) {
+                    window.location.reload();
+                }
+            }, 2000);
+        });
+        
+        // Periodic connection check
+        setInterval(() => {
+            if (navigator.onLine) {
+                fetch('/', { method: 'HEAD', cache: 'no-cache' })
+                    .then(() => {
+                        window.location.reload();
+                    })
+                    .catch(() => {
+                        // Still offline or server unreachable
+                    });
+            }
+        }, 30000); // Check every 30 seconds
+    </script>
+</body>
+</html>

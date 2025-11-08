@@ -1,0 +1,262 @@
+name: Weekly SBOM Generation
+
+on:
+  schedule:
+    # Run every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  generate-sbom:
+    name: Generate Weekly SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+        
+      - name: Install Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Generate SBOMs
+        run: |
+          python scripts/generate-sbom.py
+
+      - name: Generate vulnerability reports
+        run: |
+          python scripts/vulnerability-report-generator.py
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload SBOMs to S3
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          WEEK=$(date -u +%Y-W%V)
+          
+          # Upload to timestamped folder
+          aws s3 sync sbom-artifacts/ s3://aquachain-sbom-${{ secrets.AWS_ACCOUNT_ID }}/${TIMESTAMP}/
+          
+          # Upload to weekly folder
+          aws s3 sync sbom-artifacts/ s3://aquachain-sbom-${{ secrets.AWS_ACCOUNT_ID }}/weekly/${WEEK}/
+          
+          # Update latest
+          aws s3 sync sbom-artifacts/ s3://aquachain-sbom-${{ secrets.AWS_ACCOUNT_ID }}/latest/
+
+      - name: Analyze vulnerability trends
+        run: |
+          python - <<EOF
+          import json
+          import boto3
+          from pathlib import Path
+          from datetime import datetime
+          
+          # Load current report
+          report_files = list(Path('sbom-artifacts').glob('sbom-report-*.json'))
+          if not report_files:
+              print("No report files found")
+              exit(0)
+          
+          with open(report_files[0]) as f:
+              current_report = json.load(f)
+          
+          current_vulns = current_report.get('vulnerability_summary', {})
+          
+          print("\n" + "="*60)
+          print("WEEKLY VULNERABILITY SUMMARY")
+          print("="*60)
+          print(f"Timestamp: {current_report.get('timestamp', 'N/A')}")
+          print(f"Total Packages: {current_report.get('total_packages', 0)}")
+          print(f"Total Vulnerabilities: {current_report.get('total_vulnerabilities', 0)}")
+          print("\nBy Severity:")
+          for severity in ['Critical', 'High', 'Medium', 'Low']:
+              count = current_vulns.get(severity, 0)
+              print(f"  {severity}: {count}")
+          print("="*60)
+          
+          # Check for critical vulnerabilities
+          if current_vulns.get('Critical', 0) > 0:
+              print("\n⚠️  ALERT: Critical vulnerabilities detected!")
+          EOF
+
+      - name: Send SNS notification for critical vulnerabilities
+        if: always()
+        run: |
+          python - <<EOF
+          import json
+          import boto3
+          from pathlib import Path
+          
+          # Load report
+          report_files = list(Path('sbom-artifacts').glob('sbom-report-*.json'))
+          if not report_files:
+              exit(0)
+          
+          with open(report_files[0]) as f:
+              report = json.load(f)
+          
+          vulns = report.get('vulnerability_summary', {})
+          critical = vulns.get('Critical', 0)
+          high = vulns.get('High', 0)
+          
+          if critical > 0 or high > 0:
+              sns = boto3.client('sns', region_name='${{ env.AWS_REGION }}')
+              
+              message = f"""
+              Weekly SBOM Scan Alert
+              
+              Critical Vulnerabilities: {critical}
+              High Severity Vulnerabilities: {high}
+              
+              Total Vulnerabilities: {report.get('total_vulnerabilities', 0)}
+              Total Packages: {report.get('total_packages', 0)}
+              
+              Please review the SBOM artifacts in S3:
+              s3://aquachain-sbom-${{ secrets.AWS_ACCOUNT_ID }}/latest/
+              
+              Timestamp: {report.get('timestamp', 'N/A')}
+              """
+              
+              try:
+                  # Get SNS topic ARN from SSM or use environment variable
+                  topic_arn = "arn:aws:sns:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:aquachain-security-alerts"
+                  
+                  sns.publish(
+                      TopicArn=topic_arn,
+                      Subject=f"🚨 AquaChain SBOM Alert: {critical} Critical, {high} High Vulnerabilities",
+                      Message=message
+                  )
+                  print("✓ SNS notification sent")
+              except Exception as e:
+                  print(f"⚠️  Could not send SNS notification: {e}")
+          else:
+              print("✓ No critical or high severity vulnerabilities found")
+          EOF
+
+      - name: Create GitHub Issue for critical vulnerabilities
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Find the latest report file
+            const reportFiles = fs.readdirSync('sbom-artifacts')
+              .filter(f => f.startsWith('sbom-report-') && f.endsWith('.json'));
+            
+            if (reportFiles.length === 0) {
+              console.log('No report files found');
+              return;
+            }
+            
+            const reportFile = path.join('sbom-artifacts', reportFiles[0]);
+            const report = JSON.parse(fs.readFileSync(reportFile, 'utf8'));
+            
+            const summary = report.vulnerability_summary || {};
+            const critical = summary.Critical || 0;
+            const high = summary.High || 0;
+            
+            if (critical === 0 && high === 0) {
+              console.log('No critical or high vulnerabilities found');
+              return;
+            }
+            
+            // Check if there's already an open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security,sbom'
+            });
+            
+            const existingIssue = issues.data.find(issue => 
+              issue.title.includes('Weekly SBOM Vulnerability Alert')
+            );
+            
+            let body = `## 🔒 Weekly SBOM Vulnerability Alert\n\n`;
+            body += `**Scan Date:** ${report.timestamp}\n\n`;
+            body += `### Summary\n\n`;
+            body += `| Severity | Count |\n`;
+            body += `|----------|-------|\n`;
+            body += `| 🔴 Critical | ${critical} |\n`;
+            body += `| 🟠 High | ${high} |\n`;
+            body += `| 🟡 Medium | ${summary.Medium || 0} |\n`;
+            body += `| 🟢 Low | ${summary.Low || 0} |\n\n`;
+            
+            body += `**Total Vulnerabilities:** ${report.total_vulnerabilities}\n`;
+            body += `**Total Packages:** ${report.total_packages}\n\n`;
+            
+            body += `### Components\n\n`;
+            for (const [component, data] of Object.entries(report.components || {})) {
+              const compVulns = data.vulnerabilities || {};
+              const compTotal = Object.values(compVulns).reduce((a, b) => a + b, 0);
+              body += `- **${component}**: ${compTotal} vulnerabilities (${compVulns.Critical || 0} critical, ${compVulns.High || 0} high)\n`;
+            }
+            
+            body += `\n### Action Required\n\n`;
+            if (critical > 0) {
+              body += `⚠️ **URGENT:** ${critical} critical vulnerabilities require immediate attention!\n\n`;
+            }
+            if (high > 0) {
+              body += `⚠️ ${high} high severity vulnerabilities should be addressed soon.\n\n`;
+            }
+            
+            body += `### Resources\n\n`;
+            body += `- SBOM artifacts are available in the [workflow run](${context.payload.repository.html_url}/actions/runs/${context.runId})\n`;
+            body += `- S3 Location: \`s3://aquachain-sbom-${process.env.AWS_ACCOUNT_ID}/latest/\`\n`;
+            
+            if (existingIssue) {
+              // Update existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `## Update: ${new Date().toISOString()}\n\n${body}`
+              });
+              console.log(`Updated existing issue #${existingIssue.number}`);
+            } else {
+              // Create new issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🔒 Weekly SBOM Vulnerability Alert - ${critical} Critical, ${high} High`,
+                body: body,
+                labels: ['security', 'sbom', 'vulnerability']
+              });
+              console.log('Created new security issue');
+            }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-sbom-artifacts
+          path: sbom-artifacts/
+          retention-days: 365

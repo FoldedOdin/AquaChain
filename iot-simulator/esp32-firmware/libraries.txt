@@ -1,0 +1,49 @@
+# Required Arduino Libraries for AquaChain ESP32 Firmware
+# Install these libraries through the Arduino IDE Library Manager
+
+# Core Libraries (usually pre-installed with ESP32 board package)
+WiFi                    # ESP32 WiFi library
+WiFiClientSecure        # Secure WiFi client for TLS/SSL
+EEPROM                  # EEPROM emulation for ESP32
+
+# MQTT Communication
+PubSubClient            # by Nick O'Leary (version 2.8.0 or later)
+
+# JSON Processing
+ArduinoJson             # by Benoit Blanchon (version 6.19.0 or later)
+
+# Sensor Libraries
+DHT sensor library      # by Adafruit (version 1.4.0 or later)
+Adafruit Unified Sensor # by Adafruit (dependency for DHT)
+
+# I2C Communication
+Wire                    # Built-in I2C library
+
+# Optional Libraries (for advanced features)
+OneWire                 # by Jim Studt (for DS18B20 temperature sensors)
+DallasTemperature       # by Miles Burton (for DS18B20 sensors)
+SoftwareSerial          # For additional serial communication (GPS, etc.)
+TinyGPS++               # by Mikal Hart (for GPS parsing)
+ESP32Time               # by Felix Biego (for RTC functionality)
+ArduinoOTA              # Built-in (for Over-The-Air updates)
+
+# Installation Instructions:
+# 1. Open Arduino IDE
+# 2. Go to Tools → Manage Libraries (Ctrl+Shift+I)
+# 3. Search for each library name and install the latest version
+# 4. Make sure ESP32 board package is installed:
+#    - File → Preferences
+#    - Add to Additional Board Manager URLs:
+#      https://dl.espressif.com/dl/package_esp32_index.json
+#    - Tools → Board → Boards Manager → Search "ESP32" → Install
+
+# Board Configuration:
+# - Board: "ESP32 Dev Module" or "DOIT ESP32 DEVKIT V1"
+# - Upload Speed: 921600
+# - CPU Frequency: 240MHz (WiFi/BT)
+# - Flash Frequency: 80MHz
+# - Flash Mode: QIO
+# - Flash Size: 4MB (32Mb)
+# - Partition Scheme: "Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)"
+# - Core Debug Level: "None" (for production) or "Info" (for debugging)
+# - PSRAM: "Disabled" (unless you have PSRAM-enabled ESP32)

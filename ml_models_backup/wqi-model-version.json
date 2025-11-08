@@ -1,0 +1,5 @@
+{
+  "model_name": "AquaChain",
+  "version": "v1.0",
+  "compatible_handler": "AquaChain_Model_Handler_v1"
+}

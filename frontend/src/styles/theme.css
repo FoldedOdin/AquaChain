@@ -1,0 +1,90 @@
+/* AquaChain Theme CSS Custom Properties */
+:root {
+  /* Brand Colors */
+  --color-aqua-50: #f0fdfa;
+  --color-aqua-100: #ccfbf1;
+  --color-aqua-200: #99f6e4;
+  --color-aqua-300: #5eead4;
+  --color-aqua-400: #2dd4bf;
+  --color-aqua-500: #06b6d4;
+  --color-aqua-600: #0891b2;
+  --color-aqua-700: #0e7490;
+  --color-aqua-800: #155e75;
+  --color-aqua-900: #164e63;
+  
+  --color-teal-500: #088395;
+  --color-teal-600: #0f766e;
+  
+  --color-emerald-400: #1de9b6;
+  
+  /* Semantic Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #06b6d4;
+  
+  /* Background Colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-dark: #001f2e;
+  --bg-underwater: linear-gradient(180deg, #001f2e 0%, #003d5b 50%, #01579b 100%);
+  
+  /* Text Colors */
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-inverse: #ffffff;
+  --text-muted: #9ca3af;
+  
+  /* Shadows */
+  --shadow-underwater: 0 0 50px rgba(6, 182, 212, 0.3), 0 0 100px rgba(6, 182, 212, 0.1);
+  --shadow-glow: 0 0 20px rgba(6, 182, 212, 0.5);
+  
+  /* Animation Durations */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+  --duration-slower: 1000ms;
+  
+  /* Animation Easings */
+  --ease-linear: linear;
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Dark theme overrides */
+[data-theme="dark"] {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --text-primary: #ffffff;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+}
+
+/* High contrast theme */
+[data-theme="high-contrast"] {
+  --color-aqua-500: #00ffff;
+  --text-primary: #000000;
+  --bg-primary: #ffffff;
+  --shadow-underwater: 0 0 50px rgba(0, 255, 255, 0.8);
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --duration-slower: 0ms;
+  }
+  
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,16 @@
+# AWS SDK and infrastructure dependencies
+boto3>=1.34.0
+botocore>=1.34.0
+
+# Cryptography for hash chain verification
+cryptography>=41.0.0
+
+# JSON schema validation
+jsonschema>=4.19.0
+
+# Date/time utilities
+python-dateutil>=2.8.2
+
+# Development and testing
+pytest>=7.4.0
+moto>=4.2.0  # AWS service mocking for tests

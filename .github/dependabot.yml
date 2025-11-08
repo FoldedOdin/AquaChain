@@ -1,0 +1,361 @@
+# Dependabot configuration for automated dependency updates
+# This configuration manages dependencies for frontend (npm) and Lambda functions (pip)
+
+version: 2
+updates:
+  # Frontend dependencies (npm)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "frontend"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    # Auto-merge patch updates for production dependencies
+    versioning-strategy: increase
+    # Group minor and patch updates
+    groups:
+      production-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      development-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Ignore major version updates for critical packages (require manual review)
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "aws-amplify"
+        update-types: ["version-update:semver-major"]
+
+  # Lambda data_processing dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/data_processing"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "data-processing"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+    groups:
+      aws-dependencies:
+        patterns:
+          - "boto3"
+          - "aws-*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Lambda ml_inference dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/ml_inference"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "ml-inference"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda auth_service dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/auth_service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "auth-service"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda user_management dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/user_management"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "user-management"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda technician_service dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/technician_service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "technician-service"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda notification_service dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/notification_service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "notification-service"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda alert_detection dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/alert_detection"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "alert-detection"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda ledger_service dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/ledger_service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "ledger-service"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda audit_trail_processor dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/audit_trail_processor"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "audit-trail"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda api_gateway dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/api_gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "api-gateway"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Lambda websocket_api dependencies
+  - package-ecosystem: "pip"
+    directory: "/lambda/websocket_api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "lambda"
+      - "websocket-api"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # Infrastructure dependencies
+  - package-ecosystem: "pip"
+    directory: "/infrastructure"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "infrastructure"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # IoT Simulator dependencies
+  - package-ecosystem: "pip"
+    directory: "/iot-simulator"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "iot-simulator"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "aquachain-dev-team"
+    assignees:
+      - "aquachain-dev-team"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"

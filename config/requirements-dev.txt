@@ -1,0 +1,22 @@
+# Development dependencies for AquaChain project
+# Install with: pip install -r requirements-dev.txt
+
+# Code Quality Tools
+pylint==3.0.3
+black==24.1.1
+isort==5.13.2
+mypy==1.8.0
+
+# Testing Tools
+pytest==7.4.4
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+moto[all]==5.0.0
+
+# Type Stubs
+boto3-stubs[essential]==1.34.34
+types-requests==2.31.0.20240125
+
+# Security Tools
+bandit==1.7.6
+safety==3.0.1

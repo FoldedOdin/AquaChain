@@ -1,0 +1,142 @@
+/* Animation styles for AquaChain Landing Page */
+
+/* Keyframes for underwater effects */
+@keyframes bubble-rise {
+  0% { 
+    transform: translateY(100vh) scale(1); 
+    opacity: 0; 
+  }
+  10% { 
+    opacity: 1; 
+  }
+  90% { 
+    opacity: 0.8; 
+  }
+  100% { 
+    transform: translateY(-100px) scale(0.3); 
+    opacity: 0; 
+  }
+}
+
+@keyframes caustics-flow {
+  0%, 100% {
+    transform: translateX(0) scale(1);
+    opacity: 0.3;
+  }
+  25% {
+    transform: translateX(10px) scale(1.05);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateX(-5px) scale(0.95);
+    opacity: 0.35;
+  }
+  75% {
+    transform: translateX(15px) scale(1.02);
+    opacity: 0.45;
+  }
+}
+
+@keyframes gentle-wave {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-5px) rotate(0.5deg);
+  }
+  50% {
+    transform: translateY(0) rotate(0deg);
+  }
+  75% {
+    transform: translateY(-3px) rotate(-0.3deg);
+  }
+}
+
+/* Bubble animation classes */
+.bubble {
+  animation: bubble-rise 12s linear infinite;
+  will-change: transform;
+  backdrop-filter: blur(1px);
+}
+
+/* Ripple animation */
+.ripple {
+  animation: ripple-expand 1s ease-out forwards;
+}
+
+@keyframes ripple-expand {
+  0% {
+    width: 0;
+    height: 0;
+    opacity: 0.6;
+  }
+  100% {
+    width: 400px;
+    height: 400px;
+    opacity: 0;
+  }
+}
+
+/* Performance optimizations */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .bubble,
+  .ripple,
+  [class*="animate-"] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .caustics-flow {
+    animation: none !important;
+  }
+  
+  .gentle-wave {
+    animation: none !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .bubble {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid currentColor;
+  }
+  
+  .ripple {
+    border-color: currentColor !important;
+    border-width: 3px !important;
+  }
+}
+
+/* Focus indicators for interactive elements */
+.interactive-element:focus-visible {
+  outline: 2px solid #06b6d4;
+  outline-offset: 2px;
+}
+
+/* Loading states */
+.loading-shimmer {
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.1) 0%, 
+    rgba(255, 255, 255, 0.3) 50%, 
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

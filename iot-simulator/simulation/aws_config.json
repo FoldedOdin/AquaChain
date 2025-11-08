@@ -1,0 +1,21 @@
+{
+  "aws": {
+    "region": "ap-south-1",
+    "iot_endpoint": "your-iot-endpoint.iot.ap-south-1.amazonaws.com",
+    "certificate_path": "certificates/",
+    "use_simulator_auth": true
+  },
+  "mqtt": {
+    "port": 8883,
+    "keepalive": 60,
+    "qos": 1,
+    "topic_template": "aquachain/{deviceId}/data",
+    "client_id_template": "simulator-{deviceId}-{timestamp}"
+  },
+  "simulation": {
+    "enable_seasonal_variation": true,
+    "enable_daily_patterns": true,
+    "enable_random_events": true,
+    "log_level": "INFO"
+  }
+}
