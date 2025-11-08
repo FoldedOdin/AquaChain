@@ -729,12 +729,15 @@ cd scripts
 - **[GET_STARTED.md](GET_STARTED.md)** - Quick start guide
 - **[START_HERE.md](START_HERE.md)** - Project navigation
 - **[WHATS_NEXT.md](WHATS_NEXT.md)** - Post-deployment steps
+- **[docs/AWS_ACCOUNT_MIGRATION_SUMMARY.md](docs/AWS_ACCOUNT_MIGRATION_SUMMARY.md)** - Switch AWS accounts (quick)
 
 ### Technical Docs
 
+- **[docs/AWS_ACCOUNT_MIGRATION_GUIDE.md](docs/AWS_ACCOUNT_MIGRATION_GUIDE.md)** - Complete AWS account migration guide
 - **[docs/API_DOCUMENTATION.md](docs/)** - API reference
 - **[docs/DEPLOYMENT_GUIDE.md](docs/)** - Deployment instructions
 - **[docs/SECURITY_GUIDE.md](docs/)** - Security best practices
+- **[ESP32_CONNECTION_CHECKLIST.md](ESP32_CONNECTION_CHECKLIST.md)** - ESP32 hardware setup
 - **[frontend/README.md](frontend/README.md)** - Frontend documentation
 - **[lambda/README.md](lambda/README.md)** - Backend documentation
 
