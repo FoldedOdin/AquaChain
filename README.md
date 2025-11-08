@@ -308,9 +308,9 @@ DEVICE_ID=AquaChain-Device-001
 
 | Role | Email | Password | Access |
 |------|-------|----------|--------|
-| **Admin** | demo@aquachain.com | demo123 | Full system access |
-| **Technician** | tech@aquachain.com | tech123 | Task management |
-| **Consumer** | user@aquachain.com | user123 | Device monitoring |
+| **Admin** | admin@aquachain.com | demo1234 | Full system access |
+| **Technician** | tech@aquachain.com | tech1234 | Task management |
+| **Consumer** | user@aquachain.com | user1234 | Device monitoring |
 
 ### Consumer Dashboard
 
