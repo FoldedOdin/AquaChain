@@ -277,6 +277,18 @@ docker-compose.override.yml
 *.kubeconfig
 kube-config
 
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# Backup directories
+backup-*/
+backup-20250311-160016/
+
+
 # =============================================================================
 # PACKAGE MANAGER FILES
 # =============================================================================

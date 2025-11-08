@@ -35,13 +35,13 @@ git clone https://github.com/yourusername/aquachain.git
 cd aquachain
 
 # Windows
-setup-local.bat
-start-local.bat
+scripts\setup\setup-local.bat
+scripts\setup\start-local.bat
 
 # Linux/Mac
-chmod +x setup-local.sh start-local.sh
-./setup-local.sh
-./start-local.sh
+chmod +x scripts/setup/setup-local.sh scripts/setup/start-local.sh
+./scripts/setup/setup-local.sh
+./scripts/setup/start-local.sh
 
 # Access at http://localhost:3000
 # Login: demo@aquachain.com / demo123
@@ -431,8 +431,8 @@ pytest -v
 
 ```bash
 # Start local development
-start-local.bat  # Windows
-./start-local.sh # Linux/Mac
+scripts\setup\start-local.bat  # Windows
+./scripts/setup/start-local.sh # Linux/Mac
 
 # Access at http://localhost:3000
 ```
@@ -716,7 +716,7 @@ cd scripts
 
 ### Main Documentation
 
-- **[PROJECT_REPORT.md](PROJECT_REPORT.md)** - Complete technical documentation (3,900+ lines)
+- **[PROJECT_REPORT.md](docs/reports/PROJECT_REPORT.md)** - Complete technical documentation (3,900+ lines)
   - System architecture
   - Implementation details
   - Deployment guides
@@ -726,20 +726,20 @@ cd scripts
 
 ### Quick Guides
 
-- **[GET_STARTED.md](GET_STARTED.md)** - Quick start guide
-- **[START_HERE.md](START_HERE.md)** - Project navigation
-- **[WHATS_NEXT.md](WHATS_NEXT.md)** - Post-deployment steps
-- **[docs/AWS_ACCOUNT_MIGRATION_SUMMARY.md](docs/AWS_ACCOUNT_MIGRATION_SUMMARY.md)** - Switch AWS accounts (quick)
+- **[GET_STARTED.md](docs/guides/GET_STARTED.md)** - Quick start guide
+- **[START_HERE.md](docs/guides/START_HERE.md)** - Project navigation
+- **[WHATS_NEXT.md](docs/guides/WHATS_NEXT.md)** - Post-deployment steps
+- **[AWS_ACCOUNT_MIGRATION_SUMMARY.md](docs/AWS_ACCOUNT_MIGRATION_SUMMARY.md)** - Switch AWS accounts (quick)
 
 ### Technical Docs
 
-- **[docs/AWS_ACCOUNT_MIGRATION_GUIDE.md](docs/AWS_ACCOUNT_MIGRATION_GUIDE.md)** - Complete AWS account migration guide
-- **[docs/API_DOCUMENTATION.md](docs/)** - API reference
-- **[docs/DEPLOYMENT_GUIDE.md](docs/)** - Deployment instructions
-- **[docs/SECURITY_GUIDE.md](docs/)** - Security best practices
-- **[ESP32_CONNECTION_CHECKLIST.md](ESP32_CONNECTION_CHECKLIST.md)** - ESP32 hardware setup
-- **[frontend/README.md](frontend/README.md)** - Frontend documentation
-- **[lambda/README.md](lambda/README.md)** - Backend documentation
+- **[AWS_ACCOUNT_MIGRATION_GUIDE.md](docs/AWS_ACCOUNT_MIGRATION_GUIDE.md)** - Complete AWS account migration guide
+- **[API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)** - API reference
+- **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Deployment instructions
+- **[SECURITY_GUIDE.md](docs/SECURITY_GUIDE.md)** - Security best practices
+- **[ESP32_CONNECTION_CHECKLIST.md](docs/ESP32_CONNECTION_CHECKLIST.md)** - ESP32 hardware setup
+- **[Frontend Documentation](frontend/README.md)** - Frontend documentation
+- **[Backend Documentation](lambda/README.md)** - Backend documentation
 
 ---
 
