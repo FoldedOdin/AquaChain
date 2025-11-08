@@ -455,12 +455,11 @@ aws cloudfront create-invalidation --distribution-id YOUR-DIST-ID --paths "/*"
 
 ```bash
 # Ultra-optimized deployment (₹2,500-3,500/month)
-cd scripts
-./ultra-cost-optimize.bat
+scripts\maintenance\ultra-cost-optimize.bat
 
 # Zero-cost strategy (deploy on-demand)
-./delete-everything.bat  # Delete when not in use
-./deploy-all.bat         # Redeploy when needed
+scripts\maintenance\delete-everything.bat  # Delete when not in use
+scripts\deployment\deploy-all.bat         # Redeploy when needed
 ```
 
 ---
@@ -563,18 +562,37 @@ aquachain/
 │   ├── integration/           # Integration tests
 │   └── security/              # Security tests
 │
-├── scripts/                   # Automation scripts
-│   ├── deploy-all.bat         # Deploy everything
-│   ├── setup-local.bat        # Local setup
-│   └── start-local.bat        # Start dev servers
+├── scripts/                   # Automation scripts (organized)
+│   ├── deployment/            # Deployment scripts
+│   │   ├── deploy-all.bat     # Deploy everything
+│   │   ├── deploy-minimal.bat # Minimal deployment
+│   │   └── destroy-all-stacks.bat
+│   ├── testing/               # Testing scripts
+│   │   └── test-everything.bat
+│   ├── security/              # Security scanning
+│   ├── maintenance/           # System maintenance
+│   │   ├── ultra-cost-optimize.bat
+│   │   └── delete-everything.bat
+│   └── setup/                 # Setup scripts
+│       ├── setup-local.bat    # Local setup
+│       └── start-local.bat    # Start dev servers
 │
-├── docs/                      # Additional documentation
-│   ├── API_DOCUMENTATION.md
-│   ├── DEPLOYMENT_GUIDE.md
-│   └── SECURITY_GUIDE.md
+├── docs/                      # Documentation (organized)
+│   ├── guides/                # User guides
+│   │   ├── GET_STARTED.md
+│   │   ├── START_HERE.md
+│   │   └── WHATS_NEXT.md
+│   ├── reports/               # Technical reports
+│   │   └── PROJECT_REPORT.md  # Complete technical docs
+│   ├── AWS_ACCOUNT_MIGRATION_GUIDE.md
+│   └── ESP32_CONNECTION_CHECKLIST.md
 │
-├── PROJECT_REPORT.md          # Complete technical documentation
-├── README.md                  # This file
+├── config/                    # Configuration files
+│   ├── pytest.ini             # Test configuration
+│   ├── .pylintrc              # Linting rules
+│   └── buildspec.yml          # CI/CD config
+│
+├── README.md                  # This file (main entry point)
 └── .gitignore                 # Git ignore rules
 ```
 
@@ -706,8 +724,8 @@ pytest test_data_pipeline_workflow.py -v
 
 ```bash
 # Full system test
-cd scripts
-./test-everything.bat
+scripts\testing\test-everything.bat  # Windows
+./scripts/testing/test-everything.bat # Linux/Mac
 ```
 
 ---
@@ -928,8 +946,7 @@ kill -9 <PID>                 # Linux/Mac
 aws ce get-cost-and-usage --time-period Start=2025-11-01,End=2025-11-30 --granularity MONTHLY --metrics BlendedCost
 
 # Optimize
-cd scripts
-./ultra-cost-optimize.bat
+scripts\maintenance\ultra-cost-optimize.bat
 ```
 
 **Full troubleshooting guide**: See PROJECT_REPORT.md Appendix M
