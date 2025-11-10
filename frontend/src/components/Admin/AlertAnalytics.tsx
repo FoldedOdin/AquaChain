@@ -5,7 +5,7 @@ interface AlertAnalyticsProps {
   analytics: AlertAnalyticsType;
 }
 
-const AlertAnalytics = ({ analytics }: AlertAnalyticsProps) => {
+const AlertAnalytics = ({ analytics }: AlertAnalyticsProps): JSX.Element => {
   const severityData = [
     { name: 'Critical', value: analytics.criticalAlerts, color: '#ef4444' },
     { name: 'Warning', value: analytics.warningAlerts, color: '#f59e0b' },

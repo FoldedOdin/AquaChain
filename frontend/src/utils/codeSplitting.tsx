@@ -85,7 +85,7 @@ export const LazyAdminDashboard = React.lazy(() =>
 /**
  * Preload components for better UX
  */
-export const preloadComponent = (importFunction: () => Promise<any>) => {
+export const preloadComponent = (importFunction: () => Promise<any>): void => {
   // Preload the component module
   importFunction().catch(() => {
     // Silently fail if preload fails
@@ -95,7 +95,7 @@ export const preloadComponent = (importFunction: () => Promise<any>) => {
 /**
  * Preload critical components on user interaction
  */
-export const preloadCriticalComponents = () => {
+export const preloadCriticalComponents = (): void => {
   // Preload auth modal when user hovers over "Get Started" button
   preloadComponent(() => import('../components/LandingPage/AuthModal'));
   
@@ -120,15 +120,15 @@ export class LazyLoadingErrorBoundary extends React.Component<
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): { hasError: boolean; error: Error } {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     console.error('Lazy loading error:', error, errorInfo);
   }
 
-  render() {
+  render(): React.ReactNode {
     if (this.state.hasError) {
       return (
         this.props.fallback || (

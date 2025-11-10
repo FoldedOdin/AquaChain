@@ -43,11 +43,11 @@ jobs:
 
       - name: Generate SBOMs
         run: |
-          python scripts/generate-sbom.py
+          python scripts/security/generate-sbom.py
 
       - name: Generate vulnerability reports
         run: |
-          python scripts/vulnerability-report-generator.py
+          python scripts/security/vulnerability-report-generator.py
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

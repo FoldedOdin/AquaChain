@@ -120,6 +120,10 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -186,11 +190,11 @@ jobs:
 
       - name: Generate SBOMs
         run: |
-          python scripts/generate-sbom.py
+          python scripts/security/generate-sbom.py
 
       - name: Generate vulnerability reports
         run: |
-          python scripts/vulnerability-report-generator.py
+          python scripts/security/vulnerability-report-generator.py
 
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
@@ -459,7 +463,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install boto3 pytest moto[all] pyyaml
+          pip install boto3 pytest pytest-cov moto[all] pyyaml
 
       - name: Run infrastructure tests
         run: |

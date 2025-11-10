@@ -23,7 +23,7 @@ const DashboardLoadingFallback = () => (
   </div>
 );
 
-function App() {
+function App(): JSX.Element {
   // Initialize performance monitoring
   useEffect(() => {
     // Mark app initialization

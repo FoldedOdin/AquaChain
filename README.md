@@ -734,7 +734,7 @@ scripts\testing\test-everything.bat  # Windows
 
 ### Main Documentation
 
-- **[PROJECT_REPORT.md](docs/reports/PROJECT_REPORT.md)** - Complete technical documentation (3,900+ lines)
+- **[PROJECT_REPORT.md](DOCS/reports/PROJECT_REPORT.md)** - Complete technical documentation (3,900+ lines)
   - System architecture
   - Implementation details
   - Deployment guides
@@ -744,16 +744,16 @@ scripts\testing\test-everything.bat  # Windows
 
 ### Quick Guides
 
-- **[GET_STARTED.md](docs/guides/GET_STARTED.md)** - Quick start guide
-- **[START_HERE.md](docs/guides/START_HERE.md)** - Project navigation
-- **[WHATS_NEXT.md](docs/guides/WHATS_NEXT.md)** - Post-deployment steps
-- **[AWS_ACCOUNT_MIGRATION_SUMMARY.md](docs/AWS_ACCOUNT_MIGRATION_SUMMARY.md)** - Switch AWS accounts (quick)
+- **[GET_STARTED.md](DOCS/guides/GET_STARTED.md)** - Quick start guide
+- **[START_HERE.md](DOCS/guides/START_HERE.md)** - Project navigation
+- **[WHATS_NEXT.md](DOCS/guides/WHATS_NEXT.md)** - Post-deployment steps
+- **[AWS_ACCOUNT_MIGRATION_SUMMARY.md](DOCS/AWS_ACCOUNT_MIGRATION_SUMMARY.md)** - Switch AWS accounts (quick)
 
 ### Technical Docs
 
-- **[AWS_ACCOUNT_MIGRATION_GUIDE.md](docs/AWS_ACCOUNT_MIGRATION_GUIDE.md)** - Complete AWS account migration guide
-- **[ESP32_CONNECTION_CHECKLIST.md](docs/ESP32_CONNECTION_CHECKLIST.md)** - ESP32 hardware setup
-- **[LOCAL_DEVELOPMENT_GUIDE.md](docs/LOCAL_DEVELOPMENT_GUIDE.md)** - Local development setup
+- **[AWS_ACCOUNT_MIGRATION_GUIDE.md](DOCS/AWS_ACCOUNT_MIGRATION_GUIDE.md)** - Complete AWS account migration guide
+- **[ESP32_CONNECTION_CHECKLIST.md](DOCS/ESP32_CONNECTION_CHECKLIST.md)** - ESP32 hardware setup
+- **[LOCAL_DEVELOPMENT_GUIDE.md](DOCS/LOCAL_DEVELOPMENT_GUIDE.md)** - Local development setup
 - **[Frontend Documentation](frontend/README.md)** - Frontend documentation
 - **[Backend Documentation](lambda/README.md)** - Backend documentation
 
@@ -979,10 +979,10 @@ scripts\maintenance\ultra-cost-optimize.bat
 ## 📞 Support
 
 ### Documentation
-- **Complete Guide**: [PROJECT_REPORT.md](docs/reports/PROJECT_REPORT.md)
-- **Quick Start**: [GET_STARTED.md](docs/guides/GET_STARTED.md)
-- **Navigation**: [START_HERE.md](docs/guides/START_HERE.md)
-- **Troubleshooting**: [PROJECT_REPORT.md Appendix M](docs/reports/PROJECT_REPORT.md#appendix-m-troubleshooting-guide)
+- **Complete Guide**: [PROJECT_REPORT.md](DOCS/reports/PROJECT_REPORT.md)
+- **Quick Start**: [GET_STARTED.md](DOCS/guides/GET_STARTED.md)
+- **Navigation**: [START_HERE.md](DOCS/guides/START_HERE.md)
+- **Troubleshooting**: [PROJECT_REPORT.md Appendix M](DOCS/reports/PROJECT_REPORT.md#appendix-m-troubleshooting-guide)
 
 ### Contact
 - **Issues**: Open a GitHub issue
@@ -1044,13 +1044,13 @@ If you find this project useful, please consider giving it a star ⭐
 
 ## 📖 Additional Resources
 
-- **[Complete Documentation](docs/reports/PROJECT_REPORT.md)** - 3,900+ lines of technical docs
-- **[Architecture Guide](docs/reports/PROJECT_REPORT.md#system-architecture)** - System design
-- **[Deployment Guide](docs/reports/PROJECT_REPORT.md#appendix-j-aws-deployment)** - AWS setup
-- **[Security Guide](docs/reports/PROJECT_REPORT.md#appendix-l-security--compliance)** - Security best practices
-- **[Cost Optimization](docs/cost-optimization/README.md)** - Cost reduction strategies
-- **[All Documentation](docs/)** - Browse all docs
+- **[Complete Documentation](DOCS/reports/PROJECT_REPORT.md)** - 3,900+ lines of technical docs
+- **[Architecture Guide](DOCS/reports/PROJECT_REPORT.md#system-architecture)** - System design
+- **[Deployment Guide](DOCS/reports/PROJECT_REPORT.md#appendix-j-aws-deployment)** - AWS setup
+- **[Security Guide](DOCS/reports/PROJECT_REPORT.md#appendix-l-security--compliance)** - Security best practices
+- **[Cost Optimization](DOCS/cost-optimization/README.md)** - Cost reduction strategies
+- **[All Documentation](DOCS/)** - Browse all docs
 
 ---
 
-**For complete documentation, see [PROJECT_REPORT.md](docs/reports/PROJECT_REPORT.md)**
+**For complete documentation, see [PROJECT_REPORT.md](DOCS/reports/PROJECT_REPORT.md)**
