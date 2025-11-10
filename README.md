@@ -987,7 +987,7 @@ scripts\maintenance\ultra-cost-optimize.bat
 ### Contact
 - **Issues**: Open a GitHub issue
 - **Discussions**: GitHub Discussions
-- **Email**: support@aquachain.com (if applicable)
+- **Email**: contactaquachain@gmail.com
 
 ---
 
