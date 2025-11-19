@@ -9,6 +9,7 @@ import {
   ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
 import { sanitizeInput, validateEmail, validatePhone } from '../../utils/security';
+import { submitContactForm } from '../../services/contactService';
 
 interface ContactFormData {
   name: string;
@@ -131,8 +132,9 @@ const ContactForm: React.FC<ContactFormProps> = ({ onSubmit, className = '' }) =
       if (onSubmit) {
         await onSubmit(formData);
       } else {
-        // Simulate API call for demo
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Submit to backend API
+        const response = await submitContactForm(formData);
+        console.log('Contact form submitted:', response.submissionId);
       }
 
       setSubmissionState({
@@ -152,11 +154,12 @@ const ContactForm: React.FC<ContactFormProps> = ({ onSubmit, className = '' }) =
       });
 
     } catch (error) {
+      console.error('Contact form submission error:', error);
       setSubmissionState({
         isSubmitting: false,
         isSuccess: false,
         isError: true,
-        message: 'Sorry, there was an error sending your message. Please try again.'
+        message: error instanceof Error ? error.message : 'Sorry, there was an error sending your message. Please try again.'
       });
     }
   };
