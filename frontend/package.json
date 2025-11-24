@@ -118,7 +118,7 @@
     "@types/node": "^24.8.1",
     "autoprefixer": "^10.4.21",
     "babel-plugin-transform-remove-console": "^6.9.4",
-    "concurrently": "^8.2.2",
+    "concurrently": "^9.2.1",
     "cors": "^2.8.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-storybook": "^9.1.13",
