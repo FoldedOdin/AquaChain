@@ -122,7 +122,7 @@
     "cors": "^2.8.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-storybook": "^9.1.13",
-    "express": "^4.21.2",
+    "express": "^5.1.0",
     "husky": "^9.1.7",
     "image-minimizer-webpack-plugin": "^4.0.0",
     "imagemin": "^8.0.1",
