@@ -70,31 +70,269 @@ const DataExportModal: React.FC<DataExportModalProps> = ({ isOpen, onClose, user
 
     setIsExporting(true);
     
-    // Simulate export process
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      // Simulate export process
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const exportData = {
+        format: selectedFormat,
+        dateRange: selectedDateRange,
+        customDates: selectedDateRange === 'custom' ? { start: customStartDate, end: customEndDate } : null,
+        dataTypes: selectedDataTypes,
+        exportedAt: new Date().toISOString(),
+        userRole
+      };
+
+      let blob: Blob;
+      let mimeType: string;
+      let fileExtension: string;
+
+      switch (selectedFormat) {
+        case 'csv':
+          // Generate CSV
+          const csvContent = generateCSV(exportData);
+          blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          mimeType = 'text/csv';
+          fileExtension = 'csv';
+          break;
+
+        case 'pdf':
+          // Generate HTML-based PDF (can be printed to PDF)
+          const htmlContent = generateHTMLReport(exportData);
+          blob = new Blob([htmlContent], { type: 'text/html' });
+          mimeType = 'text/html';
+          fileExtension = 'html';
+          // Open in new window for printing
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            setTimeout(() => {
+              printWindow.print();
+            }, 500);
+          }
+          setIsExporting(false);
+          onClose();
+          return; // Skip the download part
+
+        case 'json':
+        default:
+          // Generate JSON
+          blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+          mimeType = 'application/json';
+          fileExtension = 'json';
+          break;
+      }
+
+      // Create download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aquachain-export-${userRole}-${Date.now()}.${fileExtension}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setIsExporting(false);
+      onClose();
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
+      setIsExporting(false);
+    }
+  };
+
+  const generateCSV = (data: any): string => {
+    const headers = ['Data Type', 'Date Range', 'Exported At', 'User Role'];
+    const rows = data.dataTypes.map((type: string) => [
+      type,
+      getDateRangeLabel(),
+      new Date(data.exportedAt).toLocaleString(),
+      data.userRole
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row: string[]) => row.join(','))
+    ].join('\n');
+
+    return csvContent;
+  };
+
+  const generateHTMLReport = (data: any): string => {
+    const exportDate = new Date(data.exportedAt).toLocaleString();
+    const dateRange = getDateRangeLabel();
     
-    // Create mock download
-    const exportData = {
-      format: selectedFormat,
-      dateRange: selectedDateRange,
-      customDates: selectedDateRange === 'custom' ? { start: customStartDate, end: customEndDate } : null,
-      dataTypes: selectedDataTypes,
-      exportedAt: new Date().toISOString(),
-      userRole
-    };
+    // Get full data type labels
+    const selectedTypes = availableDataTypes
+      .filter(dt => data.dataTypes.includes(dt.id))
+      .map(dt => `<tr><td style="padding: 8px; border: 1px solid #ddd;">${dt.label}</td><td style="padding: 8px; border: 1px solid #ddd;">${dt.description}</td></tr>`)
+      .join('');
+    
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AquaChain Data Export Report</title>
+  <style>
+    @media print {
+      body { margin: 0; }
+      .no-print { display: none; }
+    }
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      border-bottom: 3px solid #3b82f6;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      color: #1e40af;
+      margin: 0 0 10px 0;
+    }
+    .header p {
+      color: #6b7280;
+      margin: 5px 0;
+    }
+    .section {
+      margin: 30px 0;
+    }
+    .section h2 {
+      color: #1e40af;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
+      margin-bottom: 15px;
+    }
+    .info-grid {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 10px;
+      margin: 15px 0;
+    }
+    .info-label {
+      font-weight: bold;
+      color: #4b5563;
+    }
+    .info-value {
+      color: #1f2937;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    th {
+      background-color: #3b82f6;
+      color: white;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+    }
+    td {
+      padding: 10px;
+      border: 1px solid #e5e7eb;
+    }
+    tr:nth-child(even) {
+      background-color: #f9fafb;
+    }
+    .footer {
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 2px solid #e5e7eb;
+      text-align: center;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .print-button {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 20px 0;
+    }
+    .print-button:hover {
+      background-color: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="text-align: center;">
+    <button class="print-button" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </div>
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `aquachain-export-${userRole}-${Date.now()}.${selectedFormat}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  <div class="header">
+    <h1>🌊 AquaChain Data Export Report</h1>
+    <p>Water Quality Monitoring System</p>
+  </div>
 
-    setIsExporting(false);
-    onClose();
+  <div class="section">
+    <h2>Export Information</h2>
+    <div class="info-grid">
+      <div class="info-label">Export Date:</div>
+      <div class="info-value">${exportDate}</div>
+      
+      <div class="info-label">User Role:</div>
+      <div class="info-value">${data.userRole.charAt(0).toUpperCase() + data.userRole.slice(1)}</div>
+      
+      <div class="info-label">Date Range:</div>
+      <div class="info-value">${dateRange}</div>
+      
+      ${data.customDates ? `
+      <div class="info-label">Custom Start:</div>
+      <div class="info-value">${data.customDates.start}</div>
+      
+      <div class="info-label">Custom End:</div>
+      <div class="info-value">${data.customDates.end}</div>
+      ` : ''}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Selected Data Types</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Data Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${selectedTypes}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Report Summary</h2>
+    <p>This report contains ${data.dataTypes.length} data type(s) exported from the AquaChain Water Quality Monitoring System.</p>
+    <p>The data covers the period: <strong>${dateRange}</strong></p>
+    <p>For detailed data analysis and visualization, please access the AquaChain dashboard.</p>
+  </div>
+
+  <div class="footer">
+    <p><strong>AquaChain</strong> - Advanced Water Quality Monitoring</p>
+    <p>Generated on ${exportDate}</p>
+    <p style="margin-top: 10px; font-size: 12px;">
+      This is an automated report. For questions or support, please contact your system administrator.
+    </p>
+  </div>
+
+  <script>
+    // Auto-print on load (optional)
+    // window.onload = function() { window.print(); };
+  </script>
+</body>
+</html>`;
   };
 
   const getDateRangeLabel = () => {

@@ -15,6 +15,14 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3002;
 
+// Track server metrics
+const serverMetrics = {
+  startTime: Date.now(),
+  apiCalls: 0,
+  apiErrors: 0,
+  endpoints: {}
+};
+
 // File path for persistent storage
 const DEV_DATA_FILE = path.join(__dirname, '../../.dev-data.json');
 
@@ -23,9 +31,31 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Logging middleware
+// Logging and metrics middleware
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  
+  // Track API calls
+  serverMetrics.apiCalls++;
+  const endpoint = `${req.method} ${req.path}`;
+  serverMetrics.endpoints[endpoint] = (serverMetrics.endpoints[endpoint] || 0) + 1;
+  
+  // Track response time
+  const startTime = Date.now();
+  
+  // Capture response
+  const originalSend = res.send;
+  res.send = function(data) {
+    const responseTime = Date.now() - startTime;
+    
+    // Track errors
+    if (res.statusCode >= 400) {
+      serverMetrics.apiErrors++;
+    }
+    
+    return originalSend.call(this, data);
+  };
+  
   next();
 });
 
@@ -53,6 +83,66 @@ app.get('/api/health', (req, res) => {
     status: 'ok', 
     timestamp: new Date().toISOString(),
     service: 'aquachain-dev-server'
+  });
+});
+
+// Get system metrics (Admin only)
+app.get('/api/admin/metrics', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Calculate uptime
+  const uptimeMs = Date.now() - serverMetrics.startTime;
+  const uptimeHours = uptimeMs / (1000 * 60 * 60);
+  const uptimeDays = uptimeHours / 24;
+  
+  // Calculate API success rate
+  const totalCalls = serverMetrics.apiCalls;
+  const successfulCalls = totalCalls - serverMetrics.apiErrors;
+  const apiUptime = totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 100;
+  
+  res.json({
+    success: true,
+    metrics: {
+      serverStartTime: new Date(serverMetrics.startTime).toISOString(),
+      uptimeMs: uptimeMs,
+      uptimeHours: uptimeHours.toFixed(2),
+      uptimeDays: uptimeDays.toFixed(2),
+      systemUptime: 100, // Server is running = 100% uptime
+      apiUptime: apiUptime.toFixed(1),
+      totalApiCalls: totalCalls,
+      successfulApiCalls: successfulCalls,
+      failedApiCalls: serverMetrics.apiErrors,
+      topEndpoints: Object.entries(serverMetrics.endpoints)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([endpoint, count]) => ({ endpoint, count }))
+    }
   });
 });
 
@@ -495,6 +585,29 @@ const devUsers = new Map();
 const validTokens = new Map();
 const devDevices = new Map(); // Map of userId -> array of devices
 const devNotifications = new Map(); // Map of userId -> array of notifications
+const contactSubmissions = []; // Array of contact form submissions
+
+// System settings storage
+let systemSettings = {
+  alertThresholds: {
+    phMin: 6.5,
+    phMax: 8.5,
+    turbidityMax: 5.0,
+    tdsMax: 500
+  },
+  notificationSettings: {
+    emailEnabled: true,
+    smsEnabled: true,
+    pushEnabled: true
+  },
+  systemLimits: {
+    maxDevicesPerUser: 10,
+    dataRetentionDays: 90
+  }
+};
+
+// System alerts storage
+const systemAlerts = [];
 
 // Load existing users from file
 function loadDevData() {
@@ -527,6 +640,18 @@ function loadDevData() {
         console.log(`✅ Loaded ${totalDevices} devices from storage`);
       }
       
+      // Load system settings
+      if (data.systemSettings) {
+        systemSettings = data.systemSettings;
+        console.log(`✅ Loaded system settings from storage`);
+      }
+      
+      // Load system alerts
+      if (data.systemAlerts) {
+        systemAlerts.push(...data.systemAlerts);
+        console.log(`✅ Loaded ${systemAlerts.length} system alerts from storage`);
+      }
+      
       // Load notifications
       if (data.notifications) {
         Object.entries(data.notifications).forEach(([userId, notifications]) => {
@@ -534,6 +659,12 @@ function loadDevData() {
         });
         const totalNotifications = Array.from(devNotifications.values()).reduce((sum, notifs) => sum + notifs.length, 0);
         console.log(`✅ Loaded ${totalNotifications} notifications from storage`);
+      }
+      
+      // Load contact submissions
+      if (data.contactSubmissions) {
+        contactSubmissions.push(...data.contactSubmissions);
+        console.log(`✅ Loaded ${contactSubmissions.length} contact submissions from storage`);
       }
     } else {
       console.log('📝 No existing dev data found - starting fresh');
@@ -551,6 +682,9 @@ function saveDevData() {
       tokens: Object.fromEntries(validTokens),
       devices: Object.fromEntries(devDevices),
       notifications: Object.fromEntries(devNotifications),
+      contactSubmissions: contactSubmissions,
+      systemSettings: systemSettings,
+      systemAlerts: systemAlerts,
       lastUpdated: new Date().toISOString()
     };
     fs.writeFileSync(DEV_DATA_FILE, JSON.stringify(data, null, 2));
@@ -561,6 +695,40 @@ function saveDevData() {
 
 // Load data on startup
 loadDevData();
+
+// Add sample alerts if none exist
+if (systemAlerts.length === 0) {
+  systemAlerts.push(
+    {
+      id: 'alert-1',
+      message: 'System started successfully',
+      priority: 'low',
+      type: 'info',
+      timestamp: new Date().toISOString(),
+      read: false,
+      createdBy: 'system'
+    },
+    {
+      id: 'alert-2',
+      message: 'High water quality detected in Device DEV-3421',
+      priority: 'medium',
+      type: 'warning',
+      timestamp: new Date(Date.now() - 3600000).toISOString(),
+      read: false,
+      createdBy: 'system'
+    },
+    {
+      id: 'alert-3',
+      message: 'Critical: Device DEV-3422 offline for 2 hours',
+      priority: 'high',
+      type: 'error',
+      timestamp: new Date(Date.now() - 7200000).toISOString(),
+      read: false,
+      createdBy: 'system'
+    }
+  );
+  console.log('✅ Added sample system alerts');
+}
 
 // Mock auth endpoints
 app.post('/api/auth/signup', (req, res) => {
@@ -1190,6 +1358,1154 @@ function createNotification(userId, type, title, message, priority = 'medium') {
   return notification;
 }
 
+// Contact form submission endpoint
+app.post('/contact', (req, res) => {
+  const { name, email, phone, message, inquiryType } = req.body;
+  
+  console.log('📧 Contact form submission received:');
+  console.log(`   Name: ${name}`);
+  console.log(`   Email: ${email}`);
+  console.log(`   Phone: ${phone || 'Not provided'}`);
+  console.log(`   Type: ${inquiryType}`);
+  console.log(`   Message: ${message}`);
+  
+  // Generate submission ID
+  const submissionId = `contact_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  
+  // Store submission
+  const submission = {
+    id: submissionId,
+    name,
+    email,
+    phone: phone || null,
+    message,
+    inquiryType,
+    timestamp: new Date().toISOString(),
+    status: 'new',
+    read: false
+  };
+  
+  contactSubmissions.unshift(submission); // Add to beginning
+  saveDevData();
+  
+  console.log(`✅ Contact submission saved with ID: ${submissionId}`);
+  
+  res.json({
+    message: 'Thank you for contacting us! We will get back to you soon.',
+    submissionId
+  });
+});
+
+// Create new user (Admin only)
+app.post('/api/admin/users', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const adminUser = devUsers.get(tokenData.email);
+  
+  if (!adminUser || adminUser.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { firstName, lastName, email, phone, password, role, status } = req.body;
+  
+  // Validation
+  if (!firstName || !lastName || !email || !password) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'First name, last name, email, and password are required' 
+    });
+  }
+  
+  if (password.length < 8) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Password must be at least 8 characters' 
+    });
+  }
+  
+  // Check if email already exists
+  if (devUsers.has(email)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Email already exists' 
+    });
+  }
+  
+  // Create new user
+  const userId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const newUser = {
+    userId,
+    email,
+    password,
+    firstName,
+    lastName,
+    phone: phone || '',
+    role: role || 'consumer',
+    status: status || 'active',
+    emailVerified: true, // Admin-created users are pre-verified
+    createdAt: new Date().toISOString(),
+    createdBy: tokenData.userId
+  };
+  
+  devUsers.set(email, newUser);
+  saveDevData();
+  
+  console.log(`✅ Admin created new user: ${email} (${role || 'consumer'})`);
+  
+  // Create welcome notification
+  createNotification(
+    userId,
+    'info',
+    'Welcome to AquaChain!',
+    `Your account has been created by an administrator. You can now log in and start using the system.`,
+    'medium'
+  );
+  
+  res.json({
+    success: true,
+    message: 'User created successfully',
+    user: {
+      userId: newUser.userId,
+      email: newUser.email,
+      firstName: newUser.firstName,
+      lastName: newUser.lastName,
+      phone: newUser.phone,
+      role: newUser.role,
+      status: newUser.status,
+      createdAt: newUser.createdAt
+    }
+  });
+});
+
+// Get all users (Admin only)
+app.get('/api/admin/users', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Get all users with device counts
+  const allUsers = Array.from(devUsers.values()).map(u => {
+    const userDevices = devDevices.get(u.userId) || [];
+    return {
+      userId: u.userId,
+      email: u.email,
+      name: u.name,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      phone: u.phone,
+      role: u.role,
+      emailVerified: u.emailVerified,
+      createdAt: u.createdAt,
+      lastLogin: u.lastLogin,
+      deviceCount: userDevices.length
+    };
+  });
+  
+  res.json({
+    success: true,
+    users: allUsers,
+    count: allUsers.length
+  });
+});
+
+// Update user (Admin only)
+app.put('/api/admin/users/:userId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const adminUser = devUsers.get(tokenData.email);
+  
+  if (!adminUser || adminUser.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { userId } = req.params;
+  const { firstName, lastName, email, phone, role, status } = req.body;
+  
+  // Find user by userId
+  let userToUpdate = null;
+  let oldEmail = null;
+  
+  for (const [userEmail, userData] of devUsers.entries()) {
+    if (userData.userId === userId) {
+      userToUpdate = userData;
+      oldEmail = userEmail;
+      break;
+    }
+  }
+  
+  if (!userToUpdate) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  // Check if email is being changed and if new email already exists
+  if (email && email !== oldEmail) {
+    if (devUsers.has(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email already in use by another user' 
+      });
+    }
+  }
+  
+  // Update user data
+  if (firstName) userToUpdate.firstName = firstName;
+  if (lastName) userToUpdate.lastName = lastName;
+  if (phone !== undefined) userToUpdate.phone = phone;
+  if (role) userToUpdate.role = role;
+  if (status) userToUpdate.status = status;
+  
+  // Handle email change
+  if (email && email !== oldEmail) {
+    devUsers.delete(oldEmail);
+    userToUpdate.email = email;
+    devUsers.set(email, userToUpdate);
+    
+    // Update tokens
+    for (const [token, data] of validTokens.entries()) {
+      if (data.email === oldEmail) {
+        data.email = email;
+      }
+    }
+  }
+  
+  userToUpdate.updatedAt = new Date().toISOString();
+  
+  saveDevData();
+  
+  console.log(`✅ Admin updated user: ${userToUpdate.email} (${userId})`);
+  
+  res.json({
+    success: true,
+    message: 'User updated successfully',
+    user: {
+      userId: userToUpdate.userId,
+      email: userToUpdate.email,
+      firstName: userToUpdate.firstName,
+      lastName: userToUpdate.lastName,
+      phone: userToUpdate.phone,
+      role: userToUpdate.role,
+      status: userToUpdate.status
+    }
+  });
+});
+
+// Delete user (Admin only)
+app.delete('/api/admin/users/:userId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { userId } = req.params;
+  
+  // Find user by userId
+  let userToDelete = null;
+  let userEmail = null;
+  
+  for (const [email, userData] of devUsers.entries()) {
+    if (userData.userId === userId) {
+      userToDelete = userData;
+      userEmail = email;
+      break;
+    }
+  }
+  
+  if (!userToDelete) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  // Prevent deleting yourself
+  if (userId === tokenData.userId) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Cannot delete your own account' 
+    });
+  }
+  
+  // Delete user's devices
+  devDevices.delete(userId);
+  
+  // Delete user's notifications
+  devNotifications.delete(userId);
+  
+  // Delete user
+  devUsers.delete(userEmail);
+  
+  // Invalidate user's tokens
+  for (const [token, data] of validTokens.entries()) {
+    if (data.userId === userId) {
+      validTokens.delete(token);
+    }
+  }
+  
+  saveDevData();
+  
+  console.log(`🗑️  Admin deleted user: ${userEmail} (${userId})`);
+  
+  res.json({
+    success: true,
+    message: 'User deleted successfully'
+  });
+});
+
+// Get all devices (Admin only)
+app.get('/api/admin/devices', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Get all devices from all users
+  const allDevices = [];
+  for (const [userId, devices] of devDevices.entries()) {
+    allDevices.push(...devices);
+  }
+  
+  res.json({
+    success: true,
+    devices: allDevices,
+    count: allDevices.length
+  });
+});
+
+// Create new device (Admin only)
+app.post('/api/admin/devices', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const adminUser = devUsers.get(tokenData.email);
+  
+  if (!adminUser || adminUser.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { deviceId, location, consumerId, consumerName, status } = req.body;
+  
+  // Validation
+  if (!deviceId) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Device ID is required' 
+    });
+  }
+  
+  // Check if device ID already exists
+  for (const [userId, devices] of devDevices.entries()) {
+    if (devices.some(d => d.device_id === deviceId)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Device ID already exists' 
+      });
+    }
+  }
+  
+  // Determine which user to assign device to
+  const assignToUserId = consumerId || tokenData.userId;
+  
+  // Get consumer name if consumerId provided
+  let finalConsumerName = consumerName || 'Unassigned';
+  if (consumerId) {
+    // Find consumer user
+    for (const [email, userData] of devUsers.entries()) {
+      if (userData.userId === consumerId) {
+        finalConsumerName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || userData.name || email;
+        break;
+      }
+    }
+  }
+  
+  // Create new device
+  const newDevice = {
+    device_id: deviceId,
+    user_id: assignToUserId,
+    name: deviceId,
+    location: location || '',
+    consumerName: finalConsumerName,
+    status: status || 'online',
+    created_at: new Date().toISOString(),
+    created_by: tokenData.userId
+  };
+  
+  // Add device to the assigned user's devices
+  const userDevices = devDevices.get(assignToUserId) || [];
+  userDevices.push(newDevice);
+  devDevices.set(assignToUserId, userDevices);
+  
+  saveDevData();
+  
+  console.log(`✅ Admin created new device: ${deviceId}`);
+  
+  res.json({
+    success: true,
+    message: 'Device created successfully',
+    device: {
+      deviceId: newDevice.device_id,
+      location: newDevice.location,
+      consumerName: newDevice.consumerName,
+      status: newDevice.status,
+      createdAt: newDevice.created_at
+    }
+  });
+});
+
+// Update device (Admin only)
+app.put('/api/admin/devices/:deviceId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { deviceId } = req.params;
+  const { status, location, consumerName } = req.body;
+  
+  // Find and update device
+  let deviceUpdated = false;
+  let updatedDevice = null;
+  
+  for (const [userId, devices] of devDevices.entries()) {
+    const deviceIndex = devices.findIndex(d => d.device_id === deviceId);
+    if (deviceIndex !== -1) {
+      const device = devices[deviceIndex];
+      
+      // Update device fields
+      if (status) device.status = status;
+      if (location) device.location = location;
+      if (consumerName) device.consumerName = consumerName;
+      device.updated_at = new Date().toISOString();
+      
+      devices[deviceIndex] = device;
+      devDevices.set(userId, devices);
+      updatedDevice = device;
+      deviceUpdated = true;
+      break;
+    }
+  }
+  
+  if (!deviceUpdated) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found' 
+    });
+  }
+  
+  saveDevData();
+  
+  console.log(`✅ Admin updated device: ${deviceId}`);
+  
+  res.json({
+    success: true,
+    message: 'Device updated successfully',
+    device: updatedDevice
+  });
+});
+
+// Delete device (Admin only)
+app.delete('/api/admin/devices/:deviceId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { deviceId } = req.params;
+  
+  // Find and delete device from all users
+  let deviceDeleted = false;
+  for (const [userId, devices] of devDevices.entries()) {
+    const filteredDevices = devices.filter(d => d.device_id !== deviceId);
+    if (filteredDevices.length < devices.length) {
+      devDevices.set(userId, filteredDevices);
+      deviceDeleted = true;
+    }
+  }
+  
+  if (!deviceDeleted) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found' 
+    });
+  }
+  
+  saveDevData();
+  
+  console.log(`🗑️  Admin deleted device: ${deviceId}`);
+  
+  res.json({
+    success: true,
+    message: 'Device deleted successfully'
+  });
+});
+
+// Get system settings (Admin only)
+app.get('/api/admin/settings', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  res.json({
+    success: true,
+    settings: systemSettings
+  });
+});
+
+// Update system settings (Admin only)
+app.put('/api/admin/settings', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const updates = req.body;
+  
+  // Update settings
+  if (updates.alertThresholds) {
+    systemSettings.alertThresholds = {
+      ...systemSettings.alertThresholds,
+      ...updates.alertThresholds
+    };
+  }
+  
+  if (updates.notificationSettings) {
+    systemSettings.notificationSettings = {
+      ...systemSettings.notificationSettings,
+      ...updates.notificationSettings
+    };
+  }
+  
+  if (updates.systemLimits) {
+    systemSettings.systemLimits = {
+      ...systemSettings.systemLimits,
+      ...updates.systemLimits
+    };
+  }
+  
+  saveDevData();
+  
+  console.log(`⚙️  Admin updated system settings`);
+  
+  res.json({
+    success: true,
+    message: 'Settings updated successfully',
+    settings: systemSettings
+  });
+});
+
+// Get system alerts (Admin only)
+app.get('/api/admin/alerts', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Get alerts with statistics
+  const criticalCount = systemAlerts.filter(a => a.priority === 'high').length;
+  const warningCount = systemAlerts.filter(a => a.priority === 'medium').length;
+  const infoCount = systemAlerts.filter(a => a.priority === 'low').length;
+  
+  res.json({
+    success: true,
+    alerts: systemAlerts,
+    statistics: {
+      critical: criticalCount,
+      warning: warningCount,
+      info: infoCount,
+      total: systemAlerts.length
+    }
+  });
+});
+
+// Create system alert (Admin only)
+app.post('/api/admin/alerts', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { message, priority, type } = req.body;
+  
+  const newAlert = {
+    id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    message: message || 'System alert',
+    priority: priority || 'low',
+    type: type || 'info',
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: tokenData.userId
+  };
+  
+  systemAlerts.unshift(newAlert);
+  
+  // Keep only last 100 alerts
+  if (systemAlerts.length > 100) {
+    systemAlerts.splice(100);
+  }
+  
+  saveDevData();
+  
+  console.log(`🔔 Admin created alert: ${message}`);
+  
+  res.json({
+    success: true,
+    message: 'Alert created successfully',
+    alert: newAlert
+  });
+});
+
+// Mark alert as read (Admin only)
+app.put('/api/admin/alerts/:alertId/read', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { alertId } = req.params;
+  const alert = systemAlerts.find(a => a.id === alertId);
+  
+  if (!alert) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Alert not found' 
+    });
+  }
+  
+  alert.read = true;
+  saveDevData();
+  
+  res.json({
+    success: true,
+    message: 'Alert marked as read'
+  });
+});
+
+// Mark all alerts as read (Admin only)
+app.put('/api/admin/alerts/read-all', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  systemAlerts.forEach(alert => {
+    alert.read = true;
+  });
+  
+  saveDevData();
+  
+  console.log(`✅ Admin marked all alerts as read`);
+  
+  res.json({
+    success: true,
+    message: 'All alerts marked as read',
+    count: systemAlerts.length
+  });
+});
+
+// Delete alert (Admin only)
+app.delete('/api/admin/alerts/:alertId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { alertId } = req.params;
+  const alertIndex = systemAlerts.findIndex(a => a.id === alertId);
+  
+  if (alertIndex === -1) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Alert not found' 
+    });
+  }
+  
+  systemAlerts.splice(alertIndex, 1);
+  saveDevData();
+  
+  console.log(`🗑️  Admin deleted alert: ${alertId}`);
+  
+  res.json({
+    success: true,
+    message: 'Alert deleted successfully'
+  });
+});
+
+// Get all contact submissions (Admin only)
+app.get('/api/admin/contact-submissions', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  res.json({
+    success: true,
+    submissions: contactSubmissions,
+    count: contactSubmissions.length,
+    unreadCount: contactSubmissions.filter(s => !s.read).length
+  });
+});
+
+// Mark contact submission as read (Admin only)
+app.put('/api/admin/contact-submissions/:submissionId/read', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { submissionId } = req.params;
+  const submission = contactSubmissions.find(s => s.id === submissionId);
+  
+  if (!submission) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Submission not found' 
+    });
+  }
+  
+  submission.read = true;
+  submission.status = 'read';
+  saveDevData();
+  
+  res.json({
+    success: true,
+    message: 'Submission marked as read'
+  });
+});
+
+// Delete contact submission (Admin only)
+app.delete('/api/admin/contact-submissions/:submissionId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { submissionId } = req.params;
+  const index = contactSubmissions.findIndex(s => s.id === submissionId);
+  
+  if (index === -1) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Submission not found' 
+    });
+  }
+  
+  contactSubmissions.splice(index, 1);
+  saveDevData();
+  
+  res.json({
+    success: true,
+    message: 'Submission deleted'
+  });
+});
+
 // Technician Tasks Endpoint
 app.get('/api/v1/technician/tasks', (req, res) => {
   const authHeader = req.headers.authorization;
@@ -1493,8 +2809,9 @@ function initializeDemoUsers() {
 
   demoUsers.forEach(user => {
     if (!devUsers.has(user.email)) {
+      const userId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       devUsers.set(user.email, {
-        userId: `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        userId,
         email: user.email,
         password: user.password,
         name: user.name,
@@ -1502,6 +2819,17 @@ function initializeDemoUsers() {
         emailVerified: true,
         createdAt: new Date().toISOString()
       });
+      
+      // Create welcome notification for demo users
+      if (user.role === 'admin') {
+        createNotification(
+          userId,
+          'info',
+          'Welcome to AquaChain Admin Dashboard',
+          'You have full access to manage users, devices, and system settings.',
+          'medium'
+        );
+      }
     }
   });
 

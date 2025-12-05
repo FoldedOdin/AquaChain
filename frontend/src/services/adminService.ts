@@ -11,6 +11,9 @@ import {
   SystemConfiguration
 } from '../types/admin';
 
+// API Base URL
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+
 // Mock data for development - will be replaced with actual API calls
 
 export const getSystemHealthMetrics = async (): Promise<SystemHealthMetrics> => {
@@ -31,77 +34,50 @@ export const getSystemHealthMetrics = async (): Promise<SystemHealthMetrics> => 
 };
 
 export const getDeviceFleetStatus = async (): Promise<DeviceFleetStatus[]> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
-  
-  return [
-    {
-      deviceId: 'DEV-3421',
-      status: 'online',
-      lastSeen: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-      uptime: 99.8,
-      location: {
-        latitude: 37.7749,
-        longitude: -122.4194,
-        address: '123 Main St, San Francisco, CA'
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/devices`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
-      currentWQI: 85,
-      batteryLevel: 85,
-      signalStrength: -65,
-      consumerId: 'user-001',
-      consumerName: 'John Doe',
-      maintenanceHistory: [
-        {
-          date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-          type: 'routine',
-          technicianId: 'tech-001',
-          technicianName: 'Mike Johnson',
-          notes: 'Routine calibration and inspection'
-        }
-      ]
-    },
-    {
-      deviceId: 'DEV-3422',
-      status: 'warning',
-      lastSeen: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-      uptime: 95.2,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch devices');
+    }
+
+    const data = await response.json();
+    
+    // Transform dev server device data to match DeviceFleetStatus interface
+    return data.devices.map((device: any) => ({
+      deviceId: device.device_id,
+      status: device.status || 'offline',
+      lastSeen: device.created_at,
+      uptime: 0,
       location: {
-        latitude: 37.7849,
-        longitude: -122.4094,
-        address: '456 Oak Ave, San Francisco, CA'
-      },
-      currentWQI: 55,
-      batteryLevel: 45,
-      signalStrength: -75,
-      consumerId: 'user-002',
-      consumerName: 'Jane Smith',
-      maintenanceHistory: []
-    },
-    {
-      deviceId: 'DEV-3423',
-      status: 'offline',
-      lastSeen: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      uptime: 88.5,
-      location: {
-        latitude: 37.7649,
-        longitude: -122.4294,
-        address: '789 Pine St, San Francisco, CA'
+        latitude: 0,
+        longitude: 0,
+        address: device.location || 'N/A'
       },
       currentWQI: 0,
-      batteryLevel: 15,
-      signalStrength: -95,
-      consumerId: 'user-003',
-      consumerName: 'Bob Wilson',
-      maintenanceHistory: [
-        {
-          date: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
-          type: 'repair',
-          technicianId: 'tech-002',
-          technicianName: 'Sarah Davis',
-          notes: 'Replaced pH sensor'
-        }
-      ]
-    }
-  ];
+      batteryLevel: 100,
+      signalStrength: -65,
+      consumerId: device.user_id,
+      consumerName: device.consumerName || 'Unassigned',
+      maintenanceHistory: []
+    }));
+  } catch (error) {
+    console.error('Error fetching devices:', error);
+    // Return empty array on error instead of dummy data
+    return [];
+  }
 };
 
 export const getPerformanceMetrics = async (timeRange: '1h' | '24h' | '7d' | '30d' = '24h'): Promise<PerformanceMetrics[]> => {
@@ -152,52 +128,48 @@ export const getAlertAnalytics = async (days: number = 7): Promise<AlertAnalytic
 };
 
 export const getAllUsers = async (): Promise<UserManagementData[]> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
-  
-  return [
-    {
-      userId: 'user-001',
-      email: 'john.doe@example.com',
-      role: 'consumer',
-      status: 'active',
-      createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      deviceCount: 2,
-      profile: {
-        firstName: 'John',
-        lastName: 'Doe',
-        phone: '+1-555-0101'
-      }
-    },
-    {
-      userId: 'user-002',
-      email: 'jane.smith@example.com',
-      role: 'consumer',
-      status: 'active',
-      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-      deviceCount: 1,
-      profile: {
-        firstName: 'Jane',
-        lastName: 'Smith',
-        phone: '+1-555-0102'
-      }
-    },
-    {
-      userId: 'tech-001',
-      email: 'mike.johnson@aquachain.com',
-      role: 'technician',
-      status: 'active',
-      createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
-      lastLogin: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-      deviceCount: 0,
-      profile: {
-        firstName: 'Mike',
-        lastName: 'Johnson',
-        phone: '+1-555-0201'
-      }
+  try {
+    // Try both token names for compatibility
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-  ];
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch users');
+    }
+
+    const data = await response.json();
+    
+    // Transform dev server user data to match UserManagementData interface
+    return data.users.map((user: any) => ({
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+      status: user.emailVerified ? 'active' : 'pending',
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin || null,
+      deviceCount: 0, // Will be calculated from devices
+      profile: {
+        firstName: user.firstName || user.name?.split(' ')[0] || '',
+        lastName: user.lastName || user.name?.split(' ').slice(1).join(' ') || '',
+        phone: user.phone || ''
+      }
+    }));
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    // Return empty array on error instead of dummy data
+    return [];
+  }
 };
 
 export const createUser = async (userData: Partial<UserManagementData>): Promise<UserManagementData> => {

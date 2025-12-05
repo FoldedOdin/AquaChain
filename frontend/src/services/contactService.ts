@@ -20,7 +20,7 @@ interface ContactFormError {
   error: string;
 }
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.aquachain.io';
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_URL || 'http://localhost:3002';
 const CONTACT_ENDPOINT = `${API_BASE_URL}/contact`;
 
 /**
