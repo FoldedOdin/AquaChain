@@ -48,7 +48,7 @@ interface ConsumerDashboardProps {
  */
 const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
@@ -133,11 +133,12 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     });
   }, [showEditProfile]);
 
-  const handleProfileUpdated = useCallback(() => {
+  const handleProfileUpdated = useCallback(async () => {
     // Refresh user data after profile update
-    // In a real app, this would refetch user data from the API
     console.log('Profile updated successfully');
-  }, []);
+    await refreshUser();
+    setShowEditProfile(false);
+  }, [refreshUser]);
 
   const handleSubmitIssue = useCallback(async () => {
     if (!issueTitle.trim() || !issueDescription.trim()) {

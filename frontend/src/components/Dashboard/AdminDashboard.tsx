@@ -25,6 +25,7 @@ import {
   Trash2,
   Plus,
   UserPlus,
+  Package,
 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -37,6 +38,7 @@ import { formatRelativeTime } from '../../utils/dateFormat';
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
+import AdminInventoryManagement from './AdminInventoryManagement';
 
 interface AdminDashboardProps {
   // Optional props for customization
@@ -54,6 +56,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [showSystemSettingsModal, setShowSystemSettingsModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
+  const [showInventoryManagement, setShowInventoryManagement] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string>('');
   
@@ -1449,6 +1452,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                     <Bell className="w-6 h-6 text-purple-600" />
                     <span className="text-sm font-medium text-gray-900">Alerts</span>
                   </button>
+                  <button 
+                    onClick={() => setShowInventoryManagement(true)}
+                    className="flex flex-col items-center gap-2 p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition-colors"
+                  >
+                    <Package className="w-6 h-6 text-purple-600" />
+                    <span className="text-sm font-medium text-gray-900">Inventory</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1793,6 +1803,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
           isOpen={showExportModal}
           onClose={toggleExportModal}
           userRole="admin"
+        />
+
+        {/* Admin Inventory Management Modal */}
+        <AdminInventoryManagement
+          isOpen={showInventoryManagement}
+          onClose={() => setShowInventoryManagement(false)}
         />
 
         {/* View User Modal */}

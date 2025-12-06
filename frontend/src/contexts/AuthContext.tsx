@@ -15,7 +15,7 @@ const amplifyConfig: any = {
     REST: {
       AquaChainAPI: {
         endpoint: process.env.REACT_APP_API_ENDPOINT || 'https://api.aquachain.example.com',
-        region: process.env.REACT_APP_AWS_REGION || 'us-east-1'
+        region: process.env.REACT_APP_AWS_REGION || 'ap-south-1'
       }
     }
   }
@@ -35,6 +35,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   getAuthToken: () => Promise<string | null>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -164,26 +165,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const authService = (await import('../services/authService')).default;
         const result = await authService.signIn({ email, password, rememberMe: true });
 
+        // Use actual data from backend instead of hardcoded values
         const userProfile: UserProfile = {
           userId: result.user.userId || 'user-' + Date.now(),
           email: result.user.email,
           role: result.user.role || 'consumer',
           profile: {
-            firstName: result.user.name?.split(' ')[0] || 'User',
-            lastName: result.user.name?.split(' ')[1] || '',
-            phone: '+1234567890',
-            address: {
-              street: '123 Main St',
-              city: 'Anytown',
-              state: 'CA',
-              zipCode: '12345',
-              coordinates: {
-                latitude: 37.7749,
-                longitude: -122.4194
-              }
-            }
+            firstName: result.user.firstName || result.user.name?.split(' ')[0] || '',
+            lastName: result.user.lastName || result.user.name?.split(' ')[1] || '',
+            phone: result.user.phone || '',
+            address: result.user.address || null
           },
-          deviceIds: ['DEV-3421', 'DEV-3422'],
+          deviceIds: result.user.deviceIds || [],
           preferences: {
             notifications: {
               push: true,
@@ -286,13 +279,53 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const refreshUser = async (): Promise<void> => {
+    try {
+      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
+        const storedToken = localStorage.getItem('aquachain_token');
+        const storedUser = localStorage.getItem('aquachain_user');
+        
+        if (storedToken && storedUser) {
+          const userData = JSON.parse(storedUser);
+          
+          console.log('🔄 Refreshing user data for:', userData.email);
+          
+          const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/validate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${storedToken}`
+            },
+            body: JSON.stringify({ email: userData.email })
+          });
+
+          if (response.ok) {
+            const validatedUser = await response.json();
+            console.log('📥 Fresh user data received:', validatedUser.user);
+            setUser(validatedUser.user);
+            localStorage.setItem('aquachain_user', JSON.stringify(validatedUser.user));
+            console.log('✅ User data refreshed and state updated');
+          } else {
+            console.error('❌ Failed to refresh user data:', response.status);
+          }
+        }
+      } else {
+        // Production: re-validate with Cognito
+        await checkAuthState();
+      }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    }
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
     isAuthenticated,
     login,
     logout,
-    getAuthToken
+    getAuthToken,
+    refreshUser
   };
 
   return (

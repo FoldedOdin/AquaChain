@@ -834,7 +834,12 @@ app.post('/api/auth/signin', (req, res) => {
       email: user.email,
       name: user.name,
       role: user.role,
-      emailVerified: user.emailVerified
+      emailVerified: user.emailVerified,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      phone: user.phone || '',
+      address: user.address || null,
+      deviceIds: user.deviceIds || []
     },
     token: token
   });
@@ -905,7 +910,13 @@ app.post('/api/auth/validate', (req, res) => {
       email: user.email,
       name: user.name,
       role: user.role,
-      emailVerified: user.emailVerified
+      emailVerified: user.emailVerified,
+      profile: {
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        phone: user.phone || '',
+        address: user.address || null
+      }
     }
   });
 });
@@ -2539,9 +2550,11 @@ app.get('/api/v1/technician/tasks', (req, res) => {
       title: 'pH sensor showing erratic readings',
       description: 'pH sensor showing erratic readings, possible calibration issue',
       location: {
-        latitude: 37.7749,
-        longitude: -122.4194,
-        address: '123 Main St, San Francisco, CA 94102'
+        address: '123 Main St, San Francisco, CA 94102',
+        coordinates: {
+          lat: 37.7749,
+          lng: -122.4194
+        }
       },
       estimatedArrival: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       assignedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
@@ -2549,6 +2562,11 @@ app.get('/api/v1/technician/tasks', (req, res) => {
       deviceInfo: {
         model: 'AquaChain Pro v2.1',
         serialNumber: 'AC-2024-3421'
+      },
+      consumer: {
+        name: 'Jane Smith',
+        phone: '+1-555-0123',
+        email: 'jane.smith@email.com'
       },
       customerInfo: {
         name: 'Jane Smith',
@@ -2567,9 +2585,11 @@ app.get('/api/v1/technician/tasks', (req, res) => {
       title: 'Routine maintenance and calibration check',
       description: 'Routine maintenance and calibration check',
       location: {
-        latitude: 37.7849,
-        longitude: -122.4094,
-        address: '456 Oak Ave, San Francisco, CA 94103'
+        address: '456 Oak Ave, San Francisco, CA 94103',
+        coordinates: {
+          lat: 37.7849,
+          lng: -122.4094
+        }
       },
       estimatedArrival: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
       assignedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
@@ -2577,6 +2597,11 @@ app.get('/api/v1/technician/tasks', (req, res) => {
       deviceInfo: {
         model: 'AquaChain Standard v1.8',
         serialNumber: 'AC-2023-3422'
+      },
+      consumer: {
+        name: 'Bob Johnson',
+        phone: '+1-555-0456',
+        email: 'bob.johnson@email.com'
       },
       customerInfo: {
         name: 'Bob Johnson',
@@ -2595,9 +2620,11 @@ app.get('/api/v1/technician/tasks', (req, res) => {
       title: 'Temperature sensor calibration',
       description: 'Regular calibration check for temperature sensor',
       location: {
-        latitude: 37.7649,
-        longitude: -122.4294,
-        address: '789 Pine St, San Francisco, CA 94104'
+        address: '789 Pine St, San Francisco, CA 94104',
+        coordinates: {
+          lat: 37.7649,
+          lng: -122.4294
+        }
       },
       estimatedArrival: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString(),
       assignedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
@@ -2605,6 +2632,11 @@ app.get('/api/v1/technician/tasks', (req, res) => {
       deviceInfo: {
         model: 'AquaChain Lite v1.5',
         serialNumber: 'AC-2023-3423'
+      },
+      consumer: {
+        name: 'Alice Williams',
+        phone: '+1-555-0789',
+        email: 'alice.williams@email.com'
       },
       customerInfo: {
         name: 'Alice Williams',
@@ -2723,18 +2755,9 @@ app.post('/api/v1/technician/tasks/:taskId/complete', (req, res) => {
   });
 });
 
-// Catch-all for missing endpoints
-app.use('*', (req, res) => {
-  console.log(`Missing endpoint: ${req.method} ${req.originalUrl}`);
-  res.status(404).json({ 
-    error: 'Endpoint not found', 
-    method: req.method, 
-    path: req.originalUrl,
-    message: 'This is a development server - endpoint not implemented'
-  });
-});
+// NOTE: Catch-all moved to end of file after all route definitions
 
-// Error handler
+// Error handler (keeping here for now, will move to end)
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res.status(500).json({ 
@@ -2839,6 +2862,419 @@ function initializeDemoUsers() {
   console.log(`   - tech@aquachain.com / tech1234 (Technician)`);
   console.log(`   - user@aquachain.com / user1234 (Consumer)`);
 }
+
+// Technician Inventory Endpoints
+// Get inventory
+app.get('/api/v1/technician/inventory', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+
+  // Mock inventory data (same as admin endpoint)
+  const mockInventory = [
+    // Sensors
+    { partId: 'PART-001', name: 'pH Sensor', category: 'Sensors', quantity: 15, location: 'Warehouse A - Shelf 3', status: 'available', description: 'High-precision pH sensor for water quality monitoring', unitPrice: 3850, minQuantity: 5, lastRestocked: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-002', name: 'Turbidity Sensor', category: 'Sensors', quantity: 8, location: 'Warehouse A - Shelf 3', status: 'available', description: 'Optical turbidity sensor for measuring water clarity', unitPrice: 4400, minQuantity: 5, lastRestocked: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-003', name: 'TDS Sensor', category: 'Sensors', quantity: 12, location: 'Warehouse A - Shelf 3', status: 'available', description: 'Total Dissolved Solids sensor', unitPrice: 3250, minQuantity: 5, lastRestocked: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-004', name: 'Temperature Sensor', category: 'Sensors', quantity: 20, location: 'Warehouse A - Shelf 4', status: 'available', description: 'Digital temperature sensor (-40°C to 125°C)', unitPrice: 1340, minQuantity: 10, lastRestocked: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-013', name: 'Conductivity Sensor', category: 'Sensors', quantity: 10, location: 'Warehouse A - Shelf 3', status: 'available', description: 'EC sensor for measuring water conductivity', unitPrice: 4200, minQuantity: 5, lastRestocked: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-014', name: 'Dissolved Oxygen Sensor', category: 'Sensors', quantity: 6, location: 'Warehouse A - Shelf 3', status: 'available', description: 'DO sensor for oxygen level monitoring', unitPrice: 5500, minQuantity: 5, lastRestocked: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-015', name: 'Flow Sensor', category: 'Sensors', quantity: 14, location: 'Warehouse A - Shelf 4', status: 'available', description: 'Water flow rate sensor (1-30 L/min)', unitPrice: 2800, minQuantity: 8, lastRestocked: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-016', name: 'Pressure Sensor', category: 'Sensors', quantity: 18, location: 'Warehouse A - Shelf 4', status: 'available', description: 'Water pressure transducer (0-10 bar)', unitPrice: 3600, minQuantity: 10, lastRestocked: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Filters
+    { partId: 'PART-005', name: 'Sediment Filter', category: 'Filters', quantity: 25, location: 'Warehouse B - Shelf 1', status: 'available', description: '5-micron sediment filter cartridge', unitPrice: 1050, minQuantity: 10, lastRestocked: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-006', name: 'Carbon Filter', category: 'Filters', quantity: 18, location: 'Warehouse B - Shelf 1', status: 'available', description: 'Activated carbon filter for chlorine removal', unitPrice: 1590, minQuantity: 8, lastRestocked: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-017', name: 'RO Membrane', category: 'Filters', quantity: 12, location: 'Warehouse B - Shelf 2', status: 'available', description: 'Reverse osmosis membrane 75 GPD', unitPrice: 2200, minQuantity: 6, lastRestocked: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-018', name: 'UV Filter', category: 'Filters', quantity: 8, location: 'Warehouse B - Shelf 2', status: 'available', description: 'UV sterilization filter cartridge', unitPrice: 3200, minQuantity: 5, lastRestocked: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-019', name: 'Pre-Filter', category: 'Filters', quantity: 30, location: 'Warehouse B - Shelf 1', status: 'available', description: '20-micron pre-filter cartridge', unitPrice: 650, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Chemicals
+    { partId: 'PART-007', name: 'Calibration Solution pH 7', category: 'Chemicals', quantity: 30, location: 'Warehouse C - Cabinet 2', status: 'available', description: 'pH 7.0 calibration buffer solution (500ml)', unitPrice: 750, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-008', name: 'Calibration Solution pH 4', category: 'Chemicals', quantity: 28, location: 'Warehouse C - Cabinet 2', status: 'available', description: 'pH 4.0 calibration buffer solution (500ml)', unitPrice: 750, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-020', name: 'Calibration Solution pH 10', category: 'Chemicals', quantity: 25, location: 'Warehouse C - Cabinet 2', status: 'available', description: 'pH 10.0 calibration buffer solution (500ml)', unitPrice: 750, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-021', name: 'Cleaning Solution', category: 'Chemicals', quantity: 20, location: 'Warehouse C - Cabinet 3', status: 'available', description: 'Sensor cleaning solution (1L)', unitPrice: 950, minQuantity: 10, lastRestocked: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-022', name: 'Storage Solution', category: 'Chemicals', quantity: 22, location: 'Warehouse C - Cabinet 3', status: 'available', description: 'Electrode storage solution (250ml)', unitPrice: 550, minQuantity: 12, lastRestocked: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-023', name: 'Disinfectant', category: 'Chemicals', quantity: 15, location: 'Warehouse C - Cabinet 4', status: 'available', description: 'System disinfectant solution (2L)', unitPrice: 1200, minQuantity: 8, lastRestocked: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Tools
+    { partId: 'PART-009', name: 'Multimeter', category: 'Tools', quantity: 5, location: 'Tool Room - Drawer 1', status: 'available', description: 'Digital multimeter for electrical testing', unitPrice: 3750, minQuantity: 3, lastRestocked: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-010', name: 'Screwdriver Set', category: 'Tools', quantity: 8, location: 'Tool Room - Drawer 2', status: 'available', description: 'Professional screwdriver set (12 pieces)', unitPrice: 2170, minQuantity: 5, lastRestocked: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-024', name: 'Wrench Set', category: 'Tools', quantity: 6, location: 'Tool Room - Drawer 3', status: 'available', description: 'Adjustable wrench set (3 pieces)', unitPrice: 1850, minQuantity: 4, lastRestocked: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-025', name: 'Pliers Set', category: 'Tools', quantity: 10, location: 'Tool Room - Drawer 2', status: 'available', description: 'Professional pliers set (5 pieces)', unitPrice: 1650, minQuantity: 5, lastRestocked: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-026', name: 'Wire Stripper', category: 'Tools', quantity: 7, location: 'Tool Room - Drawer 1', status: 'available', description: 'Automatic wire stripper tool', unitPrice: 950, minQuantity: 5, lastRestocked: new Date(Date.now() - 22 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-027', name: 'Soldering Iron', category: 'Tools', quantity: 4, location: 'Tool Room - Drawer 4', status: 'available', description: 'Temperature controlled soldering station', unitPrice: 2800, minQuantity: 3, lastRestocked: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-028', name: 'Drill Set', category: 'Tools', quantity: 3, location: 'Tool Room - Cabinet 1', status: 'available', description: 'Cordless drill with bit set', unitPrice: 4500, minQuantity: 2, lastRestocked: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Parts
+    { partId: 'PART-011', name: 'O-Ring Kit', category: 'Parts', quantity: 3, location: 'Warehouse A - Shelf 5', status: 'available', description: 'Assorted O-rings for sealing (100 pieces)', unitPrice: 1300, minQuantity: 5, lastRestocked: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-012', name: 'Replacement Gasket', category: 'Parts', quantity: 0, location: 'Warehouse A - Shelf 5', status: 'out_of_stock', description: 'Rubber gasket for filter housing', unitPrice: 500, minQuantity: 10, lastRestocked: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-029', name: 'Pipe Fittings', category: 'Parts', quantity: 45, location: 'Warehouse A - Shelf 6', status: 'available', description: 'Assorted pipe fittings (50 pieces)', unitPrice: 850, minQuantity: 20, lastRestocked: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-030', name: 'Valve Assembly', category: 'Parts', quantity: 12, location: 'Warehouse A - Shelf 6', status: 'available', description: 'Solenoid valve assembly 12V DC', unitPrice: 1800, minQuantity: 6, lastRestocked: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-031', name: 'Power Supply', category: 'Parts', quantity: 8, location: 'Warehouse A - Shelf 7', status: 'available', description: '12V 2A power adapter', unitPrice: 650, minQuantity: 5, lastRestocked: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-032', name: 'Cable Kit', category: 'Parts', quantity: 20, location: 'Warehouse A - Shelf 7', status: 'available', description: 'Sensor cable kit with connectors (5m)', unitPrice: 450, minQuantity: 10, lastRestocked: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-033', name: 'Mounting Bracket', category: 'Parts', quantity: 25, location: 'Warehouse A - Shelf 8', status: 'available', description: 'Universal sensor mounting bracket', unitPrice: 350, minQuantity: 15, lastRestocked: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-034', name: 'Battery Pack', category: 'Parts', quantity: 2, location: 'Warehouse A - Shelf 7', status: 'available', description: 'Rechargeable Li-ion battery pack', unitPrice: 2200, minQuantity: 5, lastRestocked: new Date(Date.now() - 50 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-035', name: 'Display Module', category: 'Parts', quantity: 6, location: 'Warehouse A - Shelf 8', status: 'available', description: 'LCD display module 16x2', unitPrice: 850, minQuantity: 5, lastRestocked: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString() }
+  ];
+
+  res.json({
+    success: true,
+    inventory: mockInventory,
+    count: mockInventory.length
+  });
+});
+
+// Checkout inventory item
+app.post('/api/v1/technician/inventory/checkout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+
+  const { partId, quantity, taskId } = req.body;
+  
+  if (!partId || !quantity || quantity <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid checkout request'
+    });
+  }
+
+  console.log(`✅ Checkout: ${quantity}x ${partId} by ${tokenData.email}${taskId ? ` for task ${taskId}` : ''}`);
+  
+  res.json({
+    success: true,
+    message: `Successfully checked out ${quantity} item(s)`,
+    checkout: {
+      partId,
+      quantity,
+      taskId,
+      technicianId: tokenData.userId,
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
+// Return inventory item
+app.post('/api/v1/technician/inventory/return', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+
+  const { partId, quantity } = req.body;
+  
+  if (!partId || !quantity || quantity <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid return request'
+    });
+  }
+
+  console.log(`✅ Return: ${quantity}x ${partId} by ${tokenData.email}`);
+  
+  res.json({
+    success: true,
+    message: `Successfully returned ${quantity} item(s)`,
+    return: {
+      partId,
+      quantity,
+      technicianId: tokenData.userId,
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
+// Request restock
+app.post('/api/v1/technician/inventory/request-restock', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+
+  const { partId, partName, quantity, reason, currentStock } = req.body;
+  
+  if (!partId || !quantity || quantity <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid restock request'
+    });
+  }
+
+  const user = devUsers.get(tokenData.email);
+  const technicianName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : tokenData.email;
+
+  console.log(`📦 Restock Request: ${quantity}x ${partName} (${partId}) by ${technicianName}`);
+  console.log(`   Reason: ${reason}`);
+  console.log(`   Current Stock: ${currentStock}`);
+  
+  // Create notification for all admins
+  devUsers.forEach((user, email) => {
+    if (user.role === 'admin') {
+      createNotification(
+        user.userId,
+        'warning',
+        'Inventory Restock Request',
+        `${technicianName} requested ${quantity}x ${partName}. Current stock: ${currentStock}. Reason: ${reason}`,
+        'high'
+      );
+    }
+  });
+  
+  res.json({
+    success: true,
+    message: `Restock request sent to admin`,
+    request: {
+      partId,
+      partName,
+      quantity,
+      reason,
+      currentStock,
+      technicianId: tokenData.userId,
+      technicianName,
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
+// Admin Inventory Management Endpoints
+// Get all inventory (admin)
+app.get('/api/admin/inventory', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+
+  // Return same mock inventory as technician endpoint
+  const mockInventory = [
+    // Sensors
+    { partId: 'PART-001', name: 'pH Sensor', category: 'Sensors', quantity: 15, location: 'Warehouse A - Shelf 3', status: 'available', description: 'High-precision pH sensor for water quality monitoring', unitPrice: 3850, minQuantity: 5, lastRestocked: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-002', name: 'Turbidity Sensor', category: 'Sensors', quantity: 8, location: 'Warehouse A - Shelf 3', status: 'available', description: 'Optical turbidity sensor for measuring water clarity', unitPrice: 4400, minQuantity: 5, lastRestocked: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-003', name: 'TDS Sensor', category: 'Sensors', quantity: 12, location: 'Warehouse A - Shelf 3', status: 'available', description: 'Total Dissolved Solids sensor', unitPrice: 3250, minQuantity: 5, lastRestocked: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-004', name: 'Temperature Sensor', category: 'Sensors', quantity: 20, location: 'Warehouse A - Shelf 4', status: 'available', description: 'Digital temperature sensor (-40°C to 125°C)', unitPrice: 1340, minQuantity: 10, lastRestocked: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-013', name: 'Conductivity Sensor', category: 'Sensors', quantity: 10, location: 'Warehouse A - Shelf 3', status: 'available', description: 'EC sensor for measuring water conductivity', unitPrice: 4200, minQuantity: 5, lastRestocked: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-014', name: 'Dissolved Oxygen Sensor', category: 'Sensors', quantity: 6, location: 'Warehouse A - Shelf 3', status: 'available', description: 'DO sensor for oxygen level monitoring', unitPrice: 5500, minQuantity: 5, lastRestocked: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-015', name: 'Flow Sensor', category: 'Sensors', quantity: 14, location: 'Warehouse A - Shelf 4', status: 'available', description: 'Water flow rate sensor (1-30 L/min)', unitPrice: 2800, minQuantity: 8, lastRestocked: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-016', name: 'Pressure Sensor', category: 'Sensors', quantity: 18, location: 'Warehouse A - Shelf 4', status: 'available', description: 'Water pressure transducer (0-10 bar)', unitPrice: 3600, minQuantity: 10, lastRestocked: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Filters
+    { partId: 'PART-005', name: 'Sediment Filter', category: 'Filters', quantity: 25, location: 'Warehouse B - Shelf 1', status: 'available', description: '5-micron sediment filter cartridge', unitPrice: 1050, minQuantity: 10, lastRestocked: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-006', name: 'Carbon Filter', category: 'Filters', quantity: 18, location: 'Warehouse B - Shelf 1', status: 'available', description: 'Activated carbon filter for chlorine removal', unitPrice: 1590, minQuantity: 8, lastRestocked: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-017', name: 'RO Membrane', category: 'Filters', quantity: 12, location: 'Warehouse B - Shelf 2', status: 'available', description: 'Reverse osmosis membrane 75 GPD', unitPrice: 2200, minQuantity: 6, lastRestocked: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-018', name: 'UV Filter', category: 'Filters', quantity: 8, location: 'Warehouse B - Shelf 2', status: 'available', description: 'UV sterilization filter cartridge', unitPrice: 3200, minQuantity: 5, lastRestocked: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-019', name: 'Pre-Filter', category: 'Filters', quantity: 30, location: 'Warehouse B - Shelf 1', status: 'available', description: '20-micron pre-filter cartridge', unitPrice: 650, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Chemicals
+    { partId: 'PART-007', name: 'Calibration Solution pH 7', category: 'Chemicals', quantity: 30, location: 'Warehouse C - Cabinet 2', status: 'available', description: 'pH 7.0 calibration buffer solution (500ml)', unitPrice: 750, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-008', name: 'Calibration Solution pH 4', category: 'Chemicals', quantity: 28, location: 'Warehouse C - Cabinet 2', status: 'available', description: 'pH 4.0 calibration buffer solution (500ml)', unitPrice: 750, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-020', name: 'Calibration Solution pH 10', category: 'Chemicals', quantity: 25, location: 'Warehouse C - Cabinet 2', status: 'available', description: 'pH 10.0 calibration buffer solution (500ml)', unitPrice: 750, minQuantity: 15, lastRestocked: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-021', name: 'Cleaning Solution', category: 'Chemicals', quantity: 20, location: 'Warehouse C - Cabinet 3', status: 'available', description: 'Sensor cleaning solution (1L)', unitPrice: 950, minQuantity: 10, lastRestocked: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-022', name: 'Storage Solution', category: 'Chemicals', quantity: 22, location: 'Warehouse C - Cabinet 3', status: 'available', description: 'Electrode storage solution (250ml)', unitPrice: 550, minQuantity: 12, lastRestocked: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-023', name: 'Disinfectant', category: 'Chemicals', quantity: 15, location: 'Warehouse C - Cabinet 4', status: 'available', description: 'System disinfectant solution (2L)', unitPrice: 1200, minQuantity: 8, lastRestocked: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Tools
+    { partId: 'PART-009', name: 'Multimeter', category: 'Tools', quantity: 5, location: 'Tool Room - Drawer 1', status: 'available', description: 'Digital multimeter for electrical testing', unitPrice: 3750, minQuantity: 3, lastRestocked: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-010', name: 'Screwdriver Set', category: 'Tools', quantity: 8, location: 'Tool Room - Drawer 2', status: 'available', description: 'Professional screwdriver set (12 pieces)', unitPrice: 2170, minQuantity: 5, lastRestocked: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-024', name: 'Wrench Set', category: 'Tools', quantity: 6, location: 'Tool Room - Drawer 3', status: 'available', description: 'Adjustable wrench set (3 pieces)', unitPrice: 1850, minQuantity: 4, lastRestocked: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-025', name: 'Pliers Set', category: 'Tools', quantity: 10, location: 'Tool Room - Drawer 2', status: 'available', description: 'Professional pliers set (5 pieces)', unitPrice: 1650, minQuantity: 5, lastRestocked: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-026', name: 'Wire Stripper', category: 'Tools', quantity: 7, location: 'Tool Room - Drawer 1', status: 'available', description: 'Automatic wire stripper tool', unitPrice: 950, minQuantity: 5, lastRestocked: new Date(Date.now() - 22 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-027', name: 'Soldering Iron', category: 'Tools', quantity: 4, location: 'Tool Room - Drawer 4', status: 'available', description: 'Temperature controlled soldering station', unitPrice: 2800, minQuantity: 3, lastRestocked: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-028', name: 'Drill Set', category: 'Tools', quantity: 3, location: 'Tool Room - Cabinet 1', status: 'available', description: 'Cordless drill with bit set', unitPrice: 4500, minQuantity: 2, lastRestocked: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // Parts
+    { partId: 'PART-011', name: 'O-Ring Kit', category: 'Parts', quantity: 3, location: 'Warehouse A - Shelf 5', status: 'available', description: 'Assorted O-rings for sealing (100 pieces)', unitPrice: 1300, minQuantity: 5, lastRestocked: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-012', name: 'Replacement Gasket', category: 'Parts', quantity: 0, location: 'Warehouse A - Shelf 5', status: 'out_of_stock', description: 'Rubber gasket for filter housing', unitPrice: 500, minQuantity: 10, lastRestocked: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-029', name: 'Pipe Fittings', category: 'Parts', quantity: 45, location: 'Warehouse A - Shelf 6', status: 'available', description: 'Assorted pipe fittings (50 pieces)', unitPrice: 850, minQuantity: 20, lastRestocked: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-030', name: 'Valve Assembly', category: 'Parts', quantity: 12, location: 'Warehouse A - Shelf 6', status: 'available', description: 'Solenoid valve assembly 12V DC', unitPrice: 1800, minQuantity: 6, lastRestocked: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-031', name: 'Power Supply', category: 'Parts', quantity: 8, location: 'Warehouse A - Shelf 7', status: 'available', description: '12V 2A power adapter', unitPrice: 650, minQuantity: 5, lastRestocked: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-032', name: 'Cable Kit', category: 'Parts', quantity: 20, location: 'Warehouse A - Shelf 7', status: 'available', description: 'Sensor cable kit with connectors (5m)', unitPrice: 450, minQuantity: 10, lastRestocked: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-033', name: 'Mounting Bracket', category: 'Parts', quantity: 25, location: 'Warehouse A - Shelf 8', status: 'available', description: 'Universal sensor mounting bracket', unitPrice: 350, minQuantity: 15, lastRestocked: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-034', name: 'Battery Pack', category: 'Parts', quantity: 2, location: 'Warehouse A - Shelf 7', status: 'available', description: 'Rechargeable Li-ion battery pack', unitPrice: 2200, minQuantity: 5, lastRestocked: new Date(Date.now() - 50 * 24 * 60 * 60 * 1000).toISOString() },
+    { partId: 'PART-035', name: 'Display Module', category: 'Parts', quantity: 6, location: 'Warehouse A - Shelf 8', status: 'available', description: 'LCD display module 16x2', unitPrice: 850, minQuantity: 5, lastRestocked: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString() }
+  ];
+
+  res.json({ success: true, inventory: mockInventory, count: mockInventory.length });
+});
+
+// Add inventory item (admin)
+app.post('/api/admin/inventory', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+
+  const item = req.body;
+  console.log(`✅ Admin ${user.email} added inventory item: ${item.name}`);
+  
+  res.json({ success: true, message: 'Item added successfully', item });
+});
+
+// Update inventory item (admin)
+app.put('/api/admin/inventory/:partId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+
+  const { partId } = req.params;
+  const updates = req.body;
+  console.log(`✅ Admin ${user.email} updated inventory item: ${partId}`);
+  
+  res.json({ success: true, message: 'Item updated successfully', partId, updates });
+});
+
+// Restock inventory item (admin)
+app.post('/api/admin/inventory/:partId/restock', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+
+  const { partId } = req.params;
+  const { quantity } = req.body;
+  console.log(`✅ Admin ${user.email} restocked ${quantity}x ${partId}`);
+  
+  res.json({ success: true, message: `Restocked ${quantity} items`, partId, quantity });
+});
+
+// Delete inventory item (admin)
+app.delete('/api/admin/inventory/:partId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+
+  const { partId } = req.params;
+  console.log(`✅ Admin ${user.email} deleted inventory item: ${partId}`);
+  
+  res.json({ success: true, message: 'Item deleted successfully', partId });
+});
+
+// Catch-all for missing endpoints (MUST BE LAST!)
+app.use('*', (req, res) => {
+  console.log(`Missing endpoint: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ 
+    error: 'Endpoint not found', 
+    method: req.method, 
+    path: req.originalUrl,
+    message: 'This is a development server - endpoint not implemented'
+  });
+});
 
 // Start server
 server.listen(PORT, () => {

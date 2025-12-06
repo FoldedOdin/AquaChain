@@ -29,6 +29,8 @@ import { technicianService } from '../../services/technicianService';
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
 import EditProfileModal from './EditProfileModal';
+import MapModal from './MapModal';
+import InventoryModal from './InventoryModal';
 
 interface TechnicianDashboardProps {
   // Optional props for customization
@@ -36,10 +38,12 @@ interface TechnicianDashboardProps {
 
 const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTask, setSelectedTask] = useState<any>(null);
@@ -73,11 +77,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     setShowEditProfile(prev => !prev);
   }, []);
 
-  const handleProfileUpdated = useCallback(() => {
+  const handleProfileUpdated = useCallback(async () => {
+    console.log('Profile updated successfully');
+    await refreshUser();
     setShowEditProfile(false);
-    // Optionally refetch user data
-    window.location.reload(); // Simple refresh to get updated user data
-  }, []);
+  }, [refreshUser]);
 
   // Helper functions
   const getStatusColor = (status: string) => {
@@ -221,11 +225,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   }, []);
 
   const handleViewMap = useCallback(() => {
-    alert('Map view coming soon! This will show all task locations on a map.');
+    setShowMapModal(true);
   }, []);
 
   const handleViewInventory = useCallback(() => {
-    alert('Inventory view coming soon! This will show available parts and tools.');
+    setShowInventoryModal(true);
   }, []);
 
   // Redirect to login if not authenticated
@@ -766,6 +770,19 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
             : user.profile?.address || ''
         }}
         onProfileUpdated={handleProfileUpdated}
+      />
+
+      {/* Map Modal */}
+      <MapModal
+        isOpen={showMapModal}
+        onClose={() => setShowMapModal(false)}
+        tasks={tasks}
+      />
+
+      {/* Inventory Modal */}
+      <InventoryModal
+        isOpen={showInventoryModal}
+        onClose={() => setShowInventoryModal(false)}
       />
     </div>
   );
