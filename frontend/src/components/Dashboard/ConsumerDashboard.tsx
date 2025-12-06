@@ -58,6 +58,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [selectedTimeRange, setSelectedTimeRange] = useState('7days');
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   
   // Report Issue form state
   const [issueType, setIssueType] = useState<'bug' | 'iot'>('bug');
@@ -75,6 +76,31 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const { latestUpdate, isConnected } = useRealTimeUpdates('consumer-updates', {
     autoConnect: true
   });
+
+  // ✅ Get devices list from dashboard data
+  const devices = useMemo(() => {
+    console.log('🔍 [ConsumerDashboard] dashboardData:', dashboardData);
+    console.log('🔍 [ConsumerDashboard] has devices key?', dashboardData && 'devices' in dashboardData);
+    if (dashboardData && 'devices' in dashboardData) {
+      console.log('📦 [ConsumerDashboard] devices:', dashboardData.devices);
+      console.log('📊 [ConsumerDashboard] device count:', dashboardData.devices?.length || 0);
+      return dashboardData.devices || [];
+    }
+    console.log('⚠️ [ConsumerDashboard] No devices found in dashboardData');
+    return [];
+  }, [dashboardData]);
+
+  // ✅ Get current active device data
+  const currentDevice = useMemo(() => {
+    return devices.find((d: any) => d.device_id === selectedDeviceId) || devices[0] || null;
+  }, [devices, selectedDeviceId]);
+
+  // ✅ Auto-select first device when devices load
+  useEffect(() => {
+    if (devices.length > 0 && !selectedDeviceId) {
+      setSelectedDeviceId(devices[0].device_id);
+    }
+  }, [devices, selectedDeviceId]);
 
   // ✅ Memoized logout handler - prevents recreation on every render
   const handleLogout = useCallback(async () => {
@@ -558,8 +584,133 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         </div>
       </header>
 
+      {/* Device Selector Tabs */}
+      {devices.length > 0 && (
+        <div className="bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+                My Devices ({devices.length})
+              </h3>
+              <button
+                onClick={toggleAddDevice}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Device
+              </button>
+            </div>
+            
+            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+              {devices.map((device: any) => {
+                const isSelected = device.device_id === selectedDeviceId;
+                const isOnline = device.status === 'active' || device.status === 'online';
+                
+                return (
+                  <button
+                    key={device.device_id}
+                    onClick={() => setSelectedDeviceId(device.device_id)}
+                    className={`
+                      flex-shrink-0 px-4 py-3 rounded-lg border-2 transition-all min-w-[200px]
+                      ${isSelected 
+                        ? 'border-cyan-500 bg-cyan-50 shadow-md' 
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+                      }
+                    `}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`
+                        w-10 h-10 rounded-full flex items-center justify-center
+                        ${isOnline ? 'bg-green-100' : 'bg-gray-100'}
+                      `}>
+                        <Activity className={`w-5 h-5 ${isOnline ? 'text-green-600' : 'text-gray-400'}`} />
+                      </div>
+                      <div className="text-left">
+                        <div className={`font-semibold text-sm ${isSelected ? 'text-cyan-900' : 'text-gray-900'}`}>
+                          {device.name || device.device_id}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`
+                            inline-block w-2 h-2 rounded-full
+                            ${isOnline ? 'bg-green-500' : 'bg-gray-400'}
+                          `} />
+                          <span className="text-xs text-gray-600">
+                            {isOnline ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Device Header */}
+      {currentDevice && (
+        <div className="bg-gradient-to-r from-cyan-500 to-blue-600 text-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">{currentDevice.name || currentDevice.device_id}</h2>
+                <p className="text-cyan-100 mt-1 flex items-center gap-2">
+                  <span>📍</span>
+                  <span>{currentDevice.location || 'Location not set'}</span>
+                </p>
+              </div>
+              <div className="text-right">
+                <div className={`
+                  inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium
+                  ${currentDevice.status === 'active' || currentDevice.status === 'online'
+                    ? 'bg-green-500 bg-opacity-20 border border-green-300'
+                    : 'bg-gray-500 bg-opacity-20 border border-gray-300'
+                  }
+                `}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    currentDevice.status === 'active' || currentDevice.status === 'online'
+                      ? 'bg-green-300'
+                      : 'bg-gray-300'
+                  }`} />
+                  {currentDevice.status === 'active' || currentDevice.status === 'online' ? 'Online' : 'Offline'}
+                </div>
+                <p className="text-xs text-cyan-200 mt-2">
+                  Last updated: {new Date().toLocaleTimeString()}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {devices.length === 0 && !isLoading && (
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center max-w-md px-4">
+            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Activity className="w-12 h-12 text-gray-400" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">
+              No Devices Yet
+            </h3>
+            <p className="text-gray-600 mb-6">
+              Get started by adding your first water quality monitoring device to track your water parameters in real-time.
+            </p>
+            <button
+              onClick={toggleAddDevice}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              Add Your First Device
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {devices.length > 0 && (
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* WQI Hero Section */}
         <div className="bg-white rounded-lg shadow-md p-8 mb-6">
@@ -1386,6 +1537,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           onProfileUpdated={handleProfileUpdated}
         />
       </main>
+      )}
     </div>
   );
 });

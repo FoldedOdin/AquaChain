@@ -375,12 +375,17 @@ app.post('/api/devices/register', (req, res) => {
     });
   }
   
+  // Get consumer name from user data
+  const user = devUsers.get(tokenData.email);
+  const consumerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name || tokenData.email : tokenData.email;
+  
   // Create new device
   const newDevice = {
     device_id,
     user_id: tokenData.userId,
     name: name || `Device ${device_id}`,
     location: location || 'Not specified',
+    consumerName: consumerName,  // Add consumer name so it shows in admin dashboard
     water_source_type: water_source_type || 'household',
     status: 'active',
     created_at: new Date().toISOString(),
@@ -440,7 +445,7 @@ app.get('/api/devices', (req, res) => {
   
   res.json({
     success: true,
-    devices: userDevices,
+    data: userDevices,  // Changed from 'devices' to 'data' to match dataService expectation
     count: userDevices.length
   });
 });
@@ -1925,32 +1930,57 @@ app.put('/api/admin/devices/:deviceId', (req, res) => {
   }
   
   const { deviceId } = req.params;
-  const { status, location, consumerName } = req.body;
+  const { status, location, consumerId, consumerName } = req.body;
   
-  // Find and update device
-  let deviceUpdated = false;
+  // Find device
+  let deviceFound = false;
   let updatedDevice = null;
+  let oldUserId = null;
   
   for (const [userId, devices] of devDevices.entries()) {
     const deviceIndex = devices.findIndex(d => d.device_id === deviceId);
     if (deviceIndex !== -1) {
       const device = devices[deviceIndex];
+      oldUserId = userId;
       
-      // Update device fields
-      if (status) device.status = status;
-      if (location) device.location = location;
-      if (consumerName) device.consumerName = consumerName;
-      device.updated_at = new Date().toISOString();
+      // Check if device needs to be reassigned to a different consumer
+      if (consumerId && consumerId !== userId) {
+        // Remove device from old user
+        devices.splice(deviceIndex, 1);
+        devDevices.set(userId, devices);
+        
+        // Update device fields
+        device.user_id = consumerId;
+        if (status) device.status = status;
+        if (location) device.location = location;
+        if (consumerName) device.consumerName = consumerName;
+        device.updated_at = new Date().toISOString();
+        
+        // Add device to new user
+        const newUserDevices = devDevices.get(consumerId) || [];
+        newUserDevices.push(device);
+        devDevices.set(consumerId, newUserDevices);
+        
+        updatedDevice = device;
+        console.log(`✅ Device ${deviceId} reassigned from ${oldUserId} to ${consumerId}`);
+      } else {
+        // Just update device fields without reassignment
+        if (status) device.status = status;
+        if (location) device.location = location;
+        if (consumerName) device.consumerName = consumerName;
+        device.updated_at = new Date().toISOString();
+        
+        devices[deviceIndex] = device;
+        devDevices.set(userId, devices);
+        updatedDevice = device;
+      }
       
-      devices[deviceIndex] = device;
-      devDevices.set(userId, devices);
-      updatedDevice = device;
-      deviceUpdated = true;
+      deviceFound = true;
       break;
     }
   }
   
-  if (!deviceUpdated) {
+  if (!deviceFound) {
     return res.status(404).json({ 
       success: false, 
       error: 'Device not found' 

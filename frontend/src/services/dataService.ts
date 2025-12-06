@@ -20,7 +20,8 @@ class DataService {
 
   constructor() {
     // Get auth token from localStorage or auth context
-    this.authToken = localStorage.getItem('authToken');
+    // Try both token keys for compatibility
+    this.authToken = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
   }
 
   private async makeRequest<T>(
@@ -28,14 +29,23 @@ class DataService {
     options: RequestInit = {}
   ): Promise<T | null> {
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      // Get fresh token on each request (in case user logged in after service was created)
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      
+      const url = `${API_BASE_URL}${endpoint}`;
+      console.log(`🌐 [makeRequest] Calling: ${url}`);
+      console.log(`🔑 [makeRequest] Auth token: ${token ? 'Present' : 'Missing'}`);
+      
+      const response = await fetch(url, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': this.authToken ? `Bearer ${this.authToken}` : '',
+          'Authorization': token ? `Bearer ${token}` : '',
           ...options.headers,
         },
       });
+
+      console.log(`📡 [makeRequest] Response status: ${response.status}`);
 
       if (!response.ok) {
         console.warn(`API request failed: ${response.status} ${response.statusText}`);
@@ -43,8 +53,10 @@ class DataService {
       }
 
       const result: ApiResponse<T> = await response.json();
+      console.log(`📥 [makeRequest] Raw response:`, result);
       
       if (result.success) {
+        console.log(`✅ [makeRequest] Returning result.data:`, result.data);
         return result.data;
       } else {
         console.warn(`API error: ${result.error || result.message}`);
@@ -69,12 +81,15 @@ class DataService {
 
   // Device Management
   async getDevices(): Promise<DeviceStatus[]> {
-    const data = await this.makeRequest<DeviceStatus[]>('/devices');
+    console.log('🔍 [dataService] Fetching devices from /api/devices');
+    const data = await this.makeRequest<DeviceStatus[]>('/api/devices');
+    console.log('📦 [dataService] Devices received:', data);
+    console.log('📊 [dataService] Device count:', data?.length || 0);
     return data || [];
   }
 
   async getDeviceById(deviceId: string): Promise<DeviceStatus | null> {
-    const data = await this.makeRequest<DeviceStatus>(`/devices/${deviceId}`);
+    const data = await this.makeRequest<DeviceStatus>(`/api/devices/${deviceId}`);
     return data;
   }
 

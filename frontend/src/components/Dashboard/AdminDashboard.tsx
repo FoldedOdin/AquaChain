@@ -114,6 +114,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
     deviceId: '',
     status: 'online',
     location: '',
+    consumerId: '',
     consumerName: ''
   });
   const [isSubmittingEditDevice, setIsSubmittingEditDevice] = useState(false);
@@ -801,6 +802,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
       deviceId: device.deviceId || '',
       status: device.status || 'online',
       location: device.location?.address || '',
+      consumerId: device.consumerId || '',
       consumerName: device.consumerName || ''
     });
     setShowEditDeviceModal(true);
@@ -2215,16 +2217,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Owner/Consumer Name
+                        Assign to Consumer
                       </label>
-                      <input
-                        type="text"
-                        value={editDeviceFormData.consumerName}
-                        onChange={(e) => handleEditDeviceFormChange('consumerName', e.target.value)}
+                      <select
+                        value={editDeviceFormData.consumerId || ''}
+                        onChange={(e) => {
+                          const consumerId = e.target.value;
+                          const consumer = users.find(u => u.userId === consumerId);
+                          handleEditDeviceFormChange('consumerId', consumerId);
+                          handleEditDeviceFormChange('consumerName', consumer ? `${consumer.profile?.firstName} ${consumer.profile?.lastName}` : '');
+                        }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                         disabled={isSubmittingEditDevice}
-                        placeholder="John Doe"
-                      />
+                      >
+                        <option value="">Unassigned</option>
+                        {consumerUsers.map((consumer) => (
+                          <option key={consumer.userId} value={consumer.userId}>
+                            {consumer.profile?.firstName} {consumer.profile?.lastName} ({consumer.email})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {consumerUsers.length === 0 
+                          ? 'No consumer users available' 
+                          : `${consumerUsers.length} consumer(s) available`}
+                      </p>
                     </div>
                     
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
