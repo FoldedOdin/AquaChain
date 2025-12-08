@@ -420,6 +420,234 @@ app.post('/api/devices/register', (req, res) => {
   });
 });
 
+// ============================================
+// ISSUE REPORTING SYSTEM
+// ============================================
+
+// Submit issue (Consumer/Technician)
+app.post('/api/issues', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  const { type, title, description, priority, deviceId } = req.body;
+  
+  const newIssue = {
+    id: `issue_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    type, // 'bug' or 'iot'
+    title,
+    description,
+    priority, // 'low', 'medium', 'high', 'critical'
+    deviceId: deviceId || null,
+    reportedBy: user.email,
+    reportedByName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+    reportedAt: new Date().toISOString(),
+    status: 'pending', // 'pending', 'acknowledged', 'in-progress', 'resolved', 'rejected'
+    assignedTo: null,
+    resolvedAt: null,
+    resolvedBy: null,
+    adminNotes: null
+  };
+  
+  reportedIssues.push(newIssue);
+  
+  // Create an alert for admins
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    message: `New ${type === 'bug' ? 'bug report' : 'IoT issue'}: ${title}`,
+    priority: priority === 'critical' ? 'high' : priority === 'high' ? 'medium' : 'low',
+    type: priority === 'critical' || priority === 'high' ? 'error' : 'warning',
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: 'system',
+    issueId: newIssue.id
+  };
+  
+  systemAlerts.push(alert);
+  
+  saveDevData();
+  
+  console.log(`📝 Issue reported by ${user.email}: [${type}] ${title}`);
+  
+  res.json({
+    success: true,
+    message: 'Issue submitted successfully',
+    issue: newIssue
+  });
+});
+
+// Get all issues (Admin only)
+app.get('/api/admin/issues', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Get statistics
+  const stats = {
+    total: reportedIssues.length,
+    pending: reportedIssues.filter(i => i.status === 'pending').length,
+    inProgress: reportedIssues.filter(i => i.status === 'in-progress').length,
+    resolved: reportedIssues.filter(i => i.status === 'resolved').length,
+    bugs: reportedIssues.filter(i => i.type === 'bug').length,
+    iotIssues: reportedIssues.filter(i => i.type === 'iot').length
+  };
+  
+  res.json({
+    success: true,
+    issues: reportedIssues,
+    stats
+  });
+});
+
+// Update issue status (Admin only)
+app.put('/api/admin/issues/:issueId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { issueId } = req.params;
+  const { status, assignedTo, adminNotes } = req.body;
+  
+  const issue = reportedIssues.find(i => i.id === issueId);
+  
+  if (!issue) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Issue not found' 
+    });
+  }
+  
+  if (status) issue.status = status;
+  if (assignedTo) issue.assignedTo = assignedTo;
+  if (adminNotes) issue.adminNotes = adminNotes;
+  
+  if (status === 'resolved') {
+    issue.resolvedAt = new Date().toISOString();
+    issue.resolvedBy = user.email;
+  }
+  
+  saveDevData();
+  
+  console.log(`✅ Admin updated issue ${issueId}: status=${status}`);
+  
+  res.json({
+    success: true,
+    message: 'Issue updated successfully',
+    issue
+  });
+});
+
+// Get user's own issues
+app.get('/api/issues/my', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  const userIssues = reportedIssues.filter(i => i.reportedBy === user.email);
+  
+  res.json({
+    success: true,
+    issues: userIssues,
+    count: userIssues.length
+  });
+});
+
 // Get user's devices
 app.get('/api/devices', (req, res) => {
   const authHeader = req.headers.authorization;
@@ -614,6 +842,9 @@ let systemSettings = {
 // System alerts storage
 const systemAlerts = [];
 
+// Reported issues storage
+const reportedIssues = [];
+
 // Load existing users from file
 function loadDevData() {
   try {
@@ -671,6 +902,12 @@ function loadDevData() {
         contactSubmissions.push(...data.contactSubmissions);
         console.log(`✅ Loaded ${contactSubmissions.length} contact submissions from storage`);
       }
+      
+      // Load reported issues
+      if (data.reportedIssues) {
+        reportedIssues.push(...data.reportedIssues);
+        console.log(`✅ Loaded ${reportedIssues.length} reported issues from storage`);
+      }
     } else {
       console.log('📝 No existing dev data found - starting fresh');
     }
@@ -688,6 +925,7 @@ function saveDevData() {
       devices: Object.fromEntries(devDevices),
       notifications: Object.fromEntries(devNotifications),
       contactSubmissions: contactSubmissions,
+      reportedIssues: reportedIssues,
       systemSettings: systemSettings,
       systemAlerts: systemAlerts,
       lastUpdated: new Date().toISOString()
@@ -2350,6 +2588,98 @@ app.put('/api/admin/alerts/read-all', (req, res) => {
   
   saveDevData();
   
+  res.json({
+    success: true,
+    message: 'All alerts marked as read'
+  });
+});
+
+// Manually trigger alert generation (Admin only)
+app.post('/api/admin/alerts/generate', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Manually trigger alert generation
+  if (typeof generatePeriodicAlerts === 'function') {
+    generatePeriodicAlerts();
+  }
+  
+  res.json({
+    success: true,
+    message: 'Alert generation triggered',
+    alertCount: systemAlerts.length
+  });
+});
+
+// Delete alert (Admin only)
+app.delete('/api/admin/alerts/:alertId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { alertId } = req.params;
+  const alertIndex = systemAlerts.findIndex(a => a.id === alertId);
+  
+  if (alertIndex === -1) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Alert not found' 
+    });
+  }
+  
+  systemAlerts.splice(alertIndex, 1);
+  
+  saveDevData();
+  
   console.log(`✅ Admin marked all alerts as read`);
   
   res.json({
@@ -3306,6 +3636,166 @@ app.use('*', (req, res) => {
   });
 });
 
+// ============================================
+// REAL-TIME ALERT GENERATION SYSTEM
+// ============================================
+
+function generateAlertId() {
+  return `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function createAlert(message, priority, type, deviceId = null) {
+  const alert = {
+    id: generateAlertId(),
+    message,
+    priority, // 'low', 'medium', 'high', 'critical'
+    type, // 'info', 'warning', 'error'
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: 'system',
+    deviceId
+  };
+  
+  systemAlerts.push(alert);
+  
+  // Keep only last 50 alerts
+  if (systemAlerts.length > 50) {
+    systemAlerts.splice(0, systemAlerts.length - 50);
+  }
+  
+  saveDevData();
+  console.log(`🚨 Alert created: [${priority}] ${message}`);
+  
+  return alert;
+}
+
+function checkDeviceStatus() {
+  const now = Date.now();
+  
+  for (const [userId, devices] of devDevices.entries()) {
+    devices.forEach(device => {
+      // Check if device is offline
+      if (device.status === 'offline' || device.status === 'maintenance') {
+        const existingAlert = systemAlerts.find(
+          a => a.deviceId === device.device_id && 
+          a.message.includes('offline') && 
+          !a.read
+        );
+        
+        if (!existingAlert) {
+          createAlert(
+            `Device ${device.name || device.device_id} is ${device.status}`,
+            device.status === 'offline' ? 'high' : 'medium',
+            device.status === 'offline' ? 'error' : 'warning',
+            device.device_id
+          );
+        }
+      }
+      
+      // Check if device came back online
+      if (device.status === 'online' || device.status === 'active') {
+        const offlineAlert = systemAlerts.find(
+          a => a.deviceId === device.device_id && 
+          (a.message.includes('offline') || a.message.includes('maintenance')) && 
+          !a.read
+        );
+        
+        if (offlineAlert) {
+          createAlert(
+            `Device ${device.name || device.device_id} is back online`,
+            'low',
+            'info',
+            device.device_id
+          );
+        }
+      }
+    });
+  }
+}
+
+function checkInventoryLevels() {
+  // Inventory checking would be implemented here
+  // For now, we skip this as inventory is mock data in endpoints
+  // In a real system, this would check actual inventory database
+}
+
+function checkWaterQuality() {
+  // Simulate water quality checks
+  // In a real system, this would check actual sensor readings
+  const thresholds = {
+    phMin: 6.5,
+    phMax: 8.5,
+    turbidityMax: 5,
+    tdsMax: 500
+  };
+  
+  // For demo purposes, randomly generate some quality alerts
+  const random = Math.random();
+  
+  if (random < 0.1) { // 10% chance
+    const devices = [];
+    for (const [userId, userDevices] of devDevices.entries()) {
+      devices.push(...userDevices.filter(d => d.status === 'online' || d.status === 'active'));
+    }
+    
+    if (devices.length > 0) {
+      const randomDevice = devices[Math.floor(Math.random() * devices.length)];
+      const issues = [
+        { msg: 'pH level outside safe range', priority: 'high' },
+        { msg: 'High turbidity detected', priority: 'medium' },
+        { msg: 'TDS levels elevated', priority: 'medium' },
+        { msg: 'Temperature anomaly detected', priority: 'low' }
+      ];
+      
+      const issue = issues[Math.floor(Math.random() * issues.length)];
+      
+      createAlert(
+        `${issue.msg} in ${randomDevice.name || randomDevice.device_id}`,
+        issue.priority,
+        issue.priority === 'high' ? 'error' : 'warning',
+        randomDevice.device_id
+      );
+    }
+  }
+}
+
+function generatePeriodicAlerts() {
+  // Check device status
+  checkDeviceStatus();
+  
+  // Check inventory levels
+  checkInventoryLevels();
+  
+  // Check water quality
+  checkWaterQuality();
+}
+
+// Start real-time alert monitoring
+let alertInterval;
+
+function startAlertMonitoring() {
+  console.log('🚨 Starting real-time alert monitoring...');
+  
+  // Clear old hardcoded alerts
+  systemAlerts.length = 0;
+  
+  // Create initial system startup alert
+  createAlert('System started successfully', 'low', 'info');
+  
+  // Run initial check
+  generatePeriodicAlerts();
+  
+  // Check every 30 seconds
+  alertInterval = setInterval(generatePeriodicAlerts, 30000);
+}
+
+function stopAlertMonitoring() {
+  if (alertInterval) {
+    clearInterval(alertInterval);
+    console.log('🚨 Alert monitoring stopped');
+  }
+}
+
 // Start server
 server.listen(PORT, () => {
   console.log(`🚀 AquaChain Development Server running on http://localhost:${PORT}`);
@@ -3317,6 +3807,9 @@ server.listen(PORT, () => {
   
   // Initialize demo users
   initializeDemoUsers();
+  
+  // Start real-time alert monitoring
+  startAlertMonitoring();
   
   // Save initial state
   saveDevData();

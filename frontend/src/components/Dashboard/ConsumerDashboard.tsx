@@ -32,9 +32,9 @@ import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
-import DataExportModal from './DataExportModal';
 import AddDeviceModal from './AddDeviceModal';
 import EditProfileModal from './EditProfileModal';
+import DataExportModal from './DataExportModal';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -50,7 +50,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const navigate = useNavigate();
   const { user, logout, refreshUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
-  const [showExportModal, setShowExportModal] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
   const [showReportIssue, setShowReportIssue] = useState(false);
   const [showAddDevice, setShowAddDevice] = useState(false);
@@ -121,10 +120,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     setShowSettings(prev => !prev);
   }, []);
 
-  const toggleExportModal = useCallback(() => {
-    setShowExportModal(prev => !prev);
-  }, []);
-
   const toggleFullReport = useCallback(() => {
     setShowFullReport(prev => !prev);
   }, []);
@@ -186,18 +181,26 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         title: issueTitle,
         description: issueDescription,
         priority: issuePriority,
-        deviceId: issueType === 'iot' ? selectedDevice : null,
-        reportedBy: user?.email || 'Unknown',
-        reportedAt: new Date().toISOString(),
-        status: 'pending', // Will be reviewed by admin
-        assignedTo: issueType === 'iot' ? 'auto-assign-technician' : 'developer-team'
+        deviceId: issueType === 'iot' ? selectedDevice : null
       };
 
-      // In a real app, this would call an API endpoint
-      // For now, we'll simulate the API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      console.log('Issue submitted:', issueData);
+      // Call API to submit issue
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch('http://localhost:3002/api/issues', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(issueData)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to submit issue');
+      }
+
+      const result = await response.json();
+      console.log('Issue submitted successfully:', result);
       
       // Show success message
       setIssueSubmitted(true);
@@ -466,7 +469,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             {/* Quick Actions */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <button
                   onClick={toggleSettings}
                   className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors duration-200"
@@ -477,30 +480,15 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                     <p className="text-sm text-gray-600">Check current water quality metrics</p>
                   </div>
                 </button>
-                
-                <button
-                  onClick={toggleExportModal}
-                  className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors duration-200"
-                >
-                  <svg className="w-5 h-5 text-aqua-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <div className="text-left">
-                    <h3 className="font-medium text-gray-900">Export Data</h3>
-                    <p className="text-sm text-gray-600">Download your water quality data</p>
-                  </div>
-                </button>
+              </div>
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-900">
+                  <strong>Need data exports?</strong> Your assigned technician can download and provide water quality data reports for you.
+                </p>
               </div>
             </div>
           </motion.div>
         </main>
-
-        {/* Data Export Modal */}
-        <DataExportModal
-          isOpen={showExportModal}
-          onClose={toggleExportModal}
-          userRole="consumer"
-        />
 
         {/* Edit Profile Modal */}
         <EditProfileModal
@@ -997,7 +985,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button 
               onClick={toggleReportIssue}
               className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-cyan-500 hover:bg-cyan-50 transition"
@@ -1012,14 +1000,10 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               <Activity className="w-6 h-6 text-cyan-600" />
               <span className="font-medium text-gray-700">View Full Report</span>
             </button>
-            <button 
-              onClick={toggleExportModal}
-              className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-cyan-500 hover:bg-cyan-50 transition"
-            >
-              <Download className="w-6 h-6 text-cyan-600" />
-              <span className="font-medium text-gray-700">Download Data</span>
-            </button>
           </div>
+          <p className="text-sm text-gray-500 mt-4 text-center">
+            💡 Need to download data? Contact your assigned technician for data exports.
+          </p>
         </div>
 
         {/* Report Issue Modal */}
@@ -1295,16 +1279,13 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <div className="mb-6 pb-4 border-b">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Report Generated</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">Water Quality Report</h3>
                       <p className="text-sm text-gray-600">{new Date().toLocaleString()}</p>
                     </div>
-                    <button
-                      onClick={toggleExportModal}
-                      className="flex items-center space-x-2 px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Download PDF</span>
-                    </button>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-600">Need a copy?</p>
+                      <p className="text-xs text-gray-500">Contact your technician for data exports</p>
+                    </div>
                   </div>
                 </div>
 
@@ -1485,32 +1466,16 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <p className="text-sm text-gray-600">
                   Report generated for {user?.email || 'Consumer'}
                 </p>
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={toggleFullReport}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition"
-                  >
-                    Close
-                  </button>
-                  <button
-                    onClick={toggleExportModal}
-                    className="px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition flex items-center space-x-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Export Report</span>
-                  </button>
-                </div>
+                <button
+                  onClick={toggleFullReport}
+                  className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition"
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </div>
         )}
-
-        {/* Data Export Modal */}
-        <DataExportModal
-          isOpen={showExportModal}
-          onClose={toggleExportModal}
-          userRole="consumer"
-        />
 
         {/* Add Device Modal */}
         <AddDeviceModal

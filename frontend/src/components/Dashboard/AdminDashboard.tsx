@@ -57,6 +57,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
   const [showSystemSettingsModal, setShowSystemSettingsModal] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
   const [showInventoryManagement, setShowInventoryManagement] = useState(false);
+  const [showReportedIssuesModal, setShowReportedIssuesModal] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string>('');
   
@@ -109,6 +110,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
   const [showDeleteDeviceModal, setShowDeleteDeviceModal] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<any>(null);
   
+  // Reported issues management
+  const [reportedIssues, setReportedIssues] = useState<any[]>([]);
+  const [selectedIssue, setSelectedIssue] = useState<any>(null);
+  const [issueFilter, setIssueFilter] = useState('all'); // all, pending, in-progress, resolved
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  
   // Edit device form state
   const [editDeviceFormData, setEditDeviceFormData] = useState({
     deviceId: '',
@@ -153,11 +160,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
       try {
         const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
         
-        const [usersData, devicesData, fleetData, metricsResponse] = await Promise.all([
+        const [usersData, devicesData, fleetData, metricsResponse, issuesResponse] = await Promise.all([
           getAllUsers(),
           getAllDevices(),
           getDeviceFleetStatus(),
           fetch(`${process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002'}/api/admin/metrics`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }),
+          fetch(`${process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002'}/api/admin/issues`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
@@ -169,9 +182,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
         setDevices(devicesData);
         setDeviceFleet(fleetData);
         
+        // Filter technicians from users
+        const techList = usersData.filter((u: any) => u.role === 'technician');
+        setTechnicians(techList);
+        
         if (metricsResponse.ok) {
           const metricsData = await metricsResponse.json();
           setSystemMetrics(metricsData.metrics);
+        }
+        
+        if (issuesResponse.ok) {
+          const issuesData = await issuesResponse.json();
+          setReportedIssues(issuesData.issues || []);
         }
       } catch (err) {
         console.error('Failed to fetch admin data:', err);
@@ -1460,6 +1482,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                   >
                     <Package className="w-6 h-6 text-purple-600" />
                     <span className="text-sm font-medium text-gray-900">Inventory</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowReportedIssuesModal(true)}
+                    className="flex flex-col items-center gap-2 p-4 border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-300 transition-colors relative"
+                  >
+                    <AlertTriangle className="w-6 h-6 text-orange-600" />
+                    <span className="text-sm font-medium text-gray-900">Issues</span>
+                    {reportedIssues.filter(i => i.status === 'pending').length > 0 && (
+                      <span className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                        {reportedIssues.filter(i => i.status === 'pending').length}
+                      </span>
+                    )}
                   </button>
                 </div>
               </div>
@@ -3080,6 +3114,238 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                       </button>
                     </div>
                   </form>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Reported Issues Modal */}
+        <AnimatePresence>
+          {showReportedIssuesModal && (
+            <>
+              <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowReportedIssuesModal(false)} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">Reported Issues</h3>
+                      <p className="text-sm text-gray-600 mt-1">View and manage user-reported issues</p>
+                    </div>
+                    <button 
+                      onClick={() => setShowReportedIssuesModal(false)} 
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <XMarkIcon className="w-6 h-6" />
+                    </button>
+                  </div>
+                  
+                  {/* Issue Stats */}
+                  <div className="grid grid-cols-4 gap-4 mb-6">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-gray-600 mb-1">Total Issues</div>
+                      <p className="text-2xl font-bold text-gray-900">{reportedIssues.length}</p>
+                    </div>
+                    <div className="bg-yellow-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-yellow-700 mb-1">Pending</div>
+                      <p className="text-2xl font-bold text-yellow-600">
+                        {reportedIssues.filter(i => i.status === 'pending').length}
+                      </p>
+                    </div>
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-blue-700 mb-1">In Progress</div>
+                      <p className="text-2xl font-bold text-blue-600">
+                        {reportedIssues.filter(i => i.status === 'in-progress').length}
+                      </p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-green-700 mb-1">Resolved</div>
+                      <p className="text-2xl font-bold text-green-600">
+                        {reportedIssues.filter(i => i.status === 'resolved').length}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Filter */}
+                  <div className="mb-4">
+                    <select
+                      value={issueFilter}
+                      onChange={(e) => setIssueFilter(e.target.value)}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="all">All Issues ({reportedIssues.length})</option>
+                      <option value="pending">Pending ({reportedIssues.filter(i => i.status === 'pending').length})</option>
+                      <option value="in-progress">In Progress ({reportedIssues.filter(i => i.status === 'in-progress').length})</option>
+                      <option value="resolved">Resolved ({reportedIssues.filter(i => i.status === 'resolved').length})</option>
+                    </select>
+                  </div>
+                  
+                  {/* Issues List */}
+                  <div className="space-y-3">
+                    {reportedIssues.length > 0 ? (
+                      reportedIssues
+                        .filter(issue => issueFilter === 'all' || issue.status === issueFilter)
+                        .map((issue) => (
+                          <div 
+                            key={issue.id} 
+                            className="p-4 rounded-lg border border-gray-200 hover:border-purple-300 transition-colors"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                    issue.type === 'bug'
+                                      ? 'bg-orange-100 text-orange-800'
+                                      : 'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {issue.type === 'bug' ? '🐛 Bug' : '📡 IoT Device'}
+                                  </span>
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                    issue.priority === 'critical' ? 'bg-red-100 text-red-800' :
+                                    issue.priority === 'high' ? 'bg-orange-100 text-orange-800' :
+                                    issue.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-green-100 text-green-800'
+                                  }`}>
+                                    {issue.priority.toUpperCase()}
+                                  </span>
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                    issue.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                    issue.status === 'in-progress' ? 'bg-blue-100 text-blue-800' :
+                                    issue.status === 'resolved' ? 'bg-green-100 text-green-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {issue.status.replace('-', ' ').toUpperCase()}
+                                  </span>
+                                </div>
+                                <h4 className="font-semibold text-gray-900 mb-1">{issue.title}</h4>
+                                <p className="text-sm text-gray-600 mb-2">{issue.description}</p>
+                                <div className="flex items-center gap-4 text-xs text-gray-500">
+                                  <span>👤 {issue.reportedByName}</span>
+                                  <span>📧 {issue.reportedBy}</span>
+                                  <span>🕒 {new Date(issue.reportedAt).toLocaleString()}</span>
+                                  {issue.deviceId && <span>📱 Device: {issue.deviceId}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Assignment Section */}
+                            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-200">
+                              <select
+                                value={issue.assignedTo || ''}
+                                onChange={async (e) => {
+                                  const technicianEmail = e.target.value;
+                                  try {
+                                    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+                                    const response = await fetch(`http://localhost:3002/api/admin/issues/${issue.id}`, {
+                                      method: 'PUT',
+                                      headers: {
+                                        'Authorization': `Bearer ${token}`,
+                                        'Content-Type': 'application/json',
+                                      },
+                                      body: JSON.stringify({
+                                        assignedTo: technicianEmail,
+                                        status: technicianEmail ? 'in-progress' : issue.status
+                                      })
+                                    });
+                                    
+                                    if (response.ok) {
+                                      // Refresh issues
+                                      const issuesResponse = await fetch('http://localhost:3002/api/admin/issues', {
+                                        headers: {
+                                          'Authorization': `Bearer ${token}`,
+                                          'Content-Type': 'application/json',
+                                        },
+                                      });
+                                      if (issuesResponse.ok) {
+                                        const issuesData = await issuesResponse.json();
+                                        setReportedIssues(issuesData.issues || []);
+                                      }
+                                    }
+                                  } catch (error) {
+                                    console.error('Failed to assign technician:', error);
+                                  }
+                                }}
+                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              >
+                                <option value="">Assign Technician...</option>
+                                {technicians.map((tech) => (
+                                  <option key={tech.email} value={tech.email}>
+                                    {tech.firstName} {tech.lastName} ({tech.email})
+                                  </option>
+                                ))}
+                              </select>
+                              
+                              <select
+                                value={issue.status}
+                                onChange={async (e) => {
+                                  const newStatus = e.target.value;
+                                  try {
+                                    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+                                    const response = await fetch(`http://localhost:3002/api/admin/issues/${issue.id}`, {
+                                      method: 'PUT',
+                                      headers: {
+                                        'Authorization': `Bearer ${token}`,
+                                        'Content-Type': 'application/json',
+                                      },
+                                      body: JSON.stringify({ status: newStatus })
+                                    });
+                                    
+                                    if (response.ok) {
+                                      // Refresh issues
+                                      const issuesResponse = await fetch('http://localhost:3002/api/admin/issues', {
+                                        headers: {
+                                          'Authorization': `Bearer ${token}`,
+                                          'Content-Type': 'application/json',
+                                        },
+                                      });
+                                      if (issuesResponse.ok) {
+                                        const issuesData = await issuesResponse.json();
+                                        setReportedIssues(issuesData.issues || []);
+                                      }
+                                    }
+                                  } catch (error) {
+                                    console.error('Failed to update status:', error);
+                                  }
+                                }}
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="acknowledged">Acknowledged</option>
+                                <option value="in-progress">In Progress</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                            </div>
+                            
+                            {issue.assignedTo && (
+                              <div className="mt-2 text-xs text-gray-600">
+                                ✅ Assigned to: {issue.assignedTo}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                    ) : (
+                      <div className="text-center py-12 text-gray-500">
+                        <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                        <p>No reported issues yet</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Footer */}
+                  <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end">
+                    <button
+                      onClick={() => setShowReportedIssuesModal(false)}
+                      className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </>
