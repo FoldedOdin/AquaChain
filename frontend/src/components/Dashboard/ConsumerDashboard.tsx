@@ -23,7 +23,8 @@ import {
   Download, 
   Plus,
   AlertTriangle,
-  Info
+  Info,
+  Package
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -35,6 +36,8 @@ import NotificationCenter from './NotificationCenter';
 import AddDeviceModal from './AddDeviceModal';
 import EditProfileModal from './EditProfileModal';
 import DataExportModal from './DataExportModal';
+import RequestDeviceModal from './RequestDeviceModal';
+import MyOrdersPage from './MyOrdersPage';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -54,6 +57,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [showReportIssue, setShowReportIssue] = useState(false);
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showRequestDevice, setShowRequestDevice] = useState(false);
+  const [showMyOrders, setShowMyOrders] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [selectedTimeRange, setSelectedTimeRange] = useState('7days');
@@ -145,6 +150,19 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     // Refresh dashboard data after device is added
     refetch();
   }, [refetch]);
+
+  const toggleRequestDevice = useCallback(() => {
+    setShowRequestDevice(prev => !prev);
+  }, []);
+
+  const handleDeviceRequested = useCallback(() => {
+    // Refresh dashboard data after device request
+    refetch();
+  }, [refetch]);
+
+  const toggleMyOrders = useCallback(() => {
+    setShowMyOrders(prev => !prev);
+  }, []);
 
   const toggleEditProfile = useCallback(() => {
     console.log('Toggle Edit Profile clicked, current state:', showEditProfile);
@@ -361,6 +379,11 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     );
   }
 
+  // My Orders view
+  if (showMyOrders) {
+    return <MyOrdersPage onBack={toggleMyOrders} />;
+  }
+
   // Settings view
   if (showSettings) {
     return (
@@ -530,6 +553,16 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* My Orders Button */}
+            <button
+              onClick={toggleMyOrders}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors duration-200"
+              title="My Orders"
+            >
+              <Package className="w-5 h-5" />
+              <span className="text-sm font-medium">My Orders</span>
+            </button>
+
             {/* Connection Status */}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
               isConnected 
@@ -985,7 +1018,14 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button 
+              onClick={toggleRequestDevice}
+              className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition"
+            >
+              <Plus className="w-6 h-6 text-blue-600" />
+              <span className="font-medium text-gray-700">Request Device</span>
+            </button>
             <button 
               onClick={toggleReportIssue}
               className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-cyan-500 hover:bg-cyan-50 transition"
@@ -1482,6 +1522,13 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           isOpen={showAddDevice}
           onClose={toggleAddDevice}
           onDeviceAdded={handleDeviceAdded}
+        />
+
+        {/* Request Device Modal */}
+        <RequestDeviceModal
+          isOpen={showRequestDevice}
+          onClose={toggleRequestDevice}
+          onSuccess={handleDeviceRequested}
         />
 
         {/* Edit Profile Modal */}

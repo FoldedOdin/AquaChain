@@ -648,6 +648,739 @@ app.get('/api/issues/my', (req, res) => {
   });
 });
 
+// ============================================
+// DEVICE ORDER & ONBOARDING SYSTEM
+// ============================================
+
+// Create device order (Consumer)
+app.post('/api/orders', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  const { deviceSKU, address, phone, preferredSlot, paymentMethod } = req.body;
+  
+  const newOrder = {
+    orderId: `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    userId: user.userId || tokenData.userId,
+    consumerName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name || user.email,
+    consumerEmail: user.email,
+    phone: phone || user.phone || '',
+    address: address || user.address || '',
+    deviceSKU: deviceSKU || 'AC-HOME-V1',
+    status: 'pending',
+    quoteAmount: null,
+    paymentMethod: paymentMethod || null,
+    paymentReference: null,
+    assignedTechnicianId: null,
+    assignedTechnicianName: null,
+    deviceId: null,
+    shippingCarrier: null,
+    shippingTrackingNo: null,
+    installationPhotos: [],
+    preferredSlot: preferredSlot || null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    quotedAt: null,
+    paidAt: null,
+    shippedAt: null,
+    installedAt: null
+  };
+  
+  deviceOrders.push(newOrder);
+  
+  // Create alert for admin
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    message: `New device order from ${newOrder.userName} (${deviceSKU})`,
+    priority: 'medium',
+    type: 'info',
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: 'system',
+    orderId: newOrder.orderId
+  };
+  
+  systemAlerts.push(alert);
+  
+  saveDevData();
+  
+  console.log(`📦 Device order created: ${newOrder.orderId} by ${user.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Device order created successfully',
+    order: newOrder
+  });
+});
+
+// Get user's orders (Consumer)
+app.get('/api/orders/my', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  const userOrders = deviceOrders.filter(o => o.consumerEmail === user.email);
+  
+  res.json({
+    success: true,
+    orders: userOrders,
+    count: userOrders.length
+  });
+});
+
+// Get order details (Consumer)
+app.get('/api/orders/:orderId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  const { orderId } = req.params;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Check if user owns this order or is admin
+  if (order.userEmail !== user.email && user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Access denied' 
+    });
+  }
+  
+  res.json({
+    success: true,
+    order
+  });
+});
+
+// Get all orders (Admin only)
+app.get('/api/admin/orders', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  // Get statistics
+  const stats = {
+    total: deviceOrders.length,
+    pending: deviceOrders.filter(o => o.status === 'pending').length,
+    quoted: deviceOrders.filter(o => o.status === 'quoted').length,
+    provisioned: deviceOrders.filter(o => o.status === 'provisioned').length,
+    assigned: deviceOrders.filter(o => o.status === 'assigned').length,
+    shipped: deviceOrders.filter(o => o.status === 'shipped').length,
+    installing: deviceOrders.filter(o => o.status === 'installing').length,
+    completed: deviceOrders.filter(o => o.status === 'completed').length,
+    cancelled: deviceOrders.filter(o => o.status === 'cancelled').length
+  };
+  
+  res.json({
+    success: true,
+    orders: deviceOrders,
+    stats
+  });
+});
+
+// Set quote (Admin only)
+app.put('/api/admin/orders/:orderId/quote', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { quoteAmount, paymentMethod } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  order.quoteAmount = quoteAmount;
+  order.paymentMethod = paymentMethod;
+  order.status = 'quoted';
+  order.quotedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  saveDevData();
+  
+  console.log(`💰 Quote set for order ${orderId}: ₹${quoteAmount}`);
+  
+  res.json({
+    success: true,
+    message: 'Quote set successfully',
+    order
+  });
+});
+
+// Provision device (Admin only)
+app.put('/api/admin/orders/:orderId/provision', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { deviceId } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Find an available device or use specified deviceId
+  let selectedDevice = null;
+  
+  if (deviceId) {
+    // Find specific device
+    for (const [userId, devices] of devDevices.entries()) {
+      const device = devices.find(d => d.device_id === deviceId);
+      if (device) {
+        selectedDevice = device;
+        break;
+      }
+    }
+  }
+  
+  if (!selectedDevice) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found or not available' 
+    });
+  }
+  
+  order.provisionedDeviceId = selectedDevice.device_id;
+  order.status = 'provisioned';
+  order.updatedAt = new Date().toISOString();
+  
+  saveDevData();
+  
+  console.log(`📱 Device ${selectedDevice.device_id} provisioned for order ${orderId}`);
+  
+  res.json({
+    success: true,
+    message: 'Device provisioned successfully',
+    order,
+    device: selectedDevice
+  });
+});
+
+// Assign technician (Admin only)
+app.put('/api/admin/orders/:orderId/assign', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { technicianId } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  const technician = Array.from(devUsers.values()).find(u => u.userId === technicianId || u.email === technicianId);
+  
+  if (!technician || technician.role !== 'technician') {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Technician not found' 
+    });
+  }
+  
+  order.assignedTechnicianId = technician.userId || technician.email;
+  order.assignedTechnicianName = `${technician.firstName || ''} ${technician.lastName || ''}`.trim() || technician.name || technician.email;
+  order.status = 'assigned';
+  order.updatedAt = new Date().toISOString();
+  
+  saveDevData();
+  
+  console.log(`👷 Technician ${order.assignedTechnicianName} assigned to order ${orderId}`);
+  
+  res.json({
+    success: true,
+    message: 'Technician assigned successfully',
+    order
+  });
+});
+
+// Mark as shipped (Admin only)
+app.put('/api/admin/orders/:orderId/ship', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { shippingCarrier, shippingTrackingNo } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  order.shippingCarrier = shippingCarrier || 'Standard Delivery';
+  order.shippingTrackingNo = shippingTrackingNo || `TRK${Date.now()}`;
+  order.status = 'shipped';
+  order.shippedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  saveDevData();
+  
+  console.log(`🚚 Order ${orderId} marked as shipped`);
+  
+  res.json({
+    success: true,
+    message: 'Order marked as shipped',
+    order
+  });
+});
+
+// Cancel order (Admin only)
+app.put('/api/admin/orders/:orderId/cancel', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Admin access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { reason } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  order.status = 'cancelled';
+  order.cancelReason = reason || 'Cancelled by admin';
+  order.cancelledAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  saveDevData();
+  
+  console.log(`❌ Order ${orderId} cancelled`);
+  
+  res.json({
+    success: true,
+    message: 'Order cancelled',
+    order
+  });
+});
+
+// Get technician installations (Technician only)
+app.get('/api/tech/installations', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'technician') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Technician access required' 
+    });
+  }
+  
+  const techId = user.userId || user.email;
+  const assignments = deviceOrders.filter(o => o.assignedTechnicianId === techId);
+  
+  res.json({
+    success: true,
+    installations: assignments,
+    count: assignments.length
+  });
+});
+
+// Get technician's assigned orders
+app.get('/api/technician/orders', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'technician') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Technician access required' 
+    });
+  }
+  
+  // Get orders assigned to this technician
+  const techId = user.userId || user.email;
+  const assignedOrders = deviceOrders.filter(o => o.assignedTechnicianId === techId);
+  
+  res.json({
+    success: true,
+    orders: assignedOrders,
+    count: assignedOrders.length
+  });
+});
+
+// Complete installation (Technician only)
+app.post('/api/tech/installations/:orderId/complete', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'technician') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Technician access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { deviceId, calibrationData, installationPhotos, location } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  const techId = user.userId || user.email;
+  
+  if (order.assignedTechnicianId !== techId) {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Not assigned to this installation' 
+    });
+  }
+  
+  // Find and update device
+  let deviceFound = false;
+  for (const [userId, devices] of devDevices.entries()) {
+    const deviceIndex = devices.findIndex(d => d.device_id === deviceId || d.device_id === order.deviceId);
+    if (deviceIndex !== -1) {
+      const device = devices[deviceIndex];
+      
+      // Move device to customer
+      devices.splice(deviceIndex, 1);
+      devDevices.set(userId, devices);
+      
+      // Update device
+      device.user_id = order.userId;
+      device.status = 'active';
+      device.installedBy = order.assignedTechnicianName;
+      device.installedAt = new Date().toISOString();
+      if (location) device.location = location;
+      if (calibrationData) device.calibrationData = calibrationData;
+      
+      // Add to customer's devices
+      const customerDevices = devDevices.get(order.userId) || [];
+      customerDevices.push(device);
+      devDevices.set(order.userId, customerDevices);
+      
+      deviceFound = true;
+      break;
+    }
+  }
+  
+  if (!deviceFound) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Device not found' 
+    });
+  }
+  
+  // Update order
+  order.status = 'completed';
+  order.installedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  if (installationPhotos) order.installationPhotos = installationPhotos;
+  
+  saveDevData();
+  
+  console.log(`✅ Installation completed for order ${orderId} by ${user.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Installation completed successfully',
+    order
+  });
+});
+
 // Get user's devices
 app.get('/api/devices', (req, res) => {
   const authHeader = req.headers.authorization;
@@ -845,6 +1578,9 @@ const systemAlerts = [];
 // Reported issues storage
 const reportedIssues = [];
 
+// Device orders storage
+const deviceOrders = [];
+
 // Load existing users from file
 function loadDevData() {
   try {
@@ -908,6 +1644,12 @@ function loadDevData() {
         reportedIssues.push(...data.reportedIssues);
         console.log(`✅ Loaded ${reportedIssues.length} reported issues from storage`);
       }
+      
+      // Load device orders
+      if (data.deviceOrders) {
+        deviceOrders.push(...data.deviceOrders);
+        console.log(`✅ Loaded ${deviceOrders.length} device orders from storage`);
+      }
     } else {
       console.log('📝 No existing dev data found - starting fresh');
     }
@@ -926,6 +1668,7 @@ function saveDevData() {
       notifications: Object.fromEntries(devNotifications),
       contactSubmissions: contactSubmissions,
       reportedIssues: reportedIssues,
+      deviceOrders: deviceOrders,
       systemSettings: systemSettings,
       systemAlerts: systemAlerts,
       lastUpdated: new Date().toISOString()
@@ -2089,7 +2832,8 @@ app.post('/api/admin/devices', (req, res) => {
   }
   
   // Determine which user to assign device to
-  const assignToUserId = consumerId || tokenData.userId;
+  // Use special 'INVENTORY' userId for unassigned devices
+  const assignToUserId = consumerId || 'INVENTORY';
   
   // Get consumer name if consumerId provided
   let finalConsumerName = consumerName || 'Unassigned';

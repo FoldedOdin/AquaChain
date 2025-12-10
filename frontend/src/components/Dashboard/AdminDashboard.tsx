@@ -39,6 +39,7 @@ import { formatRelativeTime } from '../../utils/dateFormat';
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
 import AdminInventoryManagement from './AdminInventoryManagement';
+import OrdersQueueTab from './OrdersQueueTab';
 
 interface AdminDashboardProps {
   // Optional props for customization
@@ -1217,6 +1218,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
               <BarChart3 className="w-5 h-5" />
               Analytics
             </button>
+            <button
+              onClick={() => setSelectedView('orders')}
+              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+                selectedView === 'orders'
+                  ? 'text-purple-600 border-b-2 border-purple-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Package className="w-5 h-5" />
+              Orders
+            </button>
           </div>
         </div>
 
@@ -1831,6 +1843,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
                 </div>
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {/* Orders Tab */}
+        {selectedView === 'orders' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <OrdersQueueTab />
           </motion.div>
         )}
 
