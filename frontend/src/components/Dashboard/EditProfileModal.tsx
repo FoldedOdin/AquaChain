@@ -6,7 +6,8 @@ import {
   ExclamationTriangleIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import { User, Mail, Phone, MapPin, Lock } from 'lucide-react';
+import { User, Mail, Phone, MapPin, Lock, Map } from 'lucide-react';
+import AddressMapPicker from './AddressMapPicker';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -47,6 +48,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [otpError, setOtpError] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
   const [otpSentTo, setOtpSentTo] = useState('');
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   // Track if modal was just opened to initialize form only once
   const prevIsOpenRef = useRef(false);
@@ -513,18 +515,48 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   <label className="block text-sm font-semibold text-gray-900 mb-2">
                     Address
                   </label>
-                  <div className="relative">
-                    <div className="absolute top-3 left-0 pl-3 flex items-start pointer-events-none">
-                      <MapPin className="w-5 h-5 text-gray-400" />
+                  
+                  {!showMapPicker ? (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <div className="absolute top-3 left-0 pl-3 flex items-start pointer-events-none">
+                          <MapPin className="w-5 h-5 text-gray-400" />
+                        </div>
+                        <textarea
+                          value={address}
+                          onChange={(e) => setAddress(e.target.value)}
+                          placeholder="Road, City, State, ZIP"
+                          rows={3}
+                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowMapPicker(true)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 border-2 border-blue-500 text-blue-600 rounded-lg hover:bg-blue-50 transition"
+                      >
+                        <Map className="w-4 h-4" />
+                        Pick Address on Map
+                      </button>
                     </div>
-                    <textarea
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      placeholder="Road, City, State, ZIP"
-                      rows={3}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    />
-                  </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <AddressMapPicker
+                        onAddressSelect={(selectedAddress) => {
+                          setAddress(selectedAddress.formatted);
+                          setShowMapPicker(false);
+                        }}
+                        initialAddress={address}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMapPicker(false)}
+                        className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                      >
+                        Cancel Map Selection
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Security Notice */}

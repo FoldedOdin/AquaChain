@@ -6,6 +6,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import performanceMonitor from './services/performanceMonitor';
+import GoogleCallbackHandler from './components/Auth/GoogleCallbackHandler';
 import './App.css';
 
 // ✅ Lazy load dashboard components for code splitting
@@ -105,6 +106,12 @@ function App() {
                   </div>
                 </ProtectedRoute>
               }
+            />
+            
+            {/* Google OAuth callback */}
+            <Route
+              path="/auth/google/callback"
+              element={<GoogleCallbackHandler />}
             />
             
             {/* Authentication callback */}

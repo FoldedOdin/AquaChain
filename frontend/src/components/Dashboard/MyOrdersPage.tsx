@@ -41,6 +41,9 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info'; visible: boolean }>({
@@ -127,6 +130,44 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const handleViewDetails = (order: Order) => {
     setSelectedOrder(order);
     setShowDetailsModal(true);
+  };
+
+  // Handle choose payment method
+  const handleChoosePayment = (order: Order) => {
+    setSelectedOrder(order);
+    setShowPaymentModal(true);
+  };
+
+  // Handle submit payment method
+  const handleSubmitPaymentMethod = async () => {
+    if (!selectedOrder) return;
+
+    setIsSubmittingPayment(true);
+    try {
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:3002/api/orders/${selectedOrder.orderId}/payment-method`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ paymentMethod: selectedPaymentMethod })
+      });
+
+      if (response.ok) {
+        showToast('Payment method selected successfully', 'success');
+        fetchOrders();
+        setShowPaymentModal(false);
+      } else {
+        const error = await response.json();
+        showToast(error.error || 'Failed to update payment method', 'error');
+      }
+    } catch (error) {
+      console.error('Error updating payment method:', error);
+      showToast('Error updating payment method', 'error');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
   };
 
   // Handle cancel order
@@ -287,6 +328,15 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       >
                         View Details
                       </button>
+                      {order.status === 'quoted' && !order.paymentMethod && (
+                        <button
+                          onClick={() => handleChoosePayment(order)}
+                          className="px-4 py-2 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2"
+                        >
+                          <IndianRupee className="w-4 h-4" />
+                          Choose Payment
+                        </button>
+                      )}
                       {order.status === 'pending' && (
                         <button
                           onClick={() => handleCancelOrder(order.orderId)}
@@ -439,13 +489,24 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       </div>
                     </div>
                   )}
-                  {selectedOrder.status === 'quoted' && (
+                  {selectedOrder.status === 'quoted' && !selectedOrder.paymentMethod && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-green-900">
+                          <p className="font-semibold mb-1">Action Required: Choose Payment Method</p>
+                          <p>Admin has provided a quote of ₹{selectedOrder.quoteAmount?.toLocaleString()}. Please select your payment method (COD or Online) to proceed with device provisioning.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedOrder.status === 'quoted' && selectedOrder.paymentMethod && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <div className="flex items-start gap-3">
                         <IndianRupee className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                         <div className="text-sm text-blue-900">
-                          <p className="font-semibold mb-1">Quote Provided</p>
-                          <p>Admin has provided a quote of ₹{selectedOrder.quoteAmount?.toLocaleString()}. Device will be provisioned soon.</p>
+                          <p className="font-semibold mb-1">Quote Accepted</p>
+                          <p>Quote: ₹{selectedOrder.quoteAmount?.toLocaleString()} | Payment: {selectedOrder.paymentMethod}. Waiting for admin to provision device.</p>
                         </div>
                       </div>
                     </div>
@@ -489,6 +550,134 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       Close
                     </button>
                   )}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Payment Method Selection Modal */}
+      <AnimatePresence>
+        {showPaymentModal && selectedOrder && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowPaymentModal(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <IndianRupee className="w-6 h-6 text-white" />
+                    <h2 className="text-xl font-bold text-white">Choose Payment Method</h2>
+                  </div>
+                  <button
+                    onClick={() => setShowPaymentModal(false)}
+                    className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-6">
+                  <div className="mb-6">
+                    <p className="text-gray-600 mb-2">Order ID: <span className="font-semibold text-gray-900">{selectedOrder.orderId.slice(0, 12)}</span></p>
+                    <p className="text-gray-600 mb-2">Device: <span className="font-semibold text-gray-900">{getDeviceName(selectedOrder.deviceSKU)}</span></p>
+                    <p className="text-gray-600">Quote Amount: <span className="font-semibold text-green-600 text-xl">₹{selectedOrder.quoteAmount?.toLocaleString()}</span></p>
+                  </div>
+
+                  <div className="mb-6">
+                    <label className="block text-sm font-semibold text-gray-900 mb-3">
+                      Select Payment Method
+                    </label>
+                    <div className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPaymentMethod('COD')}
+                        className={`w-full p-4 border-2 rounded-lg transition text-left ${
+                          selectedPaymentMethod === 'COD'
+                            ? 'border-green-500 bg-green-50'
+                            : 'border-gray-200 hover:border-green-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            selectedPaymentMethod === 'COD' ? 'border-green-500' : 'border-gray-300'
+                          }`}>
+                            {selectedPaymentMethod === 'COD' && (
+                              <div className="w-3 h-3 rounded-full bg-green-500" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-semibold text-gray-900">Cash on Delivery</div>
+                            <div className="text-sm text-gray-600">Pay when device is delivered and installed</div>
+                          </div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPaymentMethod('ONLINE')}
+                        className={`w-full p-4 border-2 rounded-lg transition text-left ${
+                          selectedPaymentMethod === 'ONLINE'
+                            ? 'border-green-500 bg-green-50'
+                            : 'border-gray-200 hover:border-green-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            selectedPaymentMethod === 'ONLINE' ? 'border-green-500' : 'border-gray-300'
+                          }`}>
+                            {selectedPaymentMethod === 'ONLINE' && (
+                              <div className="w-3 h-3 rounded-full bg-green-500" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-semibold text-gray-900">Online Payment</div>
+                            <div className="text-sm text-gray-600">Pay now via UPI, Card, or Net Banking</div>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <p className="text-sm text-blue-900">
+                      <strong>Note:</strong> After selecting your payment method, the admin will proceed with device provisioning and technician assignment.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowPaymentModal(false)}
+                      disabled={isSubmittingPayment}
+                      className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSubmitPaymentMethod}
+                      disabled={isSubmittingPayment}
+                      className="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isSubmittingPayment ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          <span>Confirming...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          <span>Confirm Payment Method</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </motion.div>

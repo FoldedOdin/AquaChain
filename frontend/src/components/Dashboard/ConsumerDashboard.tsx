@@ -63,6 +63,9 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [selectedTimeRange, setSelectedTimeRange] = useState('7days');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [deviceToRemove, setDeviceToRemove] = useState<any>(null);
+  const [isRemovingDevice, setIsRemovingDevice] = useState(false);
   
   // Report Issue form state
   const [issueType, setIssueType] = useState<'bug' | 'iot'>('bug');
@@ -151,9 +154,42 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     refetch();
   }, [refetch]);
 
+  // Check if user profile is complete
+  const isProfileComplete = useMemo(() => {
+    const address = user?.profile?.address;
+    const hasAddress = address && 
+      (typeof address === 'string' ? (address as string).trim().length > 0 : 
+       !!(address as any)?.street && !!(address as any)?.city);
+    const phone = user?.profile?.phone;
+    const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
+    return !!(hasAddress && hasPhone);
+  }, [user]);
+
   const toggleRequestDevice = useCallback(() => {
+    if (!isProfileComplete) {
+      // Show alert and redirect to profile settings
+      const address = user?.profile?.address;
+      const hasAddress = address && 
+        (typeof address === 'string' ? (address as string).trim().length > 0 : 
+         !!(address as any)?.street && !!(address as any)?.city);
+      const phone = user?.profile?.phone;
+      const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
+      
+      const missingFields: string[] = [];
+      if (!hasAddress) missingFields.push('address');
+      if (!hasPhone) missingFields.push('phone number');
+      
+      const message = `Please complete your profile before requesting a device.\n\nMissing: ${missingFields.join(' and ')}`;
+      
+      if (window.confirm(message + '\n\nWould you like to update your profile now?')) {
+        setShowSettings(true);
+        setShowEditProfile(true);
+      }
+      return;
+    }
+
     setShowRequestDevice(prev => !prev);
-  }, []);
+  }, [user, isProfileComplete]);
 
   const handleDeviceRequested = useCallback(() => {
     // Refresh dashboard data after device request
@@ -178,6 +214,52 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     await refreshUser();
     setShowEditProfile(false);
   }, [refreshUser]);
+
+  const handleRemoveDeviceClick = useCallback((device: any) => {
+    setDeviceToRemove(device);
+    setShowRemoveConfirm(true);
+  }, []);
+
+  const handleConfirmRemoveDevice = useCallback(async () => {
+    if (!deviceToRemove) return;
+
+    setIsRemovingDevice(true);
+    try {
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:3002/api/devices/${deviceToRemove.device_id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        console.log(`✅ Device removed: ${deviceToRemove.device_id}`);
+        // Refresh dashboard data
+        await refetch();
+        // Reset selected device if it was the removed one
+        if (selectedDeviceId === deviceToRemove.device_id) {
+          setSelectedDeviceId(null);
+        }
+        setShowRemoveConfirm(false);
+        setDeviceToRemove(null);
+      } else {
+        const error = await response.json();
+        alert(`Failed to remove device: ${error.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error removing device:', error);
+      alert('Failed to remove device. Please try again.');
+    } finally {
+      setIsRemovingDevice(false);
+    }
+  }, [deviceToRemove, refetch, selectedDeviceId]);
+
+  const handleCancelRemoveDevice = useCallback(() => {
+    setShowRemoveConfirm(false);
+    setDeviceToRemove(null);
+  }, []);
 
   const handleSubmitIssue = useCallback(async () => {
     if (!issueTitle.trim() || !issueDescription.trim()) {
@@ -628,40 +710,56 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 const isOnline = device.status === 'active' || device.status === 'online';
                 
                 return (
-                  <button
+                  <div
                     key={device.device_id}
-                    onClick={() => setSelectedDeviceId(device.device_id)}
                     className={`
-                      flex-shrink-0 px-4 py-3 rounded-lg border-2 transition-all min-w-[200px]
+                      flex-shrink-0 rounded-lg border-2 transition-all min-w-[200px] relative
                       ${isSelected 
                         ? 'border-cyan-500 bg-cyan-50 shadow-md' 
                         : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                       }
                     `}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className={`
-                        w-10 h-10 rounded-full flex items-center justify-center
-                        ${isOnline ? 'bg-green-100' : 'bg-gray-100'}
-                      `}>
-                        <Activity className={`w-5 h-5 ${isOnline ? 'text-green-600' : 'text-gray-400'}`} />
-                      </div>
-                      <div className="text-left">
-                        <div className={`font-semibold text-sm ${isSelected ? 'text-cyan-900' : 'text-gray-900'}`}>
-                          {device.name || device.device_id}
+                    <button
+                      onClick={() => setSelectedDeviceId(device.device_id)}
+                      className="w-full px-4 py-3 text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`
+                          w-10 h-10 rounded-full flex items-center justify-center
+                          ${isOnline ? 'bg-green-100' : 'bg-gray-100'}
+                        `}>
+                          <Activity className={`w-5 h-5 ${isOnline ? 'text-green-600' : 'text-gray-400'}`} />
                         </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`
-                            inline-block w-2 h-2 rounded-full
-                            ${isOnline ? 'bg-green-500' : 'bg-gray-400'}
-                          `} />
-                          <span className="text-xs text-gray-600">
-                            {isOnline ? 'Online' : 'Offline'}
-                          </span>
+                        <div className="text-left flex-1">
+                          <div className={`font-semibold text-sm ${isSelected ? 'text-cyan-900' : 'text-gray-900'}`}>
+                            {device.name || device.device_id}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`
+                              inline-block w-2 h-2 rounded-full
+                              ${isOnline ? 'bg-green-500' : 'bg-gray-400'}
+                            `} />
+                            <span className="text-xs text-gray-600">
+                              {isOnline ? 'Online' : 'Offline'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveDeviceClick(device);
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors"
+                      title="Remove device"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -1021,10 +1119,22 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button 
               onClick={toggleRequestDevice}
-              className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition"
+              className={`relative flex items-center space-x-3 p-4 border-2 rounded-lg transition ${
+                isProfileComplete 
+                  ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50' 
+                  : 'border-amber-200 bg-amber-50 hover:border-amber-400'
+              }`}
             >
-              <Plus className="w-6 h-6 text-blue-600" />
-              <span className="font-medium text-gray-700">Request Device</span>
+              <Plus className={`w-6 h-6 ${isProfileComplete ? 'text-blue-600' : 'text-amber-600'}`} />
+              <div className="flex flex-col items-start">
+                <span className="font-medium text-gray-700">Request Device</span>
+                {!isProfileComplete && (
+                  <span className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    Complete profile first
+                  </span>
+                )}
+              </div>
             </button>
             <button 
               onClick={toggleReportIssue}
@@ -1548,6 +1658,69 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           }}
           onProfileUpdated={handleProfileUpdated}
         />
+
+        {/* Remove Device Confirmation Dialog */}
+        <AnimatePresence>
+          {showRemoveConfirm && deviceToRemove && (
+            <>
+              <div 
+                className="fixed inset-0 bg-black bg-opacity-50 z-50"
+                onClick={handleCancelRemoveDevice}
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                      <ExclamationTriangleIcon className="w-6 h-6 text-red-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Remove Device</h3>
+                      <p className="text-sm text-gray-600">This action cannot be undone</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                    <p className="text-sm text-red-800 mb-2">
+                      <strong>Warning:</strong> You are about to remove the following device:
+                    </p>
+                    <div className="bg-white rounded-lg p-3 mt-2">
+                      <p className="font-semibold text-gray-900">{deviceToRemove.name || deviceToRemove.device_id}</p>
+                      <p className="text-sm text-gray-600">ID: {deviceToRemove.device_id}</p>
+                      {deviceToRemove.location && (
+                        <p className="text-sm text-gray-600">Location: {deviceToRemove.location}</p>
+                      )}
+                    </div>
+                    <p className="text-sm text-red-800 mt-3">
+                      All historical data and settings for this device will be permanently deleted.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleCancelRemoveDevice}
+                      disabled={isRemovingDevice}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmRemoveDevice}
+                      disabled={isRemovingDevice}
+                      className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isRemovingDevice ? 'Removing...' : 'Remove Device'}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </main>
       )}
     </div>

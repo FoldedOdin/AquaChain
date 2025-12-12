@@ -72,11 +72,13 @@ Body: { deviceSKU, address, phone, paymentMethod, preferredSlot }
 - Sets `quoteAmount` field
 - Records `quotedAt` timestamp
 - Updates `updatedAt` timestamp
+- Creates notification for consumer
 
 #### Consumer Sees:
 - Order status changes to "Quoted"
 - Quote amount displayed: ₹15,000
-- Timeline shows "Quote Sent" step completed
+- **"Choose Payment" button appears** in My Orders
+- Alert: "Action Required: Choose Payment Method"
 
 #### API Endpoint:
 ```
@@ -86,9 +88,44 @@ Body: { quoteAmount: 15000 }
 
 ---
 
+### **STAGE 2.5: Consumer Chooses Payment Method** ⭐ NEW
+**Status:** `quoted` (payment method selected)  
+**Actor:** Consumer
+
+#### What Happens:
+1. Consumer goes to **"My Orders"** page
+2. Sees order with status "Quoted" and quote amount
+3. Clicks **"Choose Payment"** button
+4. Modal opens with two payment options:
+   - **COD (Cash on Delivery)** - Pay when device is delivered and installed
+   - **Online Payment** - Pay now via UPI, Card, or Net Banking
+5. Selects preferred payment method
+6. Clicks **"Confirm Payment Method"**
+
+#### Backend Actions:
+- Updates `paymentMethod` field (COD or ONLINE)
+- Records action in `auditTrail`
+- Updates `updatedAt` timestamp
+- Creates alert for admin about payment method selection
+
+#### Admin Sees:
+- Alert: "Consumer selected [COD/ONLINE] payment for order"
+- Order now shows payment method
+- Can proceed with device provisioning
+
+#### API Endpoint:
+```
+PUT /api/orders/:orderId/payment-method
+Body: { paymentMethod: "COD" | "ONLINE" }
+```
+
+---
+
 ### **STAGE 3: Admin Provisions Device & Assigns Technician**
-**Status:** `quoted` → `shipped`  
+**Status:** `quoted` (with payment method) → `shipped`  
 **Actor:** Admin
+
+**Note:** Admin can only provision after consumer selects payment method
 
 #### What Happens:
 1. Admin clicks **"Provision Device"** button on quoted order
@@ -224,10 +261,10 @@ POST /api/tech/installations/:orderId/complete
 ## 🔄 Status Flow Summary
 
 ```
-pending → quoted → shipped → completed
-   ↓         ↓         ↓          ↓
-Consumer  Admin    Admin    Technician
-Request   Quote   Provision  Install
+pending → quoted → quoted(+payment) → shipped → completed
+   ↓         ↓            ↓              ↓          ↓
+Consumer  Admin     Consumer        Admin    Technician
+Request   Quote    Payment      Provision    Install
 ```
 
 ---
@@ -313,14 +350,15 @@ devices: {
 ## 🔧 Technical Details
 
 ### API Endpoints Used:
-1. `POST /api/consumer/orders` - Create order
-2. `GET /api/consumer/orders` - View my orders
-3. `PUT /api/admin/orders/:orderId/quote` - Set quote
-4. `PUT /api/admin/orders/:orderId/provision` - Assign device
-5. `PUT /api/admin/orders/:orderId/assign` - Assign technician
-6. `PUT /api/admin/orders/:orderId/ship` - Mark shipped
-7. `GET /api/technician/orders` - Get assigned orders
-8. `POST /api/tech/installations/:orderId/complete` - Complete installation
+1. `POST /api/orders` - Create order (Consumer)
+2. `GET /api/orders/my` - View my orders (Consumer)
+3. `PUT /api/admin/orders/:orderId/quote` - Set quote (Admin)
+4. `PUT /api/orders/:orderId/payment-method` - Select payment method (Consumer) ⭐ NEW
+5. `PUT /api/admin/orders/:orderId/provision` - Assign device (Admin)
+6. `PUT /api/admin/orders/:orderId/assign` - Assign technician (Admin)
+7. `PUT /api/admin/orders/:orderId/ship` - Mark shipped (Admin)
+8. `GET /api/technician/orders` - Get assigned orders (Technician)
+9. `POST /api/tech/installations/:orderId/complete` - Complete installation (Technician)
 
 ### Real-time Updates:
 - Orders auto-refresh every 10 seconds
@@ -337,12 +375,13 @@ devices: {
 ## ✅ Success Criteria
 
 **Order is successful when:**
-1. ✅ Consumer submits request
+1. ✅ Consumer submits request (no payment method yet)
 2. ✅ Admin sets quote
-3. ✅ Admin provisions device + assigns technician
-4. ✅ Technician completes installation
-5. ✅ Device appears in consumer's dashboard
-6. ✅ Consumer can view real-time water quality data
+3. ✅ Consumer selects payment method (COD or Online) ⭐ NEW
+4. ✅ Admin provisions device + assigns technician
+5. ✅ Technician completes installation
+6. ✅ Device appears in consumer's dashboard
+7. ✅ Consumer can view real-time water quality data
 
 ---
 
@@ -367,18 +406,29 @@ Login: admin@aquachain.com / admin1234
 → Go to "Orders" tab
 → Click "Set Quote" on pending order
 → Enter ₹15000 and submit
-→ Click "Provision Device"
+
+# 5. Test as Consumer (Choose Payment)
+Login: phoneixknight18@gmail.com / admin1234
+→ Go to "My Orders"
+→ Click "Choose Payment" on quoted order
+→ Select COD or Online
+→ Click "Confirm Payment Method"
+
+# 6. Test as Admin (Provision)
+Login: admin@aquachain.com / admin1234
+→ Go to "Orders" tab
+→ Click "Provision Device" on quoted order (with payment method)
 → Select AC-INV-002 and Sidharth Lenin
 → Click "Provision & Ship"
 
-# 5. Test as Technician
+# 7. Test as Technician
 Login: leninsidharth@gmail.com / Sidharth@123
 → See assigned order
 → Click "Complete Installation"
 → Enter location and details
 → Submit
 
-# 6. Verify as Consumer
+# 8. Verify as Consumer
 Login: phoneixknight18@gmail.com / admin1234
 → Check "My Devices" - NEW DEVICE APPEARS!
 → View real-time data
@@ -391,5 +441,6 @@ Login: phoneixknight18@gmail.com / admin1234
 - **Inventory Management:** Admin must add devices to INVENTORY before provisioning
 - **Technician Assignment:** Happens automatically during provisioning
 - **Device Ownership:** Transfers from INVENTORY to consumer on installation
-- **Payment:** Currently COD only, online payment can be added later
-- **Notifications:** System creates alerts for admins on new orders
+- **Payment Method Selection:** ⭐ Consumer chooses COD or Online AFTER receiving quote
+- **Admin Provisioning:** Can only proceed after consumer selects payment method
+- **Notifications:** System creates alerts for admins on new orders and payment method selection

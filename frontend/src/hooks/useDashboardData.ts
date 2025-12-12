@@ -66,18 +66,19 @@ export function useDashboardData(userRole: UserRole) {
           break;
 
         case 'technician':
-          // Fetch tasks and activities from the API
-          const technicianData = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/v1/technician/tasks`, {
+          // Fetch assigned orders from the API
+          const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+          const technicianData = await fetch('http://localhost:3002/api/technician/orders', {
             headers: {
-              'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+              'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
-          }).then(res => res.json()).catch(() => ({ tasks: [], recentActivities: [] }));
+          }).then(res => res.json()).catch(() => ({ orders: [] }));
           
           result = {
-            tasks: technicianData.tasks || [],
-            recentActivities: technicianData.recentActivities || [],
-            selectedTask: technicianData.tasks?.length > 0 ? technicianData.tasks[0] : null
+            tasks: technicianData.orders || [],
+            recentActivities: [],
+            selectedTask: technicianData.orders?.length > 0 ? technicianData.orders[0] : null
           };
           break;
 
@@ -111,7 +112,7 @@ export function useDashboardData(userRole: UserRole) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000); // Refetch every minute
+    const interval = setInterval(fetchData, 10000); // Refetch every 10 seconds
 
     return () => {
       clearInterval(interval);

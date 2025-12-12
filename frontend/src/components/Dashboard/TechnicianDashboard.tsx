@@ -44,10 +44,15 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [showTaskDetails, setShowTaskDetails] = useState(false);
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const [errorModal, setErrorModal] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [successModal, setSuccessModal] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
   // Fetch dashboard data
   const { data: dashboardData, isLoading, error, refetch } = useDashboardData('technician');
@@ -109,93 +114,179 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   };
 
   // Task action handlers
-  const handleAcceptTask = useCallback(async (taskId: string) => {
+  const handleAcceptTask = useCallback(async (orderId: string) => {
     try {
-      setIsProcessing(taskId);
-      await technicianService.updateTaskStatus(taskId, 'accepted', 'Task accepted by technician');
+      setIsProcessing(orderId);
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:3002/api/tech/orders/${orderId}/accept`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setErrorModal({ 
+          show: true, 
+          message: data.error || 'Failed to accept task. Please try again.' 
+        });
+        return;
+      }
+      
+      setSuccessModal({ 
+        show: true, 
+        message: 'Task accepted successfully! You can now start working on it.' 
+      });
       await refetch();
     } catch (error) {
       console.error('Error accepting task:', error);
-      alert('Failed to accept task. Please try again.');
+      setErrorModal({ 
+        show: true, 
+        message: 'Failed to accept task. Please check your connection and try again.' 
+      });
     } finally {
       setIsProcessing(null);
     }
   }, [refetch]);
 
-  const handleDeclineTask = useCallback(async (taskId: string) => {
-    const reason = prompt('Please provide a reason for declining this task:');
-    if (!reason) return;
+  const handleDeclineTask = useCallback((task: any) => {
+    setSelectedTask(task);
+    setShowDeclineModal(true);
+  }, []);
+
+  const handleConfirmDecline = useCallback(async () => {
+    if (!selectedTask || !declineReason.trim()) {
+      alert('Please provide a reason for declining');
+      return;
+    }
 
     try {
-      setIsProcessing(taskId);
-      // Note: Backend needs to support cancellation status
-      await technicianService.addTaskNote(taskId, {
-        author: user?.email || 'technician',
-        type: 'technician_note',
-        content: `Task declined: ${reason}`,
-        attachments: []
+      setIsProcessing(selectedTask.taskId);
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:3002/api/tech/orders/${selectedTask.taskId}/decline`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: declineReason })
       });
-      alert('Task decline note added. Please contact admin to reassign.');
+      
+      if (!response.ok) throw new Error('Failed to decline task');
+      
+      setShowDeclineModal(false);
+      setDeclineReason('');
+      setSelectedTask(null);
       await refetch();
+      setSuccessModal({ 
+        show: true, 
+        message: 'Task declined successfully. Admin has been notified.' 
+      });
     } catch (error) {
       console.error('Error declining task:', error);
-      alert('Failed to decline task. Please try again.');
+      setErrorModal({ 
+        show: true, 
+        message: 'Failed to decline task. Please try again.' 
+      });
     } finally {
       setIsProcessing(null);
     }
-  }, [refetch, user]);
+  }, [selectedTask, declineReason, refetch]);
 
-  const handleStartTask = useCallback(async (taskId: string) => {
+  const handleViewDetails = useCallback((task: any) => {
+    setSelectedTask(task);
+    setShowTaskDetails(true);
+  }, []);
+
+  const handleStartTask = useCallback(async (orderId: string) => {
     try {
-      setIsProcessing(taskId);
-      await technicianService.updateTaskStatus(taskId, 'in_progress', 'Task started');
+      setIsProcessing(orderId);
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:3002/api/tech/orders/${orderId}/start`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setErrorModal({ 
+          show: true, 
+          message: data.error || 'Failed to start task. Please try again.' 
+        });
+        return;
+      }
+      
+      setSuccessModal({ 
+        show: true, 
+        message: 'Installation started! Update the status when complete.' 
+      });
       await refetch();
     } catch (error) {
       console.error('Error starting task:', error);
-      alert('Failed to start task. Please try again.');
+      setErrorModal({ 
+        show: true, 
+        message: 'Failed to start task. Please check your connection and try again.' 
+      });
     } finally {
       setIsProcessing(null);
     }
   }, [refetch]);
 
-  const handleCompleteTask = useCallback(async (taskId: string, task: any) => {
-    const workPerformed = prompt('Please describe the work performed:');
-    if (!workPerformed) return;
+  const handleCompleteTask = useCallback(async (orderId: string, task: any) => {
+    const location = prompt('Enter device installation location (e.g., Kitchen, Bathroom):');
+    if (!location) return;
 
     try {
-      setIsProcessing(taskId);
-      await technicianService.completeTask(taskId, {
-        taskId,
-        deviceId: task.deviceId,
-        technicianId: user?.userId || '',
-        workPerformed,
-        partsUsed: [],
-        diagnosticData: {
-          deviceStatus: 'operational' as const,
-          sensorReadings: {
-            pH: { value: 7.0, status: 'normal' as const },
-            turbidity: { value: 1.0, status: 'normal' as const },
-            tds: { value: 150, status: 'normal' as const },
-            temperature: { value: 25, status: 'normal' as const },
-            humidity: { value: 60, status: 'normal' as const }
-          },
-          batteryLevel: 100,
-          signalStrength: -50,
-          calibrationStatus: 'current' as const
+      setIsProcessing(orderId);
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const response = await fetch(`http://localhost:3002/api/tech/installations/${orderId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         },
-        beforePhotos: [],
-        afterPhotos: [],
-        recommendations: 'Device is functioning properly'
+        body: JSON.stringify({
+          deviceId: task.deviceId || task.provisionedDeviceId,
+          location,
+          calibrationData: {
+            phOffset: 0,
+            tdsFactor: 1
+          }
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setErrorModal({ 
+          show: true, 
+          message: data.error || 'Failed to complete installation. Please try again.' 
+        });
+        return;
+      }
+      
+      setSuccessModal({ 
+        show: true, 
+        message: 'Installation completed successfully! Great work!' 
       });
       await refetch();
-      alert('Task completed successfully!');
     } catch (error) {
-      console.error('Error completing task:', error);
-      alert('Failed to complete task. Please try again.');
+      console.error('Error completing installation:', error);
+      setErrorModal({ 
+        show: true, 
+        message: 'Failed to complete installation. Please check your connection and try again.' 
+      });
     } finally {
       setIsProcessing(null);
     }
-  }, [refetch, user]);
+  }, [refetch]);
 
   const handleUpdateTask = useCallback(async (taskId: string) => {
     const note = prompt('Add a note about the task progress:');
@@ -217,12 +308,6 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       setIsProcessing(null);
     }
   }, [refetch, user]);
-
-  const handleViewDetails = useCallback((task: any) => {
-    setSelectedTask(task);
-    // You can implement a modal or navigate to a detail page
-    alert(`Task Details:\n\nID: ${task.taskId}\nStatus: ${task.status}\nDescription: ${task.description}\n\nFull details view coming soon!`);
-  }, []);
 
   const handleViewMap = useCallback(() => {
     setShowMapModal(true);
@@ -402,17 +487,39 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const tasks = dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : [];
   const recentActivities = (dashboardData && 'recentActivities' in dashboardData ? dashboardData.recentActivities : []) as any[];
   
-  // Calculate stats
+  // Map order statuses to task statuses for display
+  const tasksWithMappedStatus = tasks.map((task: any) => {
+    let mappedStatus = task.status;
+    // Map order statuses to task workflow statuses
+    if (task.status === 'shipped') mappedStatus = 'assigned'; // Newly assigned
+    if (task.status === 'installing') mappedStatus = 'in_progress'; // Work in progress
+    if (task.status === 'completed' || task.status === 'INSTALLED') mappedStatus = 'completed';
+    
+    return {
+      ...task,
+      taskId: task.orderId, // Map orderId to taskId for compatibility
+      title: `Install ${task.deviceSKU || 'Device'}`,
+      description: `Install device for ${task.consumerName}`,
+      location: task.address,
+      consumer: task.consumerName,
+      deviceId: task.provisionedDeviceId || task.deviceId,
+      dueDate: task.preferredSlot ? new Date(task.preferredSlot).toLocaleDateString() : null,
+      priority: 'medium',
+      mappedStatus // Store original status
+    };
+  });
+
+  // Calculate stats using mapped statuses
   const stats = {
-    total: tasks.length,
-    completed: tasks.filter((t: any) => t.status === 'completed').length,
-    pending: tasks.filter((t: any) => t.status === 'assigned').length,
-    inProgress: tasks.filter((t: any) => t.status === 'in_progress').length,
-    accepted: tasks.filter((t: any) => t.status === 'accepted').length
+    total: tasksWithMappedStatus.length,
+    completed: tasksWithMappedStatus.filter((t: any) => t.status === 'completed' || t.status === 'INSTALLED').length,
+    pending: tasksWithMappedStatus.filter((t: any) => t.status === 'shipped').length,
+    inProgress: tasksWithMappedStatus.filter((t: any) => t.status === 'installing').length,
+    accepted: tasksWithMappedStatus.filter((t: any) => t.status === 'accepted').length
   };
 
-  // Filter tasks
-  const filteredTasks = tasks.filter((task: any) => {
+  // Filter tasks using mapped tasks
+  const filteredTasks = tasksWithMappedStatus.filter((task: any) => {
     const matchesFilter = filterStatus === 'all' || task.status === filterStatus;
     const locationStr = typeof task.location === 'object' ? task.location?.address || '' : task.location || '';
     const matchesSearch = searchTerm === '' || 
@@ -439,6 +546,15 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm font-medium text-gray-600">Technician</span>
+              <button
+                onClick={() => refetch()}
+                className="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                title="Refresh orders"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
               <NotificationCenter userRole="technician" />
               <button onClick={toggleSettings} className="p-2 text-gray-600 hover:text-blue-600">
                 <User className="w-6 h-6" />
@@ -597,7 +713,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                         </span>
                       </div>
                       <div className="flex items-center space-x-3 mt-4 pt-4 border-t border-gray-200">
-                        {task.status === 'assigned' && (
+                        {task.status === 'shipped' && (
                           <>
                             <button 
                               onClick={() => handleAcceptTask(task.taskId)}
@@ -607,7 +723,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                               {isProcessing === task.taskId ? 'Processing...' : 'Accept Task'}
                             </button>
                             <button 
-                              onClick={() => handleDeclineTask(task.taskId)}
+                              onClick={() => handleDeclineTask(task)}
                               disabled={isProcessing === task.taskId}
                               className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                             >
@@ -621,17 +737,17 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                             disabled={isProcessing === task.taskId}
                             className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isProcessing === task.taskId ? 'Processing...' : 'Start Task'}
+                            {isProcessing === task.taskId ? 'Processing...' : 'Start Work'}
                           </button>
                         )}
-                        {task.status === 'in_progress' && (
+                        {task.status === 'installing' && (
                           <>
                             <button 
                               onClick={() => handleCompleteTask(task.taskId, task)}
                               disabled={isProcessing === task.taskId}
                               className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              {isProcessing === task.taskId ? 'Processing...' : 'Mark Complete'}
+                              {isProcessing === task.taskId ? 'Processing...' : 'Complete Installation'}
                             </button>
                             <button 
                               onClick={() => handleUpdateTask(task.taskId)}
@@ -784,6 +900,315 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
         isOpen={showInventoryModal}
         onClose={() => setShowInventoryModal(false)}
       />
+
+      {/* Task Details Modal */}
+      {showTaskDetails && selectedTask && (
+        <>
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowTaskDetails(false)} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ClipboardList className="w-6 h-6 text-white" />
+                  <h2 className="text-2xl font-bold text-white">Task Details</h2>
+                </div>
+                <button
+                  onClick={() => setShowTaskDetails(false)}
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="overflow-y-auto max-h-[calc(90vh-140px)] p-6">
+                {/* Order Information */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Order Information</h3>
+                  <div className="grid grid-cols-2 gap-4 bg-gray-50 rounded-lg p-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
+                      <p className="text-gray-900">{selectedTask.orderId}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                      <span className={`inline-block px-3 py-1 text-xs font-medium rounded-full ${
+                        selectedTask.status === 'shipped' ? 'bg-yellow-100 text-yellow-800' :
+                        selectedTask.status === 'accepted' ? 'bg-blue-100 text-blue-800' :
+                        selectedTask.status === 'installing' ? 'bg-orange-100 text-orange-800' :
+                        'bg-green-100 text-green-800'
+                      }`}>
+                        {selectedTask.status?.toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Device Model</label>
+                      <p className="text-gray-900">{selectedTask.deviceSKU}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Device ID</label>
+                      <p className="text-gray-900">{selectedTask.deviceId || selectedTask.provisionedDeviceId || 'Not assigned'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Customer Information */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Customer Information</h3>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                      <p className="text-gray-900">{selectedTask.consumerName}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <p className="text-gray-900">{selectedTask.consumerEmail}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <p className="text-gray-900">{selectedTask.phone}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Installation Address</label>
+                      <p className="text-gray-900">{selectedTask.address}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Installation Details */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Installation Details</h3>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                    {selectedTask.preferredSlot && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Date/Time</label>
+                        <p className="text-gray-900">{new Date(selectedTask.preferredSlot).toLocaleString()}</p>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                      <p className="text-gray-900">{selectedTask.paymentMethod || 'Not specified'}</p>
+                    </div>
+                    {selectedTask.quoteAmount && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Quote Amount</label>
+                        <p className="text-gray-900 text-lg font-semibold">₹{selectedTask.quoteAmount.toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timeline */}
+                {selectedTask.auditTrail && selectedTask.auditTrail.length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Timeline</h3>
+                    <div className="space-y-3">
+                      {selectedTask.auditTrail.map((entry: any, index: number) => (
+                        <div key={index} className="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">{entry.action.replace(/_/g, ' ')}</p>
+                            <p className="text-sm text-gray-600">{new Date(entry.at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex items-center justify-end gap-3 border-t">
+                <button
+                  onClick={() => setShowTaskDetails(false)}
+                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Close
+                </button>
+                {selectedTask.status === 'shipped' && (
+                  <button
+                    onClick={() => {
+                      setShowTaskDetails(false);
+                      handleAcceptTask(selectedTask.taskId);
+                    }}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Accept Task
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+
+      {/* Decline Task Modal */}
+      {showDeclineModal && selectedTask && (
+        <>
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowDeclineModal(false)} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-red-500 to-pink-600 px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-6 h-6 text-white" />
+                  <h2 className="text-xl font-bold text-white">Decline Task</h2>
+                </div>
+                <button
+                  onClick={() => setShowDeclineModal(false)}
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-6">
+                <div className="mb-4">
+                  <p className="text-gray-700 mb-2">
+                    You are about to decline the following task:
+                  </p>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="font-semibold text-gray-900">{selectedTask.title}</p>
+                    <p className="text-sm text-gray-600">Customer: {selectedTask.consumerName}</p>
+                    <p className="text-sm text-gray-600">Location: {selectedTask.address}</p>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Reason for Declining <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={declineReason}
+                    onChange={(e) => setDeclineReason(e.target.value)}
+                    placeholder="Please provide a detailed reason..."
+                    rows={4}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                    required
+                  />
+                  <p className="text-sm text-gray-600 mt-2">
+                    The admin will be notified and may reassign this task to another technician.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setShowDeclineModal(false);
+                      setDeclineReason('');
+                    }}
+                    disabled={isProcessing === selectedTask.taskId}
+                    className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmDecline}
+                    disabled={isProcessing === selectedTask.taskId || !declineReason.trim()}
+                    className="flex-1 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProcessing === selectedTask.taskId ? 'Declining...' : 'Confirm Decline'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+
+      {/* Error Modal */}
+      {errorModal.show && (
+        <>
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setErrorModal({ show: false, message: '' })} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 flex items-center justify-between rounded-t-xl">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-6 h-6 text-white" />
+                  <h2 className="text-xl font-bold text-white">Error</h2>
+                </div>
+                <button
+                  onClick={() => setErrorModal({ show: false, message: '' })}
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6">
+                <p className="text-gray-700 text-center mb-6">{errorModal.message}</p>
+                <button
+                  onClick={() => setErrorModal({ show: false, message: '' })}
+                  className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+
+      {/* Success Modal */}
+      {successModal.show && (
+        <>
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setSuccessModal({ show: false, message: '' })} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              <div className="bg-gradient-to-r from-green-500 to-green-600 px-6 py-4 flex items-center justify-between rounded-t-xl">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-6 h-6 text-white" />
+                  <h2 className="text-xl font-bold text-white">Success</h2>
+                </div>
+                <button
+                  onClick={() => setSuccessModal({ show: false, message: '' })}
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6">
+                <p className="text-gray-700 text-center mb-6">{successModal.message}</p>
+                <button
+                  onClick={() => setSuccessModal({ show: false, message: '' })}
+                  className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
     </div>
   );
 });

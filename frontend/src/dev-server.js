@@ -10,10 +10,163 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const EventEmitter = require('events');
 
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3002;
+
+// ============================================================================
+// AUTOMATION MODULE - Production-grade features
+// ============================================================================
+class OrderAutomation extends EventEmitter {
+  constructor() {
+    super();
+    this.auditLedger = [];
+    this.AUTO_APPROVE_THRESHOLD = 20000; // ₹20,000
+    this.setupEventHandlers();
+  }
+
+  setupEventHandlers() {
+    this.on('ORDER_PLACED', (order) => {
+      console.log(`📦 [AUTO-EVENT] Order placed: ${order.orderId}`);
+    });
+
+    this.on('ORDER_QUOTED', (order) => {
+      console.log(`💰 [AUTO-EVENT] Order quoted: ${order.orderId} - ₹${order.quoteAmount}`);
+      if (order.autoApproved) {
+        console.log(`✅ [AUTO-APPROVE] Order ${order.orderId} auto-approved`);
+      }
+    });
+
+    this.on('ORDER_PROVISIONED', (order) => {
+      console.log(`📱 [AUTO-EVENT] Order provisioned: ${order.orderId}`);
+    });
+
+    this.on('ORDER_SHIPPED', (order) => {
+      console.log(`🚚 [AUTO-EVENT] Order shipped: ${order.orderId}`);
+    });
+
+    this.on('ORDER_COMPLETED', (order) => {
+      console.log(`✅ [AUTO-EVENT] Order completed: ${order.orderId}`);
+    });
+  }
+
+  atomicCreateOrder(orderData, inventory, deviceOrders, saveCallback) {
+    const backup = {
+      orders: JSON.parse(JSON.stringify(deviceOrders)),
+      inventoryState: {}
+    };
+
+    try {
+      const inv = inventory.get(orderData.deviceSKU);
+      if (!inv) throw new Error(`Device SKU not found: ${orderData.deviceSKU}`);
+      if (inv.availableCount < 1) throw new Error('Insufficient inventory');
+
+      backup.inventoryState = { ...inv };
+      inv.reservedCount = (inv.reservedCount || 0) + 1;
+      inv.availableCount -= 1;
+      inv.updatedAt = new Date().toISOString();
+
+      deviceOrders.push(orderData);
+      saveCallback();
+      this.emit('ORDER_PLACED', orderData);
+      this.auditLog('ORDER_PLACED', orderData);
+
+      return { success: true, orderId: orderData.orderId };
+    } catch (error) {
+      deviceOrders.length = 0;
+      deviceOrders.push(...backup.orders);
+      if (backup.inventoryState.sku) {
+        inventory.set(orderData.deviceSKU, backup.inventoryState);
+      }
+      throw error;
+    }
+  }
+
+  setQuoteWithAutoApproval(orderId, quoteAmount, adminId, order, updateCallback) {
+    if (order.status !== 'pending') {
+      throw new Error(`Invalid state transition. Current status: ${order.status}`);
+    }
+
+    const autoApproved = quoteAmount < this.AUTO_APPROVE_THRESHOLD;
+    const timestamp = new Date().toISOString();
+
+    order.status = 'quoted';
+    order.quoteAmount = quoteAmount;
+    order.quotedAt = timestamp;
+    order.quotedBy = adminId;
+    order.autoApproved = autoApproved;
+    order.updatedAt = timestamp;
+
+    if (!order.auditTrail) order.auditTrail = [];
+    order.auditTrail.push({
+      action: 'QUOTE_SET',
+      by: adminId,
+      at: timestamp,
+      amount: quoteAmount,
+      autoApproved
+    });
+
+    updateCallback();
+    this.emit('ORDER_QUOTED', { ...order, quoteAmount, autoApproved });
+    this.auditLog('ORDER_QUOTED', { orderId, quoteAmount, autoApproved });
+
+    return { success: true, status: 'quoted', autoApproved };
+  }
+
+  auditLog(eventType, data) {
+    const timestamp = new Date().toISOString();
+    const prevHash = this.auditLedger.length > 0 
+      ? this.auditLedger[this.auditLedger.length - 1].hash 
+      : '0'.repeat(64);
+    
+    const eventData = { eventType, timestamp, data: JSON.stringify(data) };
+    const hashInput = prevHash + JSON.stringify(eventData);
+    const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
+    
+    this.auditLedger.push({ ...eventData, hash, previousHash: prevHash });
+    if (this.auditLedger.length > 1000) this.auditLedger.shift();
+    
+    return this.auditLedger[this.auditLedger.length - 1];
+  }
+
+  verifyAuditLedger() {
+    for (let i = 1; i < this.auditLedger.length; i++) {
+      const prevEntry = this.auditLedger[i - 1];
+      const currEntry = this.auditLedger[i];
+      const eventData = {
+        eventType: currEntry.eventType,
+        timestamp: currEntry.timestamp,
+        data: currEntry.data
+      };
+      const hashInput = prevEntry.hash + JSON.stringify(eventData);
+      const expectedHash = crypto.createHash('sha256').update(hashInput).digest('hex');
+      if (currEntry.hash !== expectedHash) {
+        throw new Error(`Audit ledger tampered at index ${i}`);
+      }
+    }
+    return true;
+  }
+
+  getStatistics() {
+    const eventTypes = {};
+    this.auditLedger.forEach(entry => {
+      eventTypes[entry.eventType] = (eventTypes[entry.eventType] || 0) + 1;
+    });
+    return {
+      totalEvents: this.auditLedger.length,
+      eventTypes,
+      autoApproveThreshold: this.AUTO_APPROVE_THRESHOLD
+    };
+  }
+}
+
+// Initialize automation
+const orderAutomation = new OrderAutomation();
+console.log('✅ Order Automation initialized with auto-approval threshold: ₹' + orderAutomation.AUTO_APPROVE_THRESHOLD);
+// ============================================================================
 
 // Track server metrics
 const serverMetrics = {
@@ -682,7 +835,7 @@ app.post('/api/orders', (req, res) => {
     });
   }
   
-  const { deviceSKU, address, phone, preferredSlot, paymentMethod } = req.body;
+  const { deviceSKU, address, phone, preferredSlot } = req.body;
   
   const newOrder = {
     orderId: `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -694,7 +847,7 @@ app.post('/api/orders', (req, res) => {
     deviceSKU: deviceSKU || 'AC-HOME-V1',
     status: 'pending',
     quoteAmount: null,
-    paymentMethod: paymentMethod || null,
+    paymentMethod: null,
     paymentReference: null,
     assignedTechnicianId: null,
     assignedTechnicianName: null,
@@ -708,34 +861,59 @@ app.post('/api/orders', (req, res) => {
     quotedAt: null,
     paidAt: null,
     shippedAt: null,
-    installedAt: null
+    installedAt: null,
+    auditTrail: []
   };
   
-  deviceOrders.push(newOrder);
-  
-  // Create alert for admin
-  const alert = {
-    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    message: `New device order from ${newOrder.userName} (${deviceSKU})`,
-    priority: 'medium',
-    type: 'info',
-    timestamp: new Date().toISOString(),
-    read: false,
-    createdBy: 'system',
-    orderId: newOrder.orderId
-  };
-  
-  systemAlerts.push(alert);
-  
-  saveDevData();
-  
-  console.log(`📦 Device order created: ${newOrder.orderId} by ${user.email}`);
-  
-  res.json({
-    success: true,
-    message: 'Device order created successfully',
-    order: newOrder
-  });
+  try {
+    // Use atomic transaction with inventory reservation
+    // Initialize inventory if not exists
+    if (!inventory.has(deviceSKU)) {
+      inventory.set(deviceSKU, {
+        sku: deviceSKU,
+        totalCount: 100,
+        availableCount: 100,
+        reservedCount: 0,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    
+    const result = orderAutomation.atomicCreateOrder(
+      newOrder,
+      inventory,
+      deviceOrders,
+      saveDevData
+    );
+    
+    // Create alert for admin
+    const alert = {
+      id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      message: `New device order from ${newOrder.consumerName} (${deviceSKU})`,
+      priority: 'medium',
+      type: 'info',
+      timestamp: new Date().toISOString(),
+      read: false,
+      createdBy: 'system',
+      orderId: newOrder.orderId
+    };
+    
+    systemAlerts.push(alert);
+    saveDevData();
+    
+    console.log(`📦 [ATOMIC] Device order created: ${newOrder.orderId} by ${user.email}`);
+    
+    res.json({
+      success: true,
+      message: 'Device order created successfully',
+      order: newOrder
+    });
+  } catch (error) {
+    console.error(`❌ [ATOMIC] Order creation failed:`, error.message);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // Get user's orders (Consumer)
@@ -905,7 +1083,7 @@ app.put('/api/admin/orders/:orderId/quote', (req, res) => {
   }
   
   const { orderId } = req.params;
-  const { quoteAmount, paymentMethod } = req.body;
+  const { quoteAmount } = req.body;
   
   const order = deviceOrders.find(o => o.orderId === orderId);
   
@@ -916,19 +1094,123 @@ app.put('/api/admin/orders/:orderId/quote', (req, res) => {
     });
   }
   
-  order.quoteAmount = quoteAmount;
+  try {
+    // Use auto-approval logic
+    const result = orderAutomation.setQuoteWithAutoApproval(
+      orderId,
+      quoteAmount,
+      user.userId,
+      order,
+      saveDevData
+    );
+    
+    console.log(`💰 [AUTO-APPROVE] Quote set for order ${orderId}: ₹${quoteAmount} (auto-approved: ${result.autoApproved})`);
+    
+    res.json({
+      success: true,
+      message: result.autoApproved ? 'Quote set and auto-approved' : 'Quote set successfully',
+      order,
+      autoApproved: result.autoApproved
+    });
+  } catch (error) {
+    console.error(`❌ [AUTO-APPROVE] Quote setting failed:`, error.message);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Consumer selects payment method (Consumer only)
+app.put('/api/orders/:orderId/payment-method', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { paymentMethod } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Verify order belongs to consumer
+  if (order.userId !== tokenData.userId) {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Access denied' 
+    });
+  }
+  
+  // Only allow payment method selection for quoted orders
+  if (order.status !== 'quoted') {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Payment method can only be selected for quoted orders' 
+    });
+  }
+  
+  // Validate payment method
+  if (!['COD', 'ONLINE'].includes(paymentMethod)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid payment method. Must be COD or ONLINE' 
+    });
+  }
+  
   order.paymentMethod = paymentMethod;
-  order.status = 'quoted';
-  order.quotedAt = new Date().toISOString();
   order.updatedAt = new Date().toISOString();
+  
+  if (!order.auditTrail) order.auditTrail = [];
+  order.auditTrail.push({
+    action: 'PAYMENT_METHOD_SELECTED',
+    by: tokenData.userId,
+    at: new Date().toISOString(),
+    paymentMethod
+  });
   
   saveDevData();
   
-  console.log(`💰 Quote set for order ${orderId}: ₹${quoteAmount}`);
+  console.log(`💳 Payment method selected for order ${orderId}: ${paymentMethod}`);
+  
+  // Create notification for admin
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    message: `${order.consumerName} selected ${paymentMethod} payment for order ${orderId.slice(0, 8)}`,
+    priority: 'medium',
+    type: 'info',
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: 'system',
+    orderId: order.orderId
+  };
+  
+  systemAlerts.push(alert);
+  saveDevData();
   
   res.json({
     success: true,
-    message: 'Quote set successfully',
+    message: 'Payment method selected successfully',
     order
   });
 });
@@ -1277,6 +1559,280 @@ app.get('/api/technician/orders', (req, res) => {
   });
 });
 
+// Accept order (Technician only)
+app.put('/api/tech/orders/:orderId/accept', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('❌ Accept order failed: No auth header');
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    console.log('❌ Accept order failed: Invalid token');
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'technician') {
+    console.log(`❌ Accept order failed: User role is ${user?.role}, not technician`);
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Technician access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    console.log(`❌ Accept order failed: Order ${orderId} not found`);
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  console.log(`🔍 Checking assignment: Order assigned to ${order.assignedTechnicianId}, User ID is ${user.userId}`);
+  
+  // Verify order is assigned to this technician
+  if (order.assignedTechnicianId !== user.userId) {
+    console.log(`❌ Accept order failed: Order assigned to ${order.assignedTechnicianId}, but user is ${user.userId}`);
+    return res.status(403).json({ 
+      success: false, 
+      error: 'This order is not assigned to you' 
+    });
+  }
+  
+  order.status = 'accepted';
+  order.acceptedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  if (!order.auditTrail) order.auditTrail = [];
+  order.auditTrail.push({
+    action: 'ORDER_ACCEPTED',
+    by: user.userId,
+    at: new Date().toISOString()
+  });
+  
+  // Notify consumer that technician has accepted the task
+  const consumerNotification = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    userId: order.userId,
+    type: 'order_update',
+    title: 'Technician Accepted Your Installation',
+    message: `${order.assignedTechnicianName || 'Your technician'} has accepted your device installation request. They will contact you soon to schedule the installation.`,
+    priority: 'medium',
+    read: false,
+    createdAt: new Date().toISOString(),
+    relatedOrderId: orderId,
+    actionUrl: `/orders/${orderId}`
+  };
+  
+  if (!notifications) notifications = [];
+  notifications.push(consumerNotification);
+  
+  saveDevData();
+  
+  console.log(`✅ Order ${orderId} accepted by technician ${user.email}`);
+  console.log(`📧 Notification sent to consumer ${order.consumerEmail || order.userEmail}`);
+  
+  res.json({
+    success: true,
+    message: 'Order accepted successfully',
+    order
+  });
+});
+
+// Decline order (Technician only)
+app.put('/api/tech/orders/:orderId/decline', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'technician') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Technician access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { reason } = req.body;
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Verify order is assigned to this technician
+  if (order.assignedTechnicianId !== user.userId) {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'This order is not assigned to you' 
+    });
+  }
+  
+  // Clear technician assignment
+  order.assignedTechnicianId = null;
+  order.assignedTechnicianName = null;
+  order.status = 'quoted'; // Return to quoted status for admin to reassign
+  order.declinedAt = new Date().toISOString();
+  order.declineReason = reason;
+  order.updatedAt = new Date().toISOString();
+  
+  if (!order.auditTrail) order.auditTrail = [];
+  order.auditTrail.push({
+    action: 'ORDER_DECLINED',
+    by: user.userId,
+    at: new Date().toISOString(),
+    reason
+  });
+  
+  saveDevData();
+  
+  console.log(`❌ Order ${orderId} declined by technician ${user.email}: ${reason}`);
+  
+  // Create alert for admin
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    message: `Technician ${user.firstName || user.email} declined order ${orderId.slice(0, 8)}: ${reason}`,
+    priority: 'high',
+    type: 'warning',
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: 'system',
+    orderId: order.orderId
+  };
+  
+  systemAlerts.push(alert);
+  saveDevData();
+  
+  res.json({
+    success: true,
+    message: 'Order declined successfully. Admin will be notified.',
+    order
+  });
+});
+
+// Start work on order (Technician only)
+app.put('/api/tech/orders/:orderId/start', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'technician') {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Technician access required' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Verify order is assigned to this technician
+  if (order.assignedTechnicianId !== user.userId) {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'This order is not assigned to you' 
+    });
+  }
+  
+  order.status = 'installing';
+  order.startedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  if (!order.auditTrail) order.auditTrail = [];
+  order.auditTrail.push({
+    action: 'INSTALLATION_STARTED',
+    by: user.userId,
+    at: new Date().toISOString()
+  });
+  
+  // Notify consumer that installation has started
+  const consumerNotification = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    userId: order.userId,
+    type: 'order_update',
+    title: 'Installation Started',
+    message: `${order.assignedTechnicianName || 'Your technician'} has started the installation of your device. The work is now in progress.`,
+    priority: 'medium',
+    read: false,
+    createdAt: new Date().toISOString(),
+    relatedOrderId: orderId,
+    actionUrl: `/orders/${orderId}`
+  };
+  
+  if (!notifications) notifications = [];
+  notifications.push(consumerNotification);
+  
+  saveDevData();
+  
+  console.log(`🔧 Installation started for order ${orderId} by ${user.email}`);
+  console.log(`📧 Notification sent to consumer ${order.consumerEmail || order.userEmail}`);
+  
+  res.json({
+    success: true,
+    message: 'Installation started successfully',
+    order
+  });
+});
+
 // Complete installation (Technician only)
 app.post('/api/tech/installations/:orderId/complete', (req, res) => {
   const authHeader = req.headers.authorization;
@@ -1370,9 +1926,27 @@ app.post('/api/tech/installations/:orderId/complete', (req, res) => {
   order.updatedAt = new Date().toISOString();
   if (installationPhotos) order.installationPhotos = installationPhotos;
   
+  // Notify consumer that installation is complete
+  const consumerNotification = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    userId: order.userId,
+    type: 'order_update',
+    title: 'Installation Completed!',
+    message: `Great news! ${order.assignedTechnicianName || 'Your technician'} has successfully completed the installation of your device. You can now start using it.`,
+    priority: 'high',
+    read: false,
+    createdAt: new Date().toISOString(),
+    relatedOrderId: orderId,
+    actionUrl: `/orders/${orderId}`
+  };
+  
+  if (!notifications) notifications = [];
+  notifications.push(consumerNotification);
+  
   saveDevData();
   
   console.log(`✅ Installation completed for order ${orderId} by ${user.email}`);
+  console.log(`📧 Notification sent to consumer ${order.consumerEmail || order.userEmail}`);
   
   res.json({
     success: true,
@@ -1552,6 +2126,7 @@ const validTokens = new Map();
 const devDevices = new Map(); // Map of userId -> array of devices
 const devNotifications = new Map(); // Map of userId -> array of notifications
 const contactSubmissions = []; // Array of contact form submissions
+const inventory = new Map(); // Map of SKU -> inventory data
 
 // System settings storage
 let systemSettings = {
@@ -1848,6 +2423,191 @@ app.get('/api/auth/verification-status/:email', (req, res) => {
     emailVerified: user.emailVerified,
     email: user.email
   });
+});
+
+// Google OAuth callback endpoint
+app.post('/api/auth/google/callback', async (req, res) => {
+  const { code, redirectUri } = req.body;
+  
+  console.log('📧 Google OAuth callback received');
+  
+  if (!code) {
+    return res.status(400).json({
+      success: false,
+      message: 'Authorization code is required'
+    });
+  }
+  
+  try {
+    // In development, simulate Google OAuth
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔧 Development mode: Simulating Google OAuth');
+      
+      // Simulate Google user data
+      const googleUser = {
+        email: 'google.user@gmail.com',
+        name: 'Google User',
+        given_name: 'Google',
+        family_name: 'User',
+        picture: 'https://lh3.googleusercontent.com/a/default-user',
+        email_verified: true,
+        sub: 'google_' + Date.now()
+      };
+      
+      // Check if user exists
+      let user = devUsers.get(googleUser.email);
+      
+      if (!user) {
+        // Create new user from Google account
+        const newUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        user = {
+          userId: newUserId,
+          email: googleUser.email,
+          password: null, // No password for OAuth users
+          name: googleUser.name,
+          role: 'consumer', // Default role
+          emailVerified: true, // Google emails are verified
+          createdAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+          authProvider: 'google',
+          googleId: googleUser.sub,
+          profile: {
+            firstName: googleUser.given_name,
+            lastName: googleUser.family_name,
+            avatar: googleUser.picture
+          }
+        };
+        
+        devUsers.set(googleUser.email, user);
+        console.log(`✅ Created new user from Google: ${googleUser.email}`);
+      } else {
+        // Update existing user
+        user.lastLogin = new Date().toISOString();
+        user.authProvider = 'google';
+        user.googleId = googleUser.sub;
+        if (!user.profile) user.profile = {};
+        user.profile.avatar = googleUser.picture;
+        console.log(`✅ Existing user logged in via Google: ${googleUser.email}`);
+      }
+      
+      // Generate token
+      const token = 'dev-token-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      validTokens.set(token, {
+        email: user.email,
+        userId: user.userId,
+        createdAt: new Date().toISOString()
+      });
+      
+      saveDevData();
+      
+      return res.json({
+        success: true,
+        token,
+        user: {
+          userId: user.userId,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          emailVerified: user.emailVerified,
+          profile: user.profile
+        }
+      });
+    }
+    
+    // Production: Exchange code for tokens with Google
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+    
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to exchange code for tokens');
+    }
+    
+    const tokens = await tokenResponse.json();
+    
+    // Get user info from Google
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: {
+        'Authorization': `Bearer ${tokens.access_token}`
+      }
+    });
+    
+    if (!userInfoResponse.ok) {
+      throw new Error('Failed to get user info from Google');
+    }
+    
+    const googleUser = await userInfoResponse.json();
+    
+    // Check if user exists or create new one
+    let user = devUsers.get(googleUser.email);
+    
+    if (!user) {
+      const newUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      user = {
+        userId: newUserId,
+        email: googleUser.email,
+        password: null,
+        name: googleUser.name,
+        role: 'consumer',
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        authProvider: 'google',
+        googleId: googleUser.id,
+        profile: {
+          firstName: googleUser.given_name,
+          lastName: googleUser.family_name,
+          avatar: googleUser.picture
+        }
+      };
+      
+      devUsers.set(googleUser.email, user);
+    } else {
+      user.lastLogin = new Date().toISOString();
+      user.authProvider = 'google';
+      user.googleId = googleUser.id;
+    }
+    
+    // Generate token
+    const token = 'dev-token-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    validTokens.set(token, {
+      email: user.email,
+      userId: user.userId,
+      createdAt: new Date().toISOString()
+    });
+    
+    saveDevData();
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        userId: user.userId,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        emailVerified: user.emailVerified,
+        profile: user.profile
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Google OAuth error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to authenticate with Google'
+    });
+  }
 });
 
 // Validate user session endpoint
@@ -4539,6 +5299,117 @@ function stopAlertMonitoring() {
     console.log('🚨 Alert monitoring stopped');
   }
 }
+
+// ============================================================================
+// AUTOMATION ENDPOINTS
+// ============================================================================
+
+// Get automation statistics (Admin only)
+app.get('/api/admin/automation/stats', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+  
+  const stats = orderAutomation.getStatistics();
+  
+  res.json({
+    success: true,
+    ...stats,
+    inventoryStatus: Array.from(inventory.entries()).map(([sku, inv]) => ({
+      sku,
+      available: inv.availableCount,
+      reserved: inv.reservedCount,
+      total: inv.totalCount
+    }))
+  });
+});
+
+// Verify audit ledger integrity (Admin only)
+app.get('/api/admin/automation/verify', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+  
+  try {
+    const isValid = orderAutomation.verifyAuditLedger();
+    res.json({
+      success: true,
+      ledgerIntegrity: isValid,
+      totalEvents: orderAutomation.auditLedger.length,
+      message: 'Audit ledger is intact and tamper-free ✅'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '⚠️ Audit ledger has been tampered with!'
+    });
+  }
+});
+
+// Get audit ledger (Admin only)
+app.get('/api/admin/automation/audit', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+  
+  const limit = parseInt(req.query.limit) || 100;
+  const ledger = orderAutomation.auditLedger.slice(-limit);
+  
+  res.json({
+    success: true,
+    auditLedger: ledger,
+    total: orderAutomation.auditLedger.length,
+    showing: ledger.length
+  });
+});
+
+// ============================================================================
 
 // Start server
 server.listen(PORT, () => {

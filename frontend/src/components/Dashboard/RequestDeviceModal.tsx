@@ -14,7 +14,6 @@ const RequestDeviceModal: React.FC<RequestDeviceModalProps> = ({ isOpen, onClose
     deviceSKU: 'AC-HOME-V1',
     address: '',
     phone: '',
-    paymentMethod: 'COD',
     preferredSlot: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,7 +50,6 @@ const RequestDeviceModal: React.FC<RequestDeviceModalProps> = ({ isOpen, onClose
           deviceSKU: 'AC-HOME-V1',
           address: '',
           phone: '',
-          paymentMethod: 'COD',
           preferredSlot: ''
         });
       }, 2000);
@@ -167,40 +165,6 @@ const RequestDeviceModal: React.FC<RequestDeviceModalProps> = ({ isOpen, onClose
                       />
                     </div>
 
-                    {/* Payment Method */}
-                    <div className="mb-6">
-                      <label className="block text-sm font-semibold text-gray-900 mb-2">
-                        <CreditCard className="w-4 h-4 inline mr-2" />
-                        Payment Method <span className="text-red-500">*</span>
-                      </label>
-                      <div className="grid grid-cols-2 gap-4">
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, paymentMethod: 'COD' })}
-                          className={`p-4 border-2 rounded-lg transition ${
-                            formData.paymentMethod === 'COD'
-                              ? 'border-cyan-500 bg-cyan-50'
-                              : 'border-gray-200 hover:border-cyan-300'
-                          }`}
-                        >
-                          <div className="font-semibold text-gray-900">Cash on Delivery</div>
-                          <div className="text-xs text-gray-600">Pay when device is delivered</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, paymentMethod: 'ONLINE' })}
-                          className={`p-4 border-2 rounded-lg transition ${
-                            formData.paymentMethod === 'ONLINE'
-                              ? 'border-cyan-500 bg-cyan-50'
-                              : 'border-gray-200 hover:border-cyan-300'
-                          }`}
-                        >
-                          <div className="font-semibold text-gray-900">Online Payment</div>
-                          <div className="text-xs text-gray-600">Pay online after quote</div>
-                        </button>
-                      </div>
-                    </div>
-
                     {/* Preferred Installation Slot */}
                     <div className="mb-6">
                       <label className="block text-sm font-semibold text-gray-900 mb-2">
@@ -218,7 +182,7 @@ const RequestDeviceModal: React.FC<RequestDeviceModalProps> = ({ isOpen, onClose
                     {/* Info Box */}
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
                       <p className="text-sm text-blue-900">
-                        <strong>Note:</strong> After submitting, our admin team will review your request and provide a detailed quote. You'll be notified via email and can track the order status in your dashboard.
+                        <strong>Note:</strong> After submitting, our admin team will review your request and provide a detailed quote. Once you receive the quote, you'll be able to choose your payment method (COD or Online) before proceeding.
                       </p>
                     </div>
 
