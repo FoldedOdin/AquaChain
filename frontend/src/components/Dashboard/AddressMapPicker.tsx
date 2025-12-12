@@ -37,8 +37,14 @@ const AddressMapPicker: React.FC<AddressMapPickerProps> = ({
   const geocoder = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
+  // Check if API key is configured
+  const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+  const hasApiKey = apiKey && apiKey.length > 0;
+
   // Initialize Google Maps
   useEffect(() => {
+    if (!hasApiKey) return; // Skip if no API key
+    
     const initMap = () => {
       if (!window.google || !mapContainerRef.current) return;
 
@@ -104,7 +110,6 @@ const AddressMapPicker: React.FC<AddressMapPickerProps> = ({
     // Load Google Maps script
     if (!window.google) {
       const script = document.createElement('script');
-      const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY || '';
       script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
       script.async = true;
       script.defer = true;
@@ -113,7 +118,7 @@ const AddressMapPicker: React.FC<AddressMapPickerProps> = ({
     } else {
       initMap();
     }
-  }, []);
+  }, [hasApiKey, apiKey]);
 
   // Update map when center changes
   useEffect(() => {
@@ -267,6 +272,47 @@ const AddressMapPicker: React.FC<AddressMapPickerProps> = ({
       alert('Please select an address on the map');
     }
   }, [selectedAddress, onAddressSelect]);
+
+  // Show setup message if no API key
+  if (!hasApiKey) {
+    return (
+      <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-6">
+        <div className="flex items-start gap-3 mb-4">
+          <MapPin className="w-6 h-6 text-amber-600 flex-shrink-0 mt-1" />
+          <div>
+            <h3 className="font-semibold text-amber-900 mb-2">Google Maps Not Configured</h3>
+            <p className="text-sm text-amber-800 mb-3">
+              To use the interactive map for address selection, you need to add a Google Maps API key.
+            </p>
+            <div className="bg-white rounded p-3 mb-3">
+              <p className="text-xs font-mono text-gray-700">
+                REACT_APP_GOOGLE_MAPS_API_KEY=your-key-here
+              </p>
+            </div>
+            <p className="text-xs text-amber-700">
+              See <code className="bg-amber-100 px-1 rounded">GOOGLE_MAPS_QUICK_SETUP.md</code> for setup instructions (takes 5 minutes).
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => onAddressSelect({
+            formatted: searchQuery,
+            street: searchQuery,
+            city: '',
+            state: '',
+            zipCode: '',
+            country: 'India',
+            latitude: 10.8505,
+            longitude: 76.2711
+          })}
+          disabled={!searchQuery.trim()}
+          className="w-full px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+        >
+          Use Text Address (Without Map)
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
