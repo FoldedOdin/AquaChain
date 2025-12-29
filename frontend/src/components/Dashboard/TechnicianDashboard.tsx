@@ -422,9 +422,38 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                   <p className="text-gray-900">
-                    {typeof user.profile.address === 'object' 
-                      ? `${user.profile.address.street}, ${user.profile.address.city}, ${user.profile.address.state} ${user.profile.address.zipCode}`
-                      : user.profile.address}
+                    {(() => {
+                      const addr = user.profile.address;
+                      if (!addr) return '';
+                      
+                      // If it's a string, return it directly
+                      if (typeof addr === 'string') return addr;
+                      
+                      // If it's an object, check for formatted field first
+                      const addrObj = addr as any;
+                      if (addrObj.formatted && typeof addrObj.formatted === 'string') {
+                        // Clean up the formatted string to remove "undefined"
+                        const cleaned = addrObj.formatted
+                          .split(',')
+                          .map((part: string) => part.trim())
+                          .filter((part: string) => part && part !== 'undefined')
+                          .join(', ');
+                        if (cleaned) return cleaned;
+                      }
+                      
+                      // Otherwise build from individual fields
+                      const parts = [
+                        addrObj.flatHouse,
+                        addrObj.areaStreet,
+                        addrObj.landmark,
+                        addrObj.city,
+                        addrObj.state,
+                        addrObj.pincode,
+                        addrObj.country
+                      ].filter((part: any) => part && typeof part === 'string' && part.trim() && part !== 'undefined');
+                      
+                      return parts.length > 0 ? parts.join(', ') : '';
+                    })()}
                   </p>
                 </div>
               )}
@@ -473,9 +502,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
             lastName: user.profile?.lastName || '',
             email: user.email || '',
             phone: user.profile?.phone || '',
-            address: typeof user.profile?.address === 'object' 
-              ? `${user.profile.address.street}, ${user.profile.address.city}, ${user.profile.address.state} ${user.profile.address.zipCode}`
-              : user.profile?.address || ''
+            address: user.profile?.address || ''
           }}
           onProfileUpdated={handleProfileUpdated}
         />
@@ -881,9 +908,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
           lastName: user.profile?.lastName || '',
           email: user.email || '',
           phone: user.profile?.phone || '',
-          address: typeof user.profile?.address === 'object' 
-            ? `${user.profile.address.street}, ${user.profile.address.city}, ${user.profile.address.state} ${user.profile.address.zipCode}`
-            : user.profile?.address || ''
+          address: user.profile?.address || ''
         }}
         onProfileUpdated={handleProfileUpdated}
       />
@@ -1216,3 +1241,4 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
 TechnicianDashboard.displayName = 'TechnicianDashboard';
 
 export default TechnicianDashboard;
+

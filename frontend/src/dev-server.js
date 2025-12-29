@@ -5286,11 +5286,12 @@ function startAlertMonitoring() {
   // Create initial system startup alert
   createAlert('System started successfully', 'low', 'info');
   
+  // Disabled automatic alert generation - alerts will only be created from real events
   // Run initial check
-  generatePeriodicAlerts();
+  // generatePeriodicAlerts();
   
   // Check every 30 seconds
-  alertInterval = setInterval(generatePeriodicAlerts, 30000);
+  // alertInterval = setInterval(generatePeriodicAlerts, 30000);
 }
 
 function stopAlertMonitoring() {

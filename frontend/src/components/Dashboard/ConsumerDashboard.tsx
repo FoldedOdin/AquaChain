@@ -11,7 +11,8 @@ import {
   ChartBarIcon,
   ExclamationTriangleIcon,
   CheckCircleIcon,
-  ClockIcon
+  ClockIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { 
   Droplet, 
@@ -24,7 +25,8 @@ import {
   Plus,
   AlertTriangle,
   Info,
-  Package
+  Package,
+  User
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -66,6 +68,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState<any>(null);
   const [isRemovingDevice, setIsRemovingDevice] = useState(false);
+  const [showProfileIncompleteModal, setShowProfileIncompleteModal] = useState(false);
+  const [missingProfileFields, setMissingProfileFields] = useState<string[]>([]);
   
   // Report Issue form state
   const [issueType, setIssueType] = useState<'bug' | 'iot'>('bug');
@@ -167,7 +171,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
   const toggleRequestDevice = useCallback(() => {
     if (!isProfileComplete) {
-      // Show alert and redirect to profile settings
+      // Show modal for incomplete profile
       const address = user?.profile?.address;
       const hasAddress = address && 
         (typeof address === 'string' ? (address as string).trim().length > 0 : 
@@ -175,16 +179,12 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
       const phone = user?.profile?.phone;
       const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
       
-      const missingFields: string[] = [];
-      if (!hasAddress) missingFields.push('address');
-      if (!hasPhone) missingFields.push('phone number');
+      const missing: string[] = [];
+      if (!hasAddress) missing.push('Address');
+      if (!hasPhone) missing.push('Phone Number');
       
-      const message = `Please complete your profile before requesting a device.\n\nMissing: ${missingFields.join(' and ')}`;
-      
-      if (window.confirm(message + '\n\nWould you like to update your profile now?')) {
-        setShowSettings(true);
-        setShowEditProfile(true);
-      }
+      setMissingProfileFields(missing);
+      setShowProfileIncompleteModal(true);
       return;
     }
 
@@ -534,12 +534,38 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                   <p className="text-gray-900">
-                    {typeof user.profile?.address === 'string' 
-                      ? user.profile.address 
-                      : user.profile?.address 
-                        ? `${user.profile.address.street}, ${user.profile.address.city}, ${user.profile.address.state} ${user.profile.address.zipCode}`
-                        : 'Not set'
-                    }
+                    {(() => {
+                      const addr = user.profile?.address;
+                      if (!addr) return 'Not set';
+                      
+                      // If it's a string, return it directly
+                      if (typeof addr === 'string') return addr;
+                      
+                      // If it's an object, check for formatted field first
+                      const addrObj = addr as any;
+                      if (addrObj.formatted && typeof addrObj.formatted === 'string') {
+                        // Clean up the formatted string to remove "undefined"
+                        const cleaned = addrObj.formatted
+                          .split(',')
+                          .map((part: string) => part.trim())
+                          .filter((part: string) => part && part !== 'undefined')
+                          .join(', ');
+                        if (cleaned) return cleaned;
+                      }
+                      
+                      // Otherwise build from individual fields
+                      const parts = [
+                        addrObj.flatHouse,
+                        addrObj.areaStreet,
+                        addrObj.landmark,
+                        addrObj.city,
+                        addrObj.state,
+                        addrObj.pincode,
+                        addrObj.country
+                      ].filter((part: any) => part && typeof part === 'string' && part.trim() && part !== 'undefined');
+                      
+                      return parts.length > 0 ? parts.join(', ') : 'Not set';
+                    })()}
                   </p>
                 </div>
                 <div>
@@ -604,11 +630,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             lastName: user.profile?.lastName,
             email: user.email,
             phone: user.profile?.phone,
-            address: typeof user.profile?.address === 'string' 
-              ? user.profile.address 
-              : user.profile?.address 
-                ? `${user.profile.address.street}, ${user.profile.address.city}, ${user.profile.address.state} ${user.profile.address.zipCode}`
-                : ''
+            address: user.profile?.address || ''
           }}
           onProfileUpdated={handleProfileUpdated}
         />
@@ -1650,11 +1672,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             lastName: user.profile?.lastName,
             email: user.email,
             phone: user.profile?.phone,
-            address: typeof user.profile?.address === 'string' 
-              ? user.profile.address 
-              : user.profile?.address 
-                ? `${user.profile.address.street}, ${user.profile.address.city}, ${user.profile.address.state} ${user.profile.address.zipCode}`
-                : ''
+            address: user.profile?.address || ''
           }}
           onProfileUpdated={handleProfileUpdated}
         />
@@ -1721,6 +1739,84 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             </>
           )}
         </AnimatePresence>
+
+        {/* Profile Incomplete Modal */}
+        <AnimatePresence>
+          {showProfileIncompleteModal && (
+            <>
+              <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowProfileIncompleteModal(false)} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+                  {/* Header */}
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-4 flex items-center justify-between rounded-t-xl">
+                    <div className="flex items-center gap-3">
+                      <User className="w-6 h-6 text-white" />
+                      <h2 className="text-xl font-bold text-white">Complete Your Profile</h2>
+                    </div>
+                    <button
+                      onClick={() => setShowProfileIncompleteModal(false)}
+                      className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                    >
+                      <XMarkIcon className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Content */}
+                  <div className="p-6">
+                    <div className="flex items-start gap-3 mb-6">
+                      <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <AlertTriangle className="w-6 h-6 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-gray-900 font-medium mb-2">
+                          Please complete your profile before requesting a device.
+                        </p>
+                        <p className="text-sm text-gray-600 mb-3">
+                          We need the following information to process your device request:
+                        </p>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                          <p className="text-sm font-semibold text-amber-900 mb-2">Missing Information:</p>
+                          <ul className="space-y-1">
+                            {missingProfileFields.map((field, index) => (
+                              <li key={index} className="flex items-center gap-2 text-sm text-amber-800">
+                                <span className="w-1.5 h-1.5 bg-amber-600 rounded-full"></span>
+                                {field}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setShowProfileIncompleteModal(false)}
+                        className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowProfileIncompleteModal(false);
+                          setShowSettings(true);
+                          setShowEditProfile(true);
+                        }}
+                        className="flex-1 px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
+                      >
+                        Update Profile
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </main>
       )}
     </div>
@@ -1731,3 +1827,4 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 ConsumerDashboard.displayName = 'ConsumerDashboard';
 
 export default ConsumerDashboard;
+

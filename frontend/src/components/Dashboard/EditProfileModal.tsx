@@ -9,6 +9,18 @@ import {
 import { User, Mail, Phone, MapPin, Lock, Map } from 'lucide-react';
 import AddressMapPicker from './AddressMapPicker';
 
+interface AddressObject {
+  country?: string;
+  pincode?: string;
+  flatHouse?: string;
+  areaStreet?: string;
+  landmark?: string;
+  city?: string;
+  state?: string;
+  isDefault?: boolean;
+  formatted?: string;
+}
+
 interface EditProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -17,7 +29,7 @@ interface EditProfileModalProps {
     lastName?: string;
     email: string;
     phone?: string;
-    address?: string;
+    address?: string | AddressObject;
   };
   onProfileUpdated: () => void;
 }
@@ -40,8 +52,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [lastName, setLastName] = useState(currentProfile.lastName || '');
   const [email, setEmail] = useState(currentProfile.email || '');
   const [phone, setPhone] = useState(currentProfile.phone || '');
-  const [address, setAddress] = useState(currentProfile.address || '');
-  const [password, setPassword] = useState('');
+  
+  // Detailed address fields
+  const [country, setCountry] = useState('India');
+  const [pincode, setPincode] = useState('');
+  const [flatHouse, setFlatHouse] = useState('');
+  const [areaStreet, setAreaStreet] = useState('');
+  const [landmark, setLandmark] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [isDefaultAddress, setIsDefaultAddress] = useState(true);
 
   // OTP state
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -50,21 +70,65 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [otpSentTo, setOtpSentTo] = useState('');
   const [showMapPicker, setShowMapPicker] = useState(false);
 
-  // Track if modal was just opened to initialize form only once
-  const prevIsOpenRef = useRef(false);
+  // Track if we've initialized the form for this modal session
+  const initializedRef = useRef(false);
 
-  // Update form only when modal is first opened, not on every render
+  // Update form when modal opens (only once per open)
   useEffect(() => {
-    // Only initialize when modal transitions from closed to open
-    if (isOpen && !prevIsOpenRef.current) {
+    if (isOpen && !initializedRef.current) {
+      // Initialize form with current profile data
       setFirstName(currentProfile.firstName || '');
       setLastName(currentProfile.lastName || '');
       setEmail(currentProfile.email || '');
       setPhone(currentProfile.phone || '');
-      setAddress(currentProfile.address || '');
+      
+      // Parse existing address - handle both object and string formats
+      const addr = currentProfile.address;
+      if (addr) {
+        if (typeof addr === 'object' && !Array.isArray(addr)) {
+          // Address is already an object
+          const addressObj = addr as AddressObject;
+          setCountry(addressObj.country || 'India');
+          setPincode(addressObj.pincode || '');
+          setFlatHouse(addressObj.flatHouse || '');
+          setAreaStreet(addressObj.areaStreet || '');
+          setLandmark(addressObj.landmark || '');
+          setCity(addressObj.city || '');
+          setState(addressObj.state || '');
+          setIsDefaultAddress(addressObj.isDefault !== undefined ? addressObj.isDefault : true);
+        } else if (typeof addr === 'string' && addr) {
+          // Legacy string format - try to parse comma-separated address
+          const parts = addr.split(',').map(p => p.trim());
+          if (parts.length >= 3) {
+            setFlatHouse(parts[0] || '');
+            setAreaStreet(parts[1] || '');
+            setCity(parts[parts.length - 2] || '');
+            setState(parts[parts.length - 1] || '');
+          }
+        }
+      } else {
+        // Reset address fields if no address
+        setCountry('India');
+        setPincode('');
+        setFlatHouse('');
+        setAreaStreet('');
+        setLandmark('');
+        setCity('');
+        setState('');
+        setIsDefaultAddress(true);
+      }
+      
+      // Reset other states
+      setStep('form');
+      setShowMapPicker(false);
+      setErrorMessage('');
+      
+      initializedRef.current = true;
+    } else if (!isOpen) {
+      // Reset the flag when modal closes so it reinitializes on next open
+      initializedRef.current = false;
     }
-    prevIsOpenRef.current = isOpen;
-  }, [isOpen, currentProfile.firstName, currentProfile.lastName, currentProfile.email, currentProfile.phone, currentProfile.address]);
+  }, [isOpen, currentProfile]);
 
   // Resend timer countdown
   useEffect(() => {
@@ -88,16 +152,39 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       return;
     }
 
+    // Validate pincode if provided
+    if (pincode && !/^\d{6}$/.test(pincode)) {
+      setErrorMessage('Pincode must be exactly 6 digits');
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMessage('');
 
     try {
+      // Build structured address object
+      const addressObj = {
+        country,
+        pincode: pincode.trim(),
+        flatHouse: flatHouse.trim(),
+        areaStreet: areaStreet.trim(),
+        landmark: landmark.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        isDefault: isDefaultAddress,
+        // Also create formatted string for backward compatibility
+        formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
+          .map(p => p ? p.trim() : '')
+          .filter(p => p && p !== 'undefined')
+          .join(', ')
+      };
+
       const updates = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
-        address: address.trim()
+        address: addressObj
       };
 
       // Check if sensitive information changed
@@ -194,12 +281,28 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setOtpError('');
 
     try {
+      // Build structured address object
+      const addressObj = {
+        country,
+        pincode: pincode.trim(),
+        flatHouse: flatHouse.trim(),
+        areaStreet: areaStreet.trim(),
+        landmark: landmark.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        isDefault: isDefaultAddress,
+        formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
+          .map(p => p ? p.trim() : '')
+          .filter(p => p && p !== 'undefined')
+          .join(', ')
+      };
+
       const updates = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
-        address: address.trim()
+        address: addressObj
       };
 
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/verify-and-update`, {
@@ -241,6 +344,22 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setOtpError('');
 
     try {
+      // Build structured address object
+      const addressObj = {
+        country,
+        pincode: pincode.trim(),
+        flatHouse: flatHouse.trim(),
+        areaStreet: areaStreet.trim(),
+        landmark: landmark.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        isDefault: isDefaultAddress,
+        formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
+          .map(p => p ? p.trim() : '')
+          .filter(p => p && p !== 'undefined')
+          .join(', ')
+      };
+
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/request-otp`, {
         method: 'POST',
         headers: {
@@ -254,7 +373,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
             lastName: lastName.trim(),
             email: email.trim(),
             phone: phone.trim(),
-            address: address.trim()
+            address: addressObj
           }
         })
       });
@@ -280,11 +399,21 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setOtp(['', '', '', '', '', '']);
     setOtpError('');
     setErrorMessage('');
-    setPassword('');
     setIsSubmitting(false);
     setRequiresOTP(false);
     onClose();
   };
+
+  // Indian states list
+  const indianStates = [
+    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+    'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+    'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+    'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+    'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+    'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'
+  ];
 
   console.log('EditProfileModal render - isOpen:', isOpen);
   
@@ -486,67 +615,179 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   </div>
                 </div>
 
-                {/* Phone */}
+                {/* Address Section */}
                 <div className="mb-6">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2">
-                    Phone Number
-                    {phone !== currentProfile.phone && phone && (
-                      <span className="ml-2 text-xs text-orange-600 font-normal">
-                        (Requires verification)
-                      </span>
-                    )}
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Phone className="w-5 h-5 text-gray-400" />
-                    </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Address Details</h3>
+                  
+                  {/* Country/Region */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Country/Region
+                    </label>
+                    <select
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="India">India</option>
+                    </select>
+                  </div>
+
+                  {/* Full Name */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Full name (First and Last name)
+                    </label>
+                    <input
+                      type="text"
+                      value={`${firstName} ${lastName}`.trim()}
+                      readOnly
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                    />
+                  </div>
+
+                  {/* Mobile Number */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Mobile number
+                    </label>
                     <input
                       type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+91 xxxxxxxxxx"
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">May be used to assist delivery</p>
+                  </div>
+
+                  {/* Pincode */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Pincode
+                    </label>
+                    <input
+                      type="text"
+                      value={pincode}
+                      onChange={(e) => setPincode(e.target.value)}
+                      placeholder="6 digits [0-9] PIN code"
+                      maxLength={6}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                </div>
 
-                {/* Address */}
-                <div className="mb-6">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2">
-                    Address
-                  </label>
-                  
-                  {!showMapPicker ? (
-                    <div className="space-y-3">
-                      <div className="relative">
-                        <div className="absolute top-3 left-0 pl-3 flex items-start pointer-events-none">
-                          <MapPin className="w-5 h-5 text-gray-400" />
-                        </div>
-                        <textarea
-                          value={address}
-                          onChange={(e) => setAddress(e.target.value)}
-                          placeholder="Road, City, State, ZIP"
-                          rows={3}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowMapPicker(true)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 border-2 border-blue-500 text-blue-600 rounded-lg hover:bg-blue-50 transition"
-                      >
-                        <Map className="w-4 h-4" />
-                        Pick Address on Map
-                      </button>
+                  {/* Flat, House no., Building, Company, Apartment */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Flat, House no., Building, Company, Apartment
+                    </label>
+                    <input
+                      type="text"
+                      value={flatHouse}
+                      onChange={(e) => setFlatHouse(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Area, Street, Sector, Village */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Area, Street, Sector, Village
+                    </label>
+                    <input
+                      type="text"
+                      value={areaStreet}
+                      onChange={(e) => setAreaStreet(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Landmark */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Landmark
+                    </label>
+                    <input
+                      type="text"
+                      value={landmark}
+                      onChange={(e) => setLandmark(e.target.value)}
+                      placeholder="E.g. near apollo hospital"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Town/City and State */}
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-900 mb-2">
+                        Town/City
+                      </label>
+                      <input
+                        type="text"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-900 mb-2">
+                        State
+                      </label>
+                      <select
+                        value={state}
+                        onChange={(e) => setState(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      >
+                        <option value="">Choose a state</option>
+                        {indianStates.map((stateName) => (
+                          <option key={stateName} value={stateName}>
+                            {stateName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Make this my default address */}
+                  <div className="mb-4">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isDefaultAddress}
+                        onChange={(e) => setIsDefaultAddress(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">Make this my default address</span>
+                    </label>
+                  </div>
+
+                  {/* Map Picker Option */}
+                  {!showMapPicker ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(true)}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 border-2 border-blue-500 text-blue-600 rounded-lg hover:bg-blue-50 transition"
+                    >
+                      <Map className="w-4 h-4" />
+                      Pick Address on Map
+                    </button>
                   ) : (
                     <div className="space-y-3">
                       <AddressMapPicker
                         onAddressSelect={(selectedAddress) => {
-                          setAddress(selectedAddress.formatted);
+                          // Parse the selected address into fields
+                          const formatted = selectedAddress.formatted;
+                          const parts = formatted.split(',').map(p => p.trim());
+                          
+                          if (parts.length >= 3) {
+                            setFlatHouse(parts[0] || '');
+                            setAreaStreet(parts[1] || '');
+                            setCity(parts[parts.length - 2] || '');
+                            setState(parts[parts.length - 1] || '');
+                          }
+                          
                           setShowMapPicker(false);
                         }}
-                        initialAddress={address}
+                        initialAddress={`${flatHouse}, ${areaStreet}, ${city}, ${state}`.replace(/,\s*,/g, ',').trim()}
                       />
                       <button
                         type="button"

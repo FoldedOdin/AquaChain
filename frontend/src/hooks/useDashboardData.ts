@@ -112,7 +112,7 @@ export function useDashboardData(userRole: UserRole) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 10000); // Refetch every 10 seconds
+    const interval = setInterval(fetchData, 300000); // Refetch every 5 minutes (300 seconds)
 
     return () => {
       clearInterval(interval);
