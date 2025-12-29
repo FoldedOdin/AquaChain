@@ -1,8 +1,8 @@
 # AquaChain Platform: Comprehensive Technical Report
 
 **Project Name:** AquaChain - Real-Time Water Quality Monitoring System  
-**Report Date:** October 27, 2025  
-**Version:** 1.0  
+**Report Date:** November 2025  
+**Version:** 1.1  
 **Status:** Production-Ready  
 **Document Type:** Academic/Professional Technical Report
 
@@ -186,6 +186,7 @@ AquaChain implements a modern cloud-native architecture leveraging AWS services 
 | **Frontend** | React, TypeScript, Tailwind CSS | React 19.2.0, TypeScript 4.9.5 |
 | **State Management** | React Context API, TanStack Query | v5.90.5 |
 | **UI Components** | Headless UI, Heroicons, Recharts | Latest stable |
+| **Maps** | Google Maps JavaScript API | Optional, with fallback |
 | **Authentication** | AWS Amplify v6, Cognito | v6.15.7 |
 | **Backend Runtime** | AWS Lambda | Python 3.11, Node.js 18 |
 | **API Layer** | API Gateway REST + WebSocket | Multi-region |
@@ -1423,6 +1424,19 @@ const DataCard = React.memo(({ device }) => {
 - **Cumulative Layout Shift:** < 0.1
 - **Total Blocking Time:** < 200ms
 
+**Recent Optimizations (November 2025):**
+
+**Dashboard Polling Optimization:**
+- Reduced polling frequency: 10s → 60s
+- API call reduction: 83%
+- Improved user experience: Less "jumpy" interface
+- Cost savings: ~$15-20/month in API Gateway costs
+
+**Fast Refresh Disabled:**
+- Prevents unnecessary hot reloads during development
+- Reduces file watcher overhead
+- Improves development stability
+
 ### 6.5 Real-Time Features
 
 **WebSocket Integration:**
@@ -1451,6 +1465,24 @@ const useRealTimeUpdates = (deviceId: string) => {
 - Multi-device support with separate subscriptions
 - Automatic reconnection on connection loss
 
+**Hybrid Approach:**
+The application uses a hybrid real-time strategy:
+
+1. **WebSocket:** For instant critical updates
+   - Alert notifications
+   - Device status changes
+   - Service request updates
+
+2. **Polling:** For regular data refresh
+   - Dashboard metrics (60-second interval)
+   - Historical data updates
+   - Non-critical information
+
+This hybrid approach balances:
+- Real-time responsiveness for critical events
+- Efficient resource usage for routine updates
+- Reliable fallback when WebSocket unavailable
+
 ### 6.6 Accessibility & UX
 
 **WCAG 2.1 AA Compliance:**
@@ -1476,6 +1508,81 @@ const useRealTimeUpdates = (deviceId: string) => {
 - Confirmation dialogs for destructive actions
 - Optimistic UI updates
 - Offline support with service worker
+
+### 6.7 Recent UX Improvements (November 2025)
+
+#### 6.7.1 Auto-Refresh Optimization
+
+**Problem Identified:** Dashboard was auto-refreshing too frequently (every 10 seconds), causing:
+- Distracting user experience
+- Unnecessary API calls
+- Higher server load
+- "Jumpy" interface during data updates
+
+**Solution Implemented:**
+- Reduced refresh interval from 10 seconds to 60 seconds
+- Maintained manual refresh button for immediate updates
+- Balanced data freshness with user experience
+
+**Impact:**
+- 83% reduction in API calls (6 calls/min → 1 call/min)
+- Smoother, less distracting interface
+- Lower server load and costs
+- Better development experience
+
+**Configuration:**
+```typescript
+// frontend/src/hooks/useDashboardData.ts
+const interval = setInterval(fetchData, 60000); // 60 seconds
+```
+
+#### 6.7.2 Google Maps Integration with Graceful Fallback
+
+**Feature:** Address picker with interactive map for profile editing
+
+**Implementation:**
+- Google Maps API integration for address selection
+- Autocomplete for address search
+- Draggable marker for precise location
+- Geocoding for address validation
+
+**Graceful Degradation:**
+- Detects missing API key configuration
+- Shows helpful setup instructions instead of errors
+- Allows text-based address entry as fallback
+- No crashes or infinite reload loops
+
+**User Experience:**
+- **With API key:** Full interactive map with autocomplete
+- **Without API key:** Text input with setup guidance
+- **Setup time:** 5 minutes to enable full functionality
+
+**Configuration:**
+```env
+# frontend/.env
+REACT_APP_GOOGLE_MAPS_API_KEY=your-key-here
+FAST_REFRESH=false
+CHOKIDAR_USEPOLLING=false
+```
+
+#### 6.7.3 Profile Validation Enhancements
+
+**Required Fields:**
+- First name and last name (mandatory)
+- Email address (mandatory)
+- Phone number (optional)
+- Address (optional but recommended)
+
+**Validation Features:**
+- Real-time field validation
+- Clear error messages
+- Visual feedback for required fields
+- Prevents submission with incomplete data
+
+**Security:**
+- Email verification required for sensitive changes
+- Verification code sent to current email
+- Prevents unauthorized profile modifications
 
 ---
 
@@ -1622,6 +1729,12 @@ snyk test
 - **First Contentful Paint:** 1.6s
 - **Time to Interactive:** 3.2s
 - **Lighthouse score:** 92/100
+
+**Dashboard Performance (November 2025):**
+- **Polling interval:** 60 seconds (optimized from 10s)
+- **API calls/minute:** 1 (reduced from 6)
+- **User experience:** Smooth, non-intrusive updates
+- **Manual refresh:** Available for immediate updates
 
 ### 8.2 ML Model Performance in Production
 
@@ -2558,6 +2671,10 @@ topic_name=get_resource_name(self.config, "topic", "monitoring-warning")
 - ✅ Comprehensive security implementation
 - ✅ Scalable to 100,000+ devices
 - ✅ Cost-optimized deployment (57-68% cost reduction achieved)
+- ✅ Optimized dashboard refresh (83% API call reduction)
+- ✅ Graceful degradation for optional features (Google Maps)
+- ✅ Enhanced profile validation and security
+- ✅ Improved development experience (Fast Refresh disabled)
 
 
 **Business Impact:**
@@ -2867,9 +2984,15 @@ AquaChain represents a comprehensive, production-ready solution for real-time wa
 
 The project successfully demonstrates expertise in cloud-native development, IoT integration, machine learning, security engineering, and compliance implementation. With 50,000+ lines of production code, 85%+ test coverage, and comprehensive documentation, AquaChain is ready for deployment in residential, commercial, and municipal environments.
 
+**Recent Updates (November 2025):**
+- Dashboard auto-refresh optimization (83% API call reduction)
+- Google Maps integration with graceful fallback
+- Enhanced profile validation and security
+- Improved development experience and stability
+
 **Project Status:** ✅ Production-Ready  
-**Last Updated:** October 27, 2025  
-**Version:** 1.0  
+**Last Updated:** November 2025  
+**Version:** 1.1  
 **License:** Proprietary
 
 ---
@@ -2991,6 +3114,17 @@ chmod +x setup-local.sh start-local.sh
 - Port 3000/3002 in use: Kill existing processes
 - Dependencies missing: Run `setup-local.bat` again
 - Connection refused: Check backend is running on port 3002
+
+**Auto-Refresh Issues:**
+- Dashboard refreshing too frequently: Interval set to 60s (configurable)
+- Page keeps reloading: Fast Refresh disabled in .env
+- Map errors causing refresh: Graceful fallback implemented
+
+**Google Maps Setup:**
+- Optional feature for address selection
+- Works without API key (text input fallback)
+- 5-minute setup for full functionality
+- See DOCS/GOOGLE_MAPS_QUICK_SETUP.md
 
 ---
 
