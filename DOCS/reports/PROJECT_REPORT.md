@@ -125,7 +125,7 @@ AquaChain implements a modern cloud-native architecture leveraging AWS services 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     IoT Devices Layer                            │
-│  ESP32 Sensors: pH, Turbidity, TDS, Temperature, Humidity       │
+│  ESP32 Sensors: pH, Turbidity, TDS, Temperature                 │
 │  Communication: MQTT over TLS 1.3                               │
 │  Authentication: X.509 Certificates                             │
 └────────────────────────┬────────────────────────────────────────┘
@@ -381,7 +381,6 @@ Frontend
 | Turbidity Sensor | Water clarity | 0-1000 NTU | ±5% | Analog |
 | TDS Sensor | Dissolved solids | 0-1000 ppm | ±10% | Analog |
 | DS18B20 | Temperature | -55°C to 125°C | ±0.5°C | 1-Wire |
-| DHT22 | Humidity | 0-100% RH | ±2% | Digital |
 
 
 ### 3.2 Firmware Architecture
@@ -425,8 +424,7 @@ Frontend
     "pH": 7.2,
     "turbidity": 1.5,
     "tds": 150,
-    "temperature": 22.5,
-    "humidity": 65
+    "temperature": 22.5
   },
   "firmware_version": "1.0.0",
   "battery_level": 85,
@@ -887,13 +885,13 @@ def authorize_request(event, required_role=None):
 - **Training period:** Simulated 2-year historical data
 - **Sampling frequency:** 60-second intervals
 - **Geographic coverage:** Multiple locations with varying water sources
-- **Seasonal variation:** Includes temperature and humidity cycles
+- **Seasonal variation:** Includes temperature cycles and seasonal patterns
 
-**Feature Set (14 features):**
+**Feature Set (13 features):**
 
 | Category | Features | Description |
 |----------|----------|-------------|
-| **Raw Measurements** | pH, Turbidity, TDS, Temperature, Humidity | Direct sensor readings |
+| **Raw Measurements** | pH, Turbidity, TDS, Temperature | Direct sensor readings |
 | **Spatial** | Latitude, Longitude | Geographic location |
 | **Temporal** | Hour, Month, Weekday | Time-based patterns |
 | **Engineered** | pH×Temp, Turbidity/TDS, pH deviation, Temp deviation | Interaction terms |
@@ -906,7 +904,6 @@ def authorize_request(event, required_role=None):
 | Turbidity (NTU) | 0.0 | 50.0 | 5.0 | 8.5 |
 | TDS (ppm) | 0 | 1000 | 200 | 150 |
 | Temperature (°C) | 0 | 40 | 20 | 8 |
-| Humidity (%) | 20 | 100 | 60 | 20 |
 
 **Data Quality:**
 - **Missing values:** 0% (synthetic data)
@@ -1058,7 +1055,6 @@ pH × Temperature     | 0.08       | ████████
 Turbidity / TDS      | 0.06       | ██████
 Hour                 | 0.03       | ███
 Month                | 0.02       | ██
-Humidity             | 0.01       | █
 ```
 
 **Key Insights:**
@@ -3616,7 +3612,7 @@ response = table.query(
 
 **Blocking Issues:** 0
 
-**Minor Issues:** 2 (documentation only - humidity references)
+**Minor Issues:** 0 (all documentation updated)
 
 **Recommendation:** Deploy to production
 
