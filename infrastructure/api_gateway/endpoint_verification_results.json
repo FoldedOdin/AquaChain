@@ -1,0 +1,79 @@
+{
+  "all_passed": true,
+  "results": {
+    "task_10_1": {
+      "task": "10.1 Create POST /api/shipments endpoint",
+      "checks": {
+        "endpoint_path": "/api/shipments",
+        "http_method": "POST",
+        "lambda_function": "create_shipment",
+        "auth_type": "COGNITO_USER_POOLS",
+        "auth_required": true,
+        "cors_enabled": true,
+        "rate_limit": 100,
+        "burst_limit": 200
+      },
+      "passed": true,
+      "requirements": [
+        "1.1"
+      ]
+    },
+    "task_10_2": {
+      "task": "10.2 Create POST /api/webhooks/:courier endpoint",
+      "checks": {
+        "endpoint_path": "/api/webhooks/{courier}",
+        "http_method": "POST",
+        "lambda_function": "webhook_handler",
+        "auth_type": "NONE",
+        "auth_required": false,
+        "signature_verification": "In Lambda (HMAC-SHA256)",
+        "cors_enabled": true,
+        "rate_limit": 1000,
+        "burst_limit": 2000,
+        "path_parameter": "courier"
+      },
+      "passed": true,
+      "requirements": [
+        "2.1",
+        "10.5"
+      ]
+    },
+    "task_10_3": {
+      "task": "10.3 Create GET /api/shipments/:shipmentId endpoint",
+      "checks": {
+        "endpoint_path": "/api/shipments/{shipmentId}",
+        "http_method": "GET",
+        "lambda_function": "get_shipment_status",
+        "auth_type": "COGNITO_USER_POOLS",
+        "auth_required": true,
+        "auth_roles": "All roles (Admin, Consumer, Technician)",
+        "cors_enabled": true,
+        "rate_limit": 200,
+        "burst_limit": 400,
+        "path_parameter": "shipmentId"
+      },
+      "passed": true,
+      "requirements": [
+        "3.1"
+      ]
+    },
+    "task_10_4": {
+      "task": "10.4 Create GET /api/shipments?orderId=:orderId endpoint",
+      "checks": {
+        "endpoint_path": "/api/shipments",
+        "http_method": "GET",
+        "lambda_function": "get_shipment_status",
+        "auth_type": "COGNITO_USER_POOLS",
+        "auth_required": true,
+        "auth_roles": "All roles (Admin, Consumer, Technician)",
+        "cors_enabled": true,
+        "rate_limit": "200 req/min (shared with task 10.3)",
+        "query_parameter": "orderId"
+      },
+      "passed": true,
+      "requirements": [
+        "3.1"
+      ]
+    }
+  }
+}

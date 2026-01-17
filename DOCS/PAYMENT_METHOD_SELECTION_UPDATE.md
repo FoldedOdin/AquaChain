@@ -199,7 +199,7 @@ Login: phoneixknight18@gmail.com / admin1234
 Login: admin@aquachain.com / admin1234
 → Go to "Orders" tab
 → Click "Set Quote"
-→ Enter ₹15000
+→ Enter ₹4000
 → Submit (NO payment method selection)
 
 # 3. Consumer chooses payment method
@@ -258,7 +258,7 @@ Login: admin@aquachain.com / admin1234
 {
   "orderId": "ord_123",
   "status": "quoted",
-  "quoteAmount": 15000,
+  "quoteAmount": 4000,
   "paymentMethod": null,  // Still null, waiting for consumer
   ...
 }
@@ -267,7 +267,7 @@ Login: admin@aquachain.com / admin1234
 {
   "orderId": "ord_123",
   "status": "quoted",
-  "quoteAmount": 15000,
+  "quoteAmount": 4000,
   "paymentMethod": "COD",  // Now set by consumer
   "auditTrail": [
     {

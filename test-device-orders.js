@@ -122,12 +122,12 @@ async function test5_GetAllOrders() {
 async function test6_SetQuote() {
   console.log('\n🧪 Test 6: Set Quote');
   const result = await apiCall('PUT', `/api/admin/orders/${testOrderId}/quote`, adminToken, {
-    quoteAmount: 15000,
+    quoteAmount: 4000,
     paymentMethod: 'COD'
   });
   
   if (result.data.success) {
-    console.log('✅ Quote set: ₹15,000');
+    console.log('✅ Quote set: ₹4,000');
     console.log('   New status:', result.data.order.status);
     return true;
   }

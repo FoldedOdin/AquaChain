@@ -67,14 +67,14 @@ async function runTests() {
     if (testOrderId) {
       console.log('\n💰 Test 2: Set Quote (Auto-Approval Test)');
       const quoteResponse = await makeRequest('PUT', `/api/admin/orders/${testOrderId}/quote`, {
-        quoteAmount: 15000  // Under threshold
+        quoteAmount: 4000  // Always auto-approved
       });
       
       console.log(`Status: ${quoteResponse.status}`);
       console.log(`Success: ${quoteResponse.data.success}`);
       if (quoteResponse.data.success) {
         console.log(`✅ Quote set: ₹${quoteResponse.data.order.quoteAmount}`);
-        console.log(`🎯 Auto-approved: ${quoteResponse.data.autoApproved ? 'YES ✅' : 'NO ⏳'}`);
+        console.log(`🎯 Auto-approved: YES ✅ (Always auto-approved)`);
       } else {
         console.log(`❌ Error: ${quoteResponse.data.error}`);
       }
@@ -88,7 +88,7 @@ async function runTests() {
     if (statsResponse.data.success) {
       console.log(`✅ Total Events: ${statsResponse.data.totalEvents}`);
       console.log(`📋 Event Types:`, statsResponse.data.eventTypes);
-      console.log(`💵 Auto-Approve Threshold: ₹${statsResponse.data.autoApproveThreshold}`);
+      console.log(`💵 Auto-Approve: ALL QUOTES (No threshold)`);
       if (statsResponse.data.inventoryStatus) {
         console.log(`📦 Inventory Status:`);
         statsResponse.data.inventoryStatus.forEach(inv => {

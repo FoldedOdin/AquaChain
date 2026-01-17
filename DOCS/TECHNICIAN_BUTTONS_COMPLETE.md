@@ -96,7 +96,7 @@ Implemented complete functionality for Accept Task, Decline, and View Details bu
 ║ ┌───────────────────────────────────────────┐ ║
 ║ │ Preferred Date: Dec 10, 2025 3:14 PM     │ ║
 ║ │ Payment Method: COD                       │ ║
-║ │ Quote Amount: ₹15,000                     │ ║
+║ │ Quote Amount: ₹4,000                     │ ║
 ║ └───────────────────────────────────────────┘ ║
 ║                                               ║
 ║ Timeline                                      ║

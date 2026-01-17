@@ -24,7 +24,7 @@ class OrderAutomation extends EventEmitter {
   constructor() {
     super();
     this.auditLedger = [];
-    this.AUTO_APPROVE_THRESHOLD = 20000; // ₹20,000
+    this.AUTO_APPROVE_THRESHOLD = 5000; // ₹5,000
     this.setupEventHandlers();
   }
 
@@ -90,7 +90,7 @@ class OrderAutomation extends EventEmitter {
       throw new Error(`Invalid state transition. Current status: ${order.status}`);
     }
 
-    const autoApproved = quoteAmount < this.AUTO_APPROVE_THRESHOLD;
+    const autoApproved = true; // Always auto-approve quotes
     const timestamp = new Date().toISOString();
 
     order.status = 'quoted';
@@ -165,7 +165,7 @@ class OrderAutomation extends EventEmitter {
 
 // Initialize automation
 const orderAutomation = new OrderAutomation();
-console.log('✅ Order Automation initialized with auto-approval threshold: ₹' + orderAutomation.AUTO_APPROVE_THRESHOLD);
+console.log('✅ Order Automation initialized with auto-approval: ALL QUOTES AUTO-APPROVED');
 // ============================================================================
 
 // Track server metrics
@@ -1104,11 +1104,11 @@ app.put('/api/admin/orders/:orderId/quote', (req, res) => {
       saveDevData
     );
     
-    console.log(`💰 [AUTO-APPROVE] Quote set for order ${orderId}: ₹${quoteAmount} (auto-approved: ${result.autoApproved})`);
+    console.log(`💰 [AUTO-APPROVE] Quote set for order ${orderId}: ₹${quoteAmount} (ALWAYS AUTO-APPROVED)`);
     
     res.json({
       success: true,
-      message: result.autoApproved ? 'Quote set and auto-approved' : 'Quote set successfully',
+      message: 'Quote set and auto-approved', // Always auto-approved now
       order,
       autoApproved: result.autoApproved
     });

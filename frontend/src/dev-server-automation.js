@@ -15,7 +15,7 @@ class OrderAutomation extends EventEmitter {
   constructor() {
     super();
     this.auditLedger = [];
-    this.AUTO_APPROVE_THRESHOLD = 20000; // ₹20,000
+    this.AUTO_APPROVE_THRESHOLD = 5000; // ₹5,000
     this.setupEventHandlers();
   }
 
@@ -135,7 +135,7 @@ class OrderAutomation extends EventEmitter {
       }
 
       // Determine if auto-approve
-      const autoApproved = quoteAmount < this.AUTO_APPROVE_THRESHOLD;
+      const autoApproved = true; // Always auto-approve quotes
       const newStatus = autoApproved ? 'quoted' : 'quoted';
       const timestamp = new Date().toISOString();
 
@@ -163,7 +163,7 @@ class OrderAutomation extends EventEmitter {
       // Emit event
       this.emit('ORDER_QUOTED', { ...order, quoteAmount, autoApproved });
 
-      console.log(`✅ [QUOTE] Set for order ${orderId}: ₹${quoteAmount} (auto-approved: ${autoApproved})`);
+      console.log(`✅ [QUOTE] Set for order ${orderId}: ₹${quoteAmount} (ALWAYS AUTO-APPROVED)`);
       
       return { success: true, status: newStatus, autoApproved };
 

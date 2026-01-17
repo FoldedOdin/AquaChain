@@ -347,8 +347,8 @@ app.get('/api/admin/automation/verify', (req, res) => {
 const AUTO_APPROVE_THRESHOLD = 20000;
 
 // Example:
-// Quote: ₹15,000 → Auto-approved ✅
-// Quote: ₹25,000 → Requires manual approval ⏳
+// Quote: ₹4,000 → Always auto-approved ✅
+// Quote: ₹25,000 → Always auto-approved ✅
 ```
 
 ## 🔍 Audit Trail Example
@@ -390,7 +390,7 @@ POST /api/consumer/orders
 // Set quote under threshold
 PUT /api/admin/orders/ord_123/quote
 {
-  "quoteAmount": 15000
+  "quoteAmount": 4000
 }
 
 // Expected: Auto-approved, event emitted

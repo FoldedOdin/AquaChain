@@ -166,7 +166,7 @@ from datetime import datetime
 dynamodb = boto3.resource('dynamodb')
 sns = boto3.client('sns')
 
-AUTO_APPROVE_THRESHOLD = 20000  # Auto-approve quotes under ₹20,000
+AUTO_APPROVE_THRESHOLD = float('inf')  # Auto-approve ALL quotes
 
 def handler(event, context):
     order_id = event['pathParameters']['id']
@@ -183,7 +183,7 @@ def handler(event, context):
         return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid state transition'})}
     
     # Determine if auto-approve
-    new_status = 'QUOTED_APPROVED' if quote_amount < AUTO_APPROVE_THRESHOLD else 'QUOTED'
+    new_status = 'QUOTED_APPROVED'  # Always auto-approve
     
     # Update order
     table.update_item(
@@ -211,18 +211,17 @@ def handler(event, context):
             'eventType': 'ORDER_QUOTED',
             'orderId': order_id,
             'quoteAmount': quote_amount,
-            'autoApproved': quote_amount < AUTO_APPROVE_THRESHOLD
+            'autoApproved': True  # Always auto-approved
         })
     )
     
-    # If auto-approved, trigger provisioning
-    if quote_amount < AUTO_APPROVE_THRESHOLD:
-        trigger_provisioning_workflow(order_id)
+    # Always trigger provisioning (all quotes auto-approved)
+    trigger_provisioning_workflow(order_id)
     
     return {'statusCode': 200, 'body': json.dumps({'status': new_status})}
 ```
 
-**Why:** Removes manual approval for standard quotes, enforces business rules, maintains audit trail.
+**Why:** Removes manual approval for ALL quotes, enforces business rules, maintains audit trail.
 
 ---
 
