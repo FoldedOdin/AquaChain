@@ -22,7 +22,8 @@ from errors import (
     CacheError,
     RateLimitError,
     DeviceError,
-    GDPRError
+    GDPRError,
+    AuditServiceError
 )
 
 # Import structured logging
@@ -391,3 +392,61 @@ def handle_errors_async(func: Callable) -> Callable:
             return _create_error_response(500, sanitized_error, request_id)
     
     return wrapper
+
+
+def handle_lambda_error(error: Exception, event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle Lambda errors and return standardized error response
+    
+    Args:
+        error: The exception that occurred
+        event: Lambda event object
+        context: Lambda context object
+    
+    Returns:
+        Standardized error response
+    """
+    request_id = getattr(context, 'aws_request_id', 'unknown')
+    
+    if isinstance(error, AuditServiceError):
+        logger.error(
+            f"Audit service error: {error.message}",
+            request_id=request_id,
+            error_code=error.error_code
+        )
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': error.error_code,
+                'message': error.message,
+                'requestId': request_id
+            })
+        }
+    elif isinstance(error, ValidationError):
+        logger.warning(
+            f"Validation error: {error.message}",
+            request_id=request_id,
+            error_code=error.error_code
+        )
+        return {
+            'statusCode': 400,
+            'body': json.dumps({
+                'error': error.error_code,
+                'message': error.message,
+                'requestId': request_id
+            })
+        }
+    else:
+        logger.error(
+            f"Unexpected error: {str(error)}",
+            request_id=request_id,
+            error_type=type(error).__name__
+        )
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': 'INTERNAL_ERROR',
+                'message': 'An unexpected error occurred',
+                'requestId': request_id
+            })
+        }

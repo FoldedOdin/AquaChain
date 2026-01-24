@@ -280,3 +280,28 @@ class GDPRError(AquaChainError):
             details: Additional context
         """
         super().__init__(message, error_code, details)
+
+
+class AuditServiceError(AquaChainError):
+    """
+    Raised when audit service operations fail.
+    
+    Use this exception for audit-related errors (e.g., audit logging failures,
+    integrity verification failures, tampering detection issues).
+    """
+    
+    def __init__(
+        self,
+        message: str,
+        error_code: str = 'AUDIT_SERVICE_ERROR',
+        details: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Initialize AuditServiceError.
+        
+        Args:
+            message: Description of the audit service failure
+            error_code: Specific audit error code
+            details: Additional context
+        """
+        super().__init__(message, error_code, details)
