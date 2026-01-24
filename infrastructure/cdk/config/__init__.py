@@ -1,1 +1,1 @@
-# CDK config package
+# CDK configuration package
