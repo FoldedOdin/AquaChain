@@ -1,0 +1,566 @@
+{
+  "info": {
+    "name": "AquaChain Inventory Management API",
+    "description": "API collection for testing AquaChain inventory management system endpoints",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.aquachain.com/v1",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Inventory Items",
+      "item": [
+        {
+          "name": "Create Inventory Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_id\": \"ESP32-SENSOR-001\",\n  \"location_id\": \"WH001-A1-S1\",\n  \"name\": \"ESP32 Water Quality Sensor\",\n  \"description\": \"IoT sensor for monitoring water quality parameters\",\n  \"category\": \"sensors\",\n  \"supplier_id\": \"SUPPLIER-001\",\n  \"current_stock\": 100,\n  \"reorder_point\": 20,\n  \"safety_stock\": 10,\n  \"max_stock\": 500,\n  \"unit_cost\": 45.99,\n  \"lead_time_days\": 14,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/items",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "items"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Inventory Item",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/items/ESP32-SENSOR-001/WH001-A1-S1",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "items", "ESP32-SENSOR-001", "WH001-A1-S1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Stock Level",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_stock\": 85,\n  \"transaction_type\": \"consumption\",\n  \"quantity\": 15,\n  \"reason\": \"Device order fulfillment\",\n  \"reference_id\": \"ORDER-12345\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/items/ESP32-SENSOR-001/WH001-A1-S1/stock",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "items", "ESP32-SENSOR-001", "WH001-A1-S1", "stock"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Items by Category",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/items?category=sensors&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "items"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "sensors"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Low Stock Items",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/items/low-stock",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "items", "low-stock"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Suppliers",
+      "item": [
+        {
+          "name": "Create Supplier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": \"SUPPLIER-001\",\n  \"name\": \"TechSensors Inc\",\n  \"contact_email\": \"orders@techsensors.com\",\n  \"contact_phone\": \"+1-555-0123\",\n  \"address\": \"123 Tech Street, Silicon Valley, CA 94000\",\n  \"supplier_type\": \"electronics\",\n  \"payment_terms\": \"NET30\",\n  \"lead_time_days\": 14,\n  \"minimum_order\": 50,\n  \"performance_score\": 95.5,\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/suppliers",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "suppliers"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Supplier",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/suppliers/SUPPLIER-001",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "suppliers", "SUPPLIER-001"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Supplier Performance",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"performance_score\": 92.3,\n  \"on_time_delivery_rate\": 94.5,\n  \"quality_score\": 98.1,\n  \"last_performance_update\": \"2026-01-24T10:30:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/suppliers/SUPPLIER-001/performance",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "suppliers", "SUPPLIER-001", "performance"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Suppliers by Type",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/suppliers?type=electronics&status=active",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "suppliers"],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "electronics"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Purchase Orders",
+      "item": [
+        {
+          "name": "Create Purchase Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": \"SUPPLIER-001\",\n  \"items\": [\n    {\n      \"item_id\": \"ESP32-SENSOR-001\",\n      \"quantity\": 100,\n      \"unit_price\": 45.99,\n      \"total_price\": 4599.00\n    }\n  ],\n  \"total_amount\": 4599.00,\n  \"expected_delivery\": \"2026-02-07\",\n  \"priority\": \"normal\",\n  \"notes\": \"Urgent restock for Q1 device orders\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/purchase-orders",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "purchase-orders"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Purchase Order",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/purchase-orders/{{po_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "purchase-orders", "{{po_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update PO Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"approved_by\": \"inventory.manager@aquachain.com\",\n  \"approved_at\": \"2026-01-24T11:00:00Z\",\n  \"notes\": \"Approved for immediate processing\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/purchase-orders/{{po_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "purchase-orders", "{{po_id}}", "status"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Purchase Orders by Supplier",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/purchase-orders?supplier_id=SUPPLIER-001&status=pending",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "purchase-orders"],
+              "query": [
+                {
+                  "key": "supplier_id",
+                  "value": "SUPPLIER-001"
+                },
+                {
+                  "key": "status",
+                  "value": "pending"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Warehouse Locations",
+      "item": [
+        {
+          "name": "Create Warehouse Location",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location_id\": \"WH001-A1-S1\",\n  \"warehouse_id\": \"WH001\",\n  \"zone\": \"A1\",\n  \"aisle\": \"1\",\n  \"shelf\": \"S1\",\n  \"bin\": \"B1\",\n  \"location_type\": \"shelf\",\n  \"capacity\": 1000,\n  \"status\": \"active\",\n  \"temperature_controlled\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/warehouse-locations",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "warehouse-locations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Warehouse Location",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/warehouse-locations/WH001-A1-S1",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "warehouse-locations", "WH001-A1-S1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Locations by Warehouse",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/warehouse-locations?warehouse_id=WH001&zone=A1",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "warehouse-locations"],
+              "query": [
+                {
+                  "key": "warehouse_id",
+                  "value": "WH001"
+                },
+                {
+                  "key": "zone",
+                  "value": "A1"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Demand Forecasting",
+      "item": [
+        {
+          "name": "Generate Demand Forecast",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_id\": \"ESP32-SENSOR-001\",\n  \"forecast_period_days\": 90,\n  \"model_version\": \"v1.2\",\n  \"include_seasonality\": true,\n  \"include_promotions\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/inventory/forecasting/generate",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "forecasting", "generate"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Demand Forecast",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/forecasting/ESP32-SENSOR-001?forecast_date=2026-01-24",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "forecasting", "ESP32-SENSOR-001"],
+              "query": [
+                {
+                  "key": "forecast_date",
+                  "value": "2026-01-24"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Forecast Accuracy",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/forecasting/accuracy?model_version=v1.2&period=30days",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "forecasting", "accuracy"],
+              "query": [
+                {
+                  "key": "model_version",
+                  "value": "v1.2"
+                },
+                {
+                  "key": "period",
+                  "value": "30days"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analytics & Reporting",
+      "item": [
+        {
+          "name": "Get Inventory Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/analytics/summary",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "analytics", "summary"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get ABC Analysis",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/analytics/abc-analysis?period=12months",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "analytics", "abc-analysis"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "12months"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Turnover Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/analytics/turnover?category=sensors&period=6months",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "analytics", "turnover"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "sensors"
+                },
+                {
+                  "key": "period",
+                  "value": "6months"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Stockout Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/analytics/stockouts?start_date=2026-01-01&end_date=2026-01-24",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "analytics", "stockouts"],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2026-01-24"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "API Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/health",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Database Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/inventory/health/database",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "health", "database"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set timestamp for requests",
+          "pm.globals.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Basic response validation",
+          "pm.test('Response status is successful', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 202, 204]);",
+          "});",
+          "",
+          "pm.test('Response time is acceptable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Response has correct content type', function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});",
+          "",
+          "// Store response data for subsequent requests",
+          "if (pm.response.code === 201 && pm.response.json().po_id) {",
+          "    pm.globals.set('po_id', pm.response.json().po_id);",
+          "}"
+        ]
+      }
+    }
+  ]
+}
