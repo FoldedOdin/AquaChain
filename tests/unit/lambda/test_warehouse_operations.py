@@ -108,7 +108,6 @@ def mock_tables(aws_credentials):
             ],
             AttributeDefinitions=[
                 {'AttributeName': 'movement_id', 'AttributeType': 'S'},
-                {'AttributeName': 'item_id', 'AttributeType': 'S'},
                 {'AttributeName': 'location_id', 'AttributeType': 'S'}
             ],
             GlobalSecondaryIndexes=[

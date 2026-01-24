@@ -1146,24 +1146,35 @@ class WarehouseService:
             
             existing_location = response['Item']
             
-            # Build update expression
+            # Build update expression with proper attribute names for reserved keywords
             update_expression = 'SET last_updated = :updated'
             expression_values = {':updated': datetime.utcnow().isoformat()}
+            expression_names = {}
             
-            # Update allowed fields
+            # Update allowed fields with proper handling of reserved keywords
             updatable_fields = ['capacity', 'status', 'zone', 'shelf']
             for field in updatable_fields:
                 if field in location_data:
-                    update_expression += f', {field} = :{field}'
+                    if field in ['capacity', 'zone', 'status']:  # Reserved keywords
+                        attr_name = f'#{field}'
+                        update_expression += f', {attr_name} = :{field}'
+                        expression_names[attr_name] = field
+                    else:
+                        update_expression += f', {field} = :{field}'
                     expression_values[f':{field}'] = location_data[field]
             
             # Update location
-            warehouse_table.update_item(
-                Key={'location_id': location_id},
-                UpdateExpression=update_expression,
-                ExpressionAttributeValues=expression_values,
-                ReturnValues='ALL_NEW'
-            )
+            update_params = {
+                'Key': {'location_id': location_id},
+                'UpdateExpression': update_expression,
+                'ExpressionAttributeValues': expression_values,
+                'ReturnValues': 'ALL_NEW'
+            }
+            
+            if expression_names:
+                update_params['ExpressionAttributeNames'] = expression_names
+            
+            warehouse_table.update_item(**update_params)
             
             # Get updated location
             updated_response = warehouse_table.get_item(Key={'location_id': location_id})
@@ -1313,8 +1324,9 @@ class WarehouseService:
                     expression_values[':warehouse_id'] = filters['warehouse_id']
                 
                 if 'zone' in filters:
-                    filter_expressions.append('zone = :zone')
+                    filter_expressions.append('#zone = :zone')
                     expression_values[':zone'] = filters['zone']
+                    expression_names['#zone'] = 'zone'
                 
                 if 'status' in filters:
                     filter_expressions.append('#status = :status')

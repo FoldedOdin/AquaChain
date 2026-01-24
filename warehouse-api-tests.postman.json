@@ -1,0 +1,765 @@
+{
+  "info": {
+    "name": "AquaChain Warehouse Service - Enhanced API Tests",
+    "description": "Comprehensive API tests for the enhanced warehouse management service with dashboard overhaul features",
+    "version": "2.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.aquachain.com",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "correlation_id",
+      "value": "{{$guid}}",
+      "type": "string"
+    },
+    {
+      "key": "warehouse_id",
+      "value": "WH001",
+      "type": "string"
+    },
+    {
+      "key": "location_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Warehouse Overview",
+      "item": [
+        {
+          "name": "Get Warehouse Overview",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has overview data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('overview');",
+                  "    pm.expect(jsonData.overview).to.have.property('total_locations');",
+                  "    pm.expect(jsonData.overview).to.have.property('occupancy_rate');",
+                  "    pm.expect(jsonData.overview).to.have.property('performance_metrics');",
+                  "});",
+                  "",
+                  "pm.test('Performance metrics structure is valid', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const metrics = jsonData.overview.performance_metrics;",
+                  "    pm.expect(metrics).to.have.property('throughput');",
+                  "    pm.expect(metrics).to.have.property('efficiency');",
+                  "    pm.expect(metrics).to.have.property('quality');",
+                  "});",
+                  "",
+                  "pm.test('Response time is acceptable', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/overview",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "overview"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Receiving Workflows",
+      "item": [
+        {
+          "name": "Process Receiving Workflow - Valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Workflow processed successfully', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('workflow_id');",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData).to.have.property('items_processed');",
+                  "    pm.expect(jsonData.items_processed).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test('Audit trail created', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('stock_movements');",
+                  "    pm.expect(jsonData.stock_movements).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"po_id\": \"PO-TEST-001\",\n  \"supplier_id\": \"SUPPLIER-001\",\n  \"received_by\": \"warehouse.manager@aquachain.com\",\n  \"items\": [\n    {\n      \"item_id\": \"ESP32-SENSOR-001\",\n      \"quantity_received\": 50,\n      \"condition\": \"good\",\n      \"notes\": \"All items inspected and approved\"\n    },\n    {\n      \"item_id\": \"TEMP-SENSOR-002\",\n      \"quantity_received\": 25,\n      \"condition\": \"good\",\n      \"notes\": \"Quality check passed\"\n    }\n  ],\n  \"quality_check_required\": true,\n  \"notes\": \"Standard receiving process completed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/receiving",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "receiving"]
+            }
+          }
+        },
+        {
+          "name": "Process Receiving Workflow - Missing Fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Error message indicates missing field', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('error');",
+                  "    pm.expect(jsonData.error).to.include('Missing required field');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"po_id\": \"PO-TEST-002\",\n  \"items\": [\n    {\n      \"item_id\": \"ESP32-SENSOR-001\",\n      \"quantity_received\": 50\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/receiving",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "receiving"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dispatch Workflows",
+      "item": [
+        {
+          "name": "Process Dispatch Workflow - Valid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Pick list generated', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('workflow_id');",
+                  "    pm.expect(jsonData).to.have.property('pick_list');",
+                  "    pm.expect(jsonData).to.have.property('estimated_pick_time');",
+                  "    pm.expect(jsonData.pick_list).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Pick list has required fields', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.pick_list.length > 0) {",
+                  "        const firstItem = jsonData.pick_list[0];",
+                  "        pm.expect(firstItem).to.have.property('item_id');",
+                  "        pm.expect(firstItem).to.have.property('location_id');",
+                  "        pm.expect(firstItem).to.have.property('quantity_to_pick');",
+                  "        pm.expect(firstItem).to.have.property('sequence');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"ORDER-TEST-001\",\n  \"dispatch_by\": \"warehouse.picker@aquachain.com\",\n  \"priority\": \"HIGH\",\n  \"items\": [\n    {\n      \"item_id\": \"ESP32-SENSOR-001\",\n      \"name\": \"ESP32 Water Quality Sensor\",\n      \"quantity\": 10,\n      \"priority\": \"HIGH\"\n    },\n    {\n      \"item_id\": \"TEMP-SENSOR-002\",\n      \"name\": \"Temperature Sensor Module\",\n      \"quantity\": 5,\n      \"priority\": \"NORMAL\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/dispatch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "dispatch"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stock Movement Tracking",
+      "item": [
+        {
+          "name": "Get All Stock Movements",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has movements data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('movements');",
+                  "    pm.expect(jsonData).to.have.property('count');",
+                  "    pm.expect(jsonData).to.have.property('analytics');",
+                  "    pm.expect(jsonData.movements).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Analytics structure is valid', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.analytics && Object.keys(jsonData.analytics).length > 0) {",
+                  "        pm.expect(jsonData.analytics).to.have.property('movement_types');",
+                  "        pm.expect(jsonData.analytics).to.have.property('total_movements');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/stock-movements",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "stock-movements"]
+            }
+          }
+        },
+        {
+          "name": "Get Stock Movements by Item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Filters applied correctly', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('filters_applied');",
+                  "    pm.expect(jsonData.filters_applied).to.have.property('item_id');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/stock-movements?item_id=ESP32-SENSOR-001&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "stock-movements"],
+              "query": [
+                {
+                  "key": "item_id",
+                  "value": "ESP32-SENSOR-001"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Performance Metrics",
+      "item": [
+        {
+          "name": "Get Weekly Performance Metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Metrics structure is valid', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('time_range');",
+                  "    pm.expect(jsonData).to.have.property('realtime_metrics');",
+                  "    pm.expect(jsonData).to.have.property('summary');",
+                  "    pm.expect(jsonData.time_range).to.equal('weekly');",
+                  "});",
+                  "",
+                  "pm.test('Real-time metrics have required fields', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const metrics = jsonData.realtime_metrics;",
+                  "    pm.expect(metrics).to.have.property('throughput');",
+                  "    pm.expect(metrics).to.have.property('efficiency');",
+                  "    pm.expect(metrics).to.have.property('quality');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/performance-metrics?time_range=weekly",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "performance-metrics"],
+              "query": [
+                {
+                  "key": "time_range",
+                  "value": "weekly"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Monthly Performance Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/performance-metrics?time_range=monthly",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "performance-metrics"],
+              "query": [
+                {
+                  "key": "time_range",
+                  "value": "monthly"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Location Management",
+      "item": [
+        {
+          "name": "Create Warehouse Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Location created successfully', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "    pm.expect(jsonData).to.have.property('location');",
+                  "    pm.expect(jsonData.location).to.have.property('location_id');",
+                  "    ",
+                  "    // Store location_id for subsequent tests",
+                  "    pm.collectionVariables.set('location_id', jsonData.location.location_id);",
+                  "});",
+                  "",
+                  "pm.test('Location has required fields', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const location = jsonData.location;",
+                  "    pm.expect(location).to.have.property('warehouse_id');",
+                  "    pm.expect(location).to.have.property('zone');",
+                  "    pm.expect(location).to.have.property('shelf');",
+                  "    pm.expect(location).to.have.property('capacity');",
+                  "    pm.expect(location).to.have.property('status');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"warehouse_id\": \"{{warehouse_id}}\",\n  \"zone\": \"A\",\n  \"shelf\": \"TEST-001\",\n  \"capacity\": 100,\n  \"description\": \"Test location for API validation\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/locations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "locations"]
+            }
+          }
+        },
+        {
+          "name": "Get Warehouse Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Location retrieved successfully', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('location');",
+                  "    pm.expect(jsonData.location).to.have.property('location_id');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "locations", "{{location_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Warehouse Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Location updated successfully', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "    pm.expect(jsonData).to.have.property('location');",
+                  "    pm.expect(jsonData.location.capacity).to.equal(150);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capacity\": 150,\n  \"status\": \"available\",\n  \"notes\": \"Updated capacity for increased storage needs\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "locations", "{{location_id}}"]
+            }
+          }
+        },
+        {
+          "name": "List Warehouse Locations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Locations list retrieved', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('locations');",
+                  "    pm.expect(jsonData).to.have.property('count');",
+                  "    pm.expect(jsonData.locations).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Filters applied correctly', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('filters_applied');",
+                  "    pm.expect(jsonData.filters_applied).to.have.property('warehouse_id');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/locations?warehouse_id={{warehouse_id}}&status=available",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "locations"],
+              "query": [
+                {
+                  "key": "warehouse_id",
+                  "value": "{{warehouse_id}}"
+                },
+                {
+                  "key": "status",
+                  "value": "available"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Warehouse Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Location deleted successfully', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "    pm.expect(jsonData.message).to.include('deleted successfully');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "locations", "{{location_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Handling Tests",
+      "item": [
+        {
+          "name": "Invalid Endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Error message is appropriate', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('error');",
+                  "    pm.expect(jsonData.error).to.include('not found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/invalid-endpoint",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "invalid-endpoint"]
+            }
+          }
+        },
+        {
+          "name": "Invalid JSON Body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('JSON error message returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('error');",
+                  "    pm.expect(jsonData.error).to.include('Invalid JSON');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{ invalid json content"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/warehouse/receiving",
+              "host": ["{{base_url}}"],
+              "path": ["api", "warehouse", "receiving"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

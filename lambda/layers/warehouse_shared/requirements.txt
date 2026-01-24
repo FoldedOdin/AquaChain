@@ -1,0 +1,8 @@
+# Warehouse Shared Layer Dependencies
+# Keep minimal to reduce layer size
+
+# Core AWS SDK (already available in Lambda runtime)
+# boto3>=1.26.0  # Use runtime version
+
+# Lightweight utilities only
+python-dateutil>=2.8.0
