@@ -154,7 +154,7 @@ showToast('Failed to cancel order', 'error');
 
 3. **Admin sets quote** (Window 1)
    - Click "Set Quote" on pending order
-   - Enter ₹15,000
+   - Enter ₹4,000
    - Submit
    - ✅ Toast: "Quote set successfully"
    - ✅ Status changes to "Quoted"
@@ -164,7 +164,7 @@ showToast('Failed to cancel order', 'error');
    - Wait 10 seconds (auto-refresh)
    - Click "My Orders"
    - ✅ Order status shows "Quoted"
-   - ✅ Quote amount displays: ₹15,000
+   - ✅ Quote amount displays: ₹4,000
    - ✅ Timeline shows "Quote Provided" completed
 
 5. **Admin provisions device** (Window 1)

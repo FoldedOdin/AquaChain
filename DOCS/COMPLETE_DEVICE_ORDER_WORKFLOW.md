@@ -23,7 +23,7 @@ This document explains the complete end-to-end workflow for a consumer ordering 
 1. Consumer logs into their dashboard (`phoneixknight18@gmail.com` / `admin1234`)
 2. Clicks **"Request Device"** button in Quick Actions section
 3. Fills out the device order form:
-   - **Device Model:** AquaChain Home V1 (₹15,000)
+   - **Device Model:** AquaChain Home V1 (₹4,000)
    - **Installation Address:** Full address where device will be installed
    - **Phone Number:** Contact number
    - **Payment Method:** COD (Cash on Delivery) or Online
@@ -64,7 +64,7 @@ Body: { deviceSKU, address, phone, paymentMethod, preferredSlot }
    - Device model requested
    - Preferred installation time
 5. Clicks **"Set Quote"** button
-6. Enters quote amount (e.g., ₹15,000)
+6. Enters quote amount (e.g., ₹4,000)
 7. Clicks **"Set Quote"**
 
 #### Backend Actions:
@@ -76,14 +76,14 @@ Body: { deviceSKU, address, phone, paymentMethod, preferredSlot }
 
 #### Consumer Sees:
 - Order status changes to "Quoted"
-- Quote amount displayed: ₹15,000
+- Quote amount displayed: ₹4,000
 - **"Choose Payment" button appears** in My Orders
 - Alert: "Action Required: Choose Payment Method"
 
 #### API Endpoint:
 ```
 PUT /api/admin/orders/:orderId/quote
-Body: { quoteAmount: 15000 }
+Body: { quoteAmount: 4000 }
 ```
 
 ---
@@ -282,7 +282,7 @@ Request   Quote    Payment      Provision    Install
   "address": "Akuthoote House Kothad",
   "deviceSKU": "AC-HOME-V1",
   "status": "completed",
-  "quoteAmount": 15000,
+  "quoteAmount": 4000,
   "paymentMethod": "COD",
   "preferredSlot": "2025-12-10T15:14",
   "provisionedDeviceId": "AC-INV-001",
@@ -405,7 +405,7 @@ Login: phoneixknight18@gmail.com / admin1234
 Login: admin@aquachain.com / admin1234
 → Go to "Orders" tab
 → Click "Set Quote" on pending order
-→ Enter ₹15000 and submit
+→ Enter ₹4000 and submit
 
 # 5. Test as Consumer (Choose Payment)
 Login: phoneixknight18@gmail.com / admin1234

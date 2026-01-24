@@ -146,7 +146,7 @@ Total Progress: █████████████████████�
 2. Click "Orders" tab
 3. Verify order appears with "Pending" status
 4. Click "Set Quote"
-5. Enter amount: 15000
+5. Enter amount: 4000
 6. Submit and verify status changes to "Quoted"
 7. Click "Provision Device"
 8. Select device: IOA

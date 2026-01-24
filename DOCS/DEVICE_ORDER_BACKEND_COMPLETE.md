@@ -62,7 +62,7 @@ Authorization: Bearer <admin_token>
 PUT http://localhost:3002/api/admin/orders/{orderId}/quote
 Authorization: Bearer <admin_token>
 {
-  "quoteAmount": 15000,
+  "quoteAmount": 4000,
   "paymentMethod": "COD"
 }
 ```

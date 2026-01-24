@@ -24,7 +24,7 @@ class OrderAutomation extends EventEmitter {
   constructor() {
     super();
     this.auditLedger = [];
-    this.AUTO_APPROVE_THRESHOLD = 20000; // ₹20,000
+    this.AUTO_APPROVE_THRESHOLD = 5000; // ₹5,000
     this.setupEventHandlers();
   }
 
@@ -90,7 +90,7 @@ class OrderAutomation extends EventEmitter {
       throw new Error(`Invalid state transition. Current status: ${order.status}`);
     }
 
-    const autoApproved = quoteAmount < this.AUTO_APPROVE_THRESHOLD;
+    const autoApproved = true; // Always auto-approve quotes
     const timestamp = new Date().toISOString();
 
     order.status = 'quoted';
@@ -165,7 +165,7 @@ class OrderAutomation extends EventEmitter {
 
 // Initialize automation
 const orderAutomation = new OrderAutomation();
-console.log('✅ Order Automation initialized with auto-approval threshold: ₹' + orderAutomation.AUTO_APPROVE_THRESHOLD);
+console.log('✅ Order Automation initialized with auto-approval: ALL QUOTES AUTO-APPROVED');
 // ============================================================================
 
 // Track server metrics
@@ -1104,11 +1104,11 @@ app.put('/api/admin/orders/:orderId/quote', (req, res) => {
       saveDevData
     );
     
-    console.log(`💰 [AUTO-APPROVE] Quote set for order ${orderId}: ₹${quoteAmount} (auto-approved: ${result.autoApproved})`);
+    console.log(`💰 [AUTO-APPROVE] Quote set for order ${orderId}: ₹${quoteAmount} (ALWAYS AUTO-APPROVED)`);
     
     res.json({
       success: true,
-      message: result.autoApproved ? 'Quote set and auto-approved' : 'Quote set successfully',
+      message: 'Quote set and auto-approved', // Always auto-approved now
       order,
       autoApproved: result.autoApproved
     });
@@ -1475,6 +1475,177 @@ app.put('/api/admin/orders/:orderId/cancel', (req, res) => {
     success: true,
     message: 'Order cancelled',
     order
+  });
+});
+
+// Cancel order (Consumer) - PUT endpoint
+app.put('/api/orders/:orderId/cancel', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { reason } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Check if user owns this order
+  if (order.consumerEmail !== user.email) {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'You can only cancel your own orders' 
+    });
+  }
+  
+  // Check if order can be cancelled (only pending orders)
+  if (order.status !== 'pending') {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Only pending orders can be cancelled. Please contact support for approved orders.' 
+    });
+  }
+  
+  order.status = 'cancelled';
+  order.cancelReason = reason || 'Cancelled by consumer';
+  order.cancelledAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  if (!order.auditTrail) order.auditTrail = [];
+  order.auditTrail.push({
+    action: 'CANCELLED',
+    by: user.email,
+    at: new Date().toISOString(),
+    reason: reason || 'Cancelled by consumer'
+  });
+  
+  saveDevData();
+  
+  console.log(`❌ Order ${orderId} cancelled by consumer ${user.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Order cancelled successfully',
+    order,
+    refundInfo: {
+      message: 'If you made an online payment, refund will be processed within 5-7 business days',
+      supportContact: 'support@aquachain.com'
+    }
+  });
+});
+
+// Delete/Cancel order (Legacy DELETE endpoint for frontend compatibility)
+app.delete('/api/orders/:orderId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const user = devUsers.get(tokenData.email);
+  
+  if (!user) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'User not found' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Check permissions - consumers can only cancel their own orders, admins can cancel any
+  if (user.role !== 'admin' && order.consumerEmail !== user.email) {
+    return res.status(403).json({ 
+      success: false, 
+      error: 'Access denied' 
+    });
+  }
+  
+  // Check if order can be cancelled
+  if (user.role !== 'admin' && order.status !== 'pending') {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Only pending orders can be cancelled. Please contact support for approved orders.' 
+    });
+  }
+  
+  order.status = 'cancelled';
+  order.cancelReason = `Cancelled by ${user.role}`;
+  order.cancelledAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  
+  if (!order.auditTrail) order.auditTrail = [];
+  order.auditTrail.push({
+    action: 'CANCELLED',
+    by: user.email,
+    at: new Date().toISOString(),
+    reason: `Cancelled by ${user.role}`
+  });
+  
+  saveDevData();
+  
+  console.log(`❌ Order ${orderId} cancelled by ${user.role} ${user.email}`);
+  
+  res.json({
+    success: true,
+    message: 'Order cancelled successfully',
+    order,
+    refundInfo: user.role !== 'admin' ? {
+      message: 'If you made an online payment, refund will be processed within 5-7 business days',
+      supportContact: 'support@aquachain.com'
+    } : undefined
   });
 });
 

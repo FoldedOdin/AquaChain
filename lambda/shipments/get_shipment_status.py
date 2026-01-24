@@ -18,8 +18,12 @@ def handler(event, context):
     GET /api/shipments?orderId=xxx
     """
     try:
-        shipment_id = event.get('pathParameters', {}).get('shipmentId')
-        order_id = event.get('queryStringParameters', {}).get('orderId') if event.get('queryStringParameters') else None
+        # Safely extract parameters
+        path_params = event.get('pathParameters') or {}
+        query_params = event.get('queryStringParameters') or {}
+        
+        shipment_id = path_params.get('shipmentId')
+        order_id = query_params.get('orderId')
         
         shipments_table = dynamodb.Table(SHIPMENTS_TABLE)
         

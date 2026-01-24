@@ -45,79 +45,140 @@ const AddressMapPicker: React.FC<AddressMapPickerProps> = ({
   useEffect(() => {
     if (!hasApiKey) return; // Skip if no API key
     
+    let mounted = true;
+    
     const initMap = () => {
-      if (!window.google || !mapContainerRef.current) return;
+      if (!mounted) return;
+      
+      // Check if Google Maps is fully loaded
+      if (!window.google?.maps?.Map || !window.google?.maps?.Marker || !mapContainerRef.current) {
+        console.warn('Google Maps not fully ready yet, retrying...');
+        setTimeout(initMap, 100);
+        return;
+      }
 
-      // Create map
-      const map = new window.google.maps.Map(mapContainerRef.current, {
-        center: mapCenter,
-        zoom: 15,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-        zoomControl: true,
-        styles: [
-          {
-            featureType: 'poi',
-            elementType: 'labels',
-            stylers: [{ visibility: 'off' }]
+      try {
+        console.log('Initializing Google Maps...');
+        
+        // Create map
+        const map = new window.google.maps.Map(mapContainerRef.current, {
+          center: mapCenter,
+          zoom: 15,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
+          styles: [
+            {
+              featureType: 'poi',
+              elementType: 'labels',
+              stylers: [{ visibility: 'off' }]
+            }
+          ]
+        });
+
+        // Create draggable marker
+        const marker = new window.google.maps.Marker({
+          position: markerPosition,
+          map: map,
+          draggable: true,
+          animation: window.google.maps.Animation.DROP,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: '#3B82F6',
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2
           }
-        ]
-      });
+        });
 
-      // Create draggable marker
-      const marker = new window.google.maps.Marker({
-        position: markerPosition,
-        map: map,
-        draggable: true,
-        animation: window.google.maps.Animation.DROP,
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: '#3B82F6',
-          fillOpacity: 1,
-          strokeColor: '#FFFFFF',
-          strokeWeight: 2
-        }
-      });
+        // Handle marker drag
+        marker.addListener('dragend', () => {
+          const position = marker.getPosition();
+          if (position) {
+            const lat = position.lat();
+            const lng = position.lng();
+            setMarkerPosition({ lat, lng });
+            reverseGeocode(lat, lng);
+          }
+        });
 
-      // Handle marker drag
-      marker.addListener('dragend', () => {
-        const position = marker.getPosition();
-        if (position) {
-          const lat = position.lat();
-          const lng = position.lng();
+        // Handle map click
+        map.addListener('click', (e: any) => {
+          const lat = e.latLng.lat();
+          const lng = e.latLng.lng();
+          marker.setPosition(e.latLng);
           setMarkerPosition({ lat, lng });
           reverseGeocode(lat, lng);
+        });
+
+        mapRef.current = map;
+        markerRef.current = marker;
+        
+        // Initialize services after map is created
+        if (window.google?.maps?.places?.AutocompleteService) {
+          autocompleteService.current = new window.google.maps.places.AutocompleteService();
         }
-      });
-
-      // Handle map click
-      map.addListener('click', (e: any) => {
-        const lat = e.latLng.lat();
-        const lng = e.latLng.lng();
-        marker.setPosition(e.latLng);
-        setMarkerPosition({ lat, lng });
-        reverseGeocode(lat, lng);
-      });
-
-      mapRef.current = map;
-      markerRef.current = marker;
-      autocompleteService.current = new window.google.maps.places.AutocompleteService();
-      geocoder.current = new window.google.maps.Geocoder();
+        if (window.google?.maps?.Geocoder) {
+          geocoder.current = new window.google.maps.Geocoder();
+        }
+        
+        console.log('Google Maps initialized successfully');
+      } catch (error) {
+        console.error('Error initializing Google Maps:', error);
+      }
     };
 
-    // Load Google Maps script
-    if (!window.google) {
+    // Check if script is already loaded
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+    
+    if (existingScript) {
+      // Script already exists, wait for it to load
+      if (window.google?.maps) {
+        initMap();
+      } else {
+        // Wait for existing script to load
+        const checkInterval = setInterval(() => {
+          if (window.google?.maps) {
+            clearInterval(checkInterval);
+            initMap();
+          }
+        }, 100);
+        
+        // Cleanup interval after 10 seconds
+        setTimeout(() => clearInterval(checkInterval), 10000);
+      }
+    } else {
+      // Load new script
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+      const callbackName = `initGoogleMaps_${Date.now()}`;
+      
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=${callbackName}`;
       script.async = true;
       script.defer = true;
-      script.onload = initMap;
+      
+      // Set up callback
+      (window as any)[callbackName] = () => {
+        console.log('Google Maps script loaded');
+        if (mounted) {
+          setTimeout(initMap, 200); // Give it a bit more time
+        }
+        delete (window as any)[callbackName];
+      };
+      
+      script.onerror = () => {
+        console.error('Failed to load Google Maps script');
+        delete (window as any)[callbackName];
+      };
+      
       document.head.appendChild(script);
-    } else {
-      initMap();
     }
+
+    // Cleanup
+    return () => {
+      mounted = false;
+    };
   }, [hasApiKey, apiKey]);
 
   // Update map when center changes

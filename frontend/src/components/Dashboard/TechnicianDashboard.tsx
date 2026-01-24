@@ -24,6 +24,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useDashboardData } from '../../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 import { technicianService } from '../../services/technicianService';
+import { getShipmentByOrderId } from '../../services/shipmentService';
+import { ShipmentStatusResponse } from '../../types/shipment';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -52,11 +54,69 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState('');
   const [errorModal, setErrorModal] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
-  const [successModal, setSuccessModal] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [successModal, setSuccessModal] = useState<{ show: boolean; message: string; orderId?: string }>({ show: false, message: '' });
+  const [shipmentStatuses, setShipmentStatuses] = useState<Record<string, ShipmentStatusResponse>>({});
 
   // Fetch dashboard data
   const { data: dashboardData, isLoading, error, refetch } = useDashboardData('technician');
-  const { isConnected } = useRealTimeUpdates('technician-updates', { autoConnect: true });
+  const { isConnected, latestUpdate } = useRealTimeUpdates('technician-updates', { autoConnect: true });
+
+  // Listen for shipment delivery notifications
+  useEffect(() => {
+    if (!latestUpdate) return;
+    
+    // Check if this is a shipment delivery update
+    if (latestUpdate.type === 'shipment_delivered' && latestUpdate.data) {
+      const { order_id, destination } = latestUpdate.data;
+      
+      // Check if this order is assigned to this technician
+      const tasks = dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : [];
+      const assignedTask = tasks.find((task: any) => task.orderId === order_id);
+      
+      if (assignedTask) {
+        // Show success notification with order ID for "View Details" button
+        setSuccessModal({
+          show: true,
+          message: `Device delivered to ${destination?.contact_name || 'customer'}! You can now accept and start the installation task. Address: ${destination?.address || 'See task details'}`,
+          orderId: order_id
+        });
+        
+        // Refresh shipment statuses
+        getShipmentByOrderId(order_id).then(shipmentData => {
+          setShipmentStatuses(prev => ({
+            ...prev,
+            [order_id]: shipmentData
+          }));
+        }).catch(err => {
+          console.error('Error refreshing shipment status:', err);
+        });
+      }
+    }
+  }, [latestUpdate, dashboardData]);
+
+  // Fetch shipment statuses for all tasks
+  useEffect(() => {
+    const fetchShipmentStatuses = async () => {
+      if (!dashboardData || !('tasks' in dashboardData)) return;
+      
+      const tasks = dashboardData.tasks || [];
+      const statuses: Record<string, ShipmentStatusResponse> = {};
+      
+      for (const task of tasks) {
+        try {
+          const shipmentData = await getShipmentByOrderId(task.orderId);
+          statuses[task.orderId] = shipmentData;
+        } catch (error) {
+          // Shipment might not exist yet for this order
+          console.log(`No shipment found for order ${task.orderId}`);
+        }
+      }
+      
+      setShipmentStatuses(statuses);
+    };
+    
+    fetchShipmentStatuses();
+  }, [dashboardData]);
 
   // Memoized handlers
   const handleLogout = useCallback(async () => {
@@ -111,6 +171,42 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const getPriorityIcon = (priority: string) => {
     if (priority === 'high') return <AlertTriangle className="w-4 h-4" />;
     return <Clock className="w-4 h-4" />;
+  };
+
+  const getDeliveryStatusBadge = (orderId: string) => {
+    const shipment = shipmentStatuses[orderId];
+    
+    if (!shipment || !shipment.shipment) {
+      return (
+        <div className="flex items-center space-x-2 px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+          <span>📦</span>
+          <span>No Shipment Info</span>
+        </div>
+      );
+    }
+    
+    const status = shipment.shipment.internal_status;
+    
+    if (status === 'delivered') {
+      return (
+        <div className="flex items-center space-x-2 px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+          <span>✅</span>
+          <span>Ready to Install</span>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="flex items-center space-x-2 px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
+        <span>⏳</span>
+        <span>Awaiting Delivery</span>
+      </div>
+    );
+  };
+
+  const isDeliveryConfirmed = (orderId: string): boolean => {
+    const shipment = shipmentStatuses[orderId];
+    return shipment?.shipment?.internal_status === 'delivered';
   };
 
   // Task action handlers
@@ -707,6 +803,10 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                               </div>
                             )}
                           </div>
+                          {/* Delivery Status Badge */}
+                          <div className="mb-3">
+                            {getDeliveryStatusBadge(task.orderId)}
+                          </div>
                           <p className="text-sm text-gray-600 mb-3">{task.description || 'No description'}</p>
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             {task.location && (
@@ -742,13 +842,24 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                       <div className="flex items-center space-x-3 mt-4 pt-4 border-t border-gray-200">
                         {task.status === 'shipped' && (
                           <>
-                            <button 
-                              onClick={() => handleAcceptTask(task.taskId)}
-                              disabled={isProcessing === task.taskId}
-                              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {isProcessing === task.taskId ? 'Processing...' : 'Accept Task'}
-                            </button>
+                            <div className="flex-1 relative group">
+                              <button 
+                                onClick={() => handleAcceptTask(task.taskId)}
+                                disabled={isProcessing === task.taskId || !isDeliveryConfirmed(task.orderId)}
+                                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={!isDeliveryConfirmed(task.orderId) ? 'Device must be delivered before accepting task' : ''}
+                              >
+                                {isProcessing === task.taskId ? 'Processing...' : 'Accept Task'}
+                              </button>
+                              {!isDeliveryConfirmed(task.orderId) && (
+                                <div className="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-10">
+                                  Device must be delivered before accepting task
+                                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                                    <div className="border-4 border-transparent border-t-gray-900"></div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                             <button 
                               onClick={() => handleDeclineTask(task)}
                               disabled={isProcessing === task.taskId}
@@ -1223,12 +1334,41 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
               </div>
               <div className="p-6">
                 <p className="text-gray-700 text-center mb-6">{successModal.message}</p>
-                <button
-                  onClick={() => setSuccessModal({ show: false, message: '' })}
-                  className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-                >
-                  OK
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setSuccessModal({ show: false, message: '' })}
+                    className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                  >
+                    OK
+                  </button>
+                  {successModal.orderId && (
+                    <button
+                      onClick={() => {
+                        const tasks = dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : [];
+                        const task = tasks.find((t: any) => t.orderId === successModal.orderId);
+                        if (task) {
+                          const mappedTask = {
+                            ...task,
+                            taskId: task.orderId,
+                            title: `Install ${task.deviceSKU || 'Device'}`,
+                            description: `Install device for ${task.consumerName}`,
+                            location: task.address,
+                            consumer: task.consumerName,
+                            deviceId: task.provisionedDeviceId || task.deviceId,
+                            dueDate: task.preferredSlot ? new Date(task.preferredSlot).toLocaleDateString() : null,
+                            priority: 'medium'
+                          };
+                          setSelectedTask(mappedTask);
+                          setShowTaskDetails(true);
+                        }
+                        setSuccessModal({ show: false, message: '' });
+                      }}
+                      className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    >
+                      View Details
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </motion.div>

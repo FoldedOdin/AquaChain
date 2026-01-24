@@ -17,6 +17,7 @@ const TechnicianManagement = lazy(() => import('../components/Admin/TechnicianMa
 const ComplianceReporting = lazy(() => import('../components/Admin/ComplianceReporting'));
 const AuditTrailViewer = lazy(() => import('../components/Admin/AuditTrailViewer'));
 const SystemConfiguration = lazy(() => import('../components/Admin/SystemConfiguration'));
+const ShipmentTracking = lazy(() => import('../components/Admin/ShipmentTracking'));
 
 // Loading component for tab content
 const TabLoadingFallback = () => (
@@ -28,7 +29,7 @@ const TabLoadingFallback = () => (
   </div>
 );
 
-type TabType = 'overview' | 'fleet' | 'performance' | 'alerts' | 'users' | 'devices' | 'technicians' | 'compliance' | 'audit' | 'config';
+type TabType = 'overview' | 'fleet' | 'performance' | 'alerts' | 'shipments' | 'users' | 'devices' | 'technicians' | 'compliance' | 'audit' | 'config';
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -168,6 +169,7 @@ const AdminDashboard = () => {
             { id: 'fleet', label: 'Fleet' },
             { id: 'performance', label: 'Performance' },
             { id: 'alerts', label: 'Alerts' },
+            { id: 'shipments', label: 'Shipments' },
             { id: 'users', label: 'Users' },
             { id: 'devices', label: 'Devices' },
             { id: 'technicians', label: 'Technicians' },
@@ -250,7 +252,7 @@ const AdminDashboard = () => {
             {/* Quick Actions */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <button 
                   onClick={() => handleTabChange('users')}
                   className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -264,8 +266,14 @@ const AdminDashboard = () => {
                   Register Device
                 </button>
                 <button 
-                  onClick={() => handleTabChange('compliance')}
+                  onClick={() => handleTabChange('shipments')}
                   className="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  Track Shipments
+                </button>
+                <button 
+                  onClick={() => handleTabChange('compliance')}
+                  className="px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                 >
                   Generate Report
                 </button>
@@ -287,6 +295,12 @@ const AdminDashboard = () => {
 
         {activeTab === 'alerts' && alertAnalytics && (
           <AlertAnalytics analytics={alertAnalytics} />
+        )}
+
+        {activeTab === 'shipments' && (
+          <Suspense fallback={<TabLoadingFallback />}>
+            <ShipmentTracking />
+          </Suspense>
         )}
 
         {activeTab === 'users' && (

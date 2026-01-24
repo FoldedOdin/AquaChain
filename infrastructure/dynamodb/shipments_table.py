@@ -54,8 +54,7 @@ class ShipmentsTableManager:
                     ],
                     'Projection': {
                         'ProjectionType': 'ALL'
-                    },
-                    'BillingMode': 'PAY_PER_REQUEST'
+                    }
                 },
                 {
                     'IndexName': 'tracking_number-index',
@@ -67,8 +66,7 @@ class ShipmentsTableManager:
                     ],
                     'Projection': {
                         'ProjectionType': 'ALL'
-                    },
-                    'BillingMode': 'PAY_PER_REQUEST'
+                    }
                 },
                 {
                     'IndexName': 'status-created_at-index',
@@ -84,8 +82,7 @@ class ShipmentsTableManager:
                     ],
                     'Projection': {
                         'ProjectionType': 'ALL'
-                    },
-                    'BillingMode': 'PAY_PER_REQUEST'
+                    }
                 }
             ],
             'BillingMode': 'PAY_PER_REQUEST',

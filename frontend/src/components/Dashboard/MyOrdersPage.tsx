@@ -15,6 +15,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import Toast from '../Toast/Toast';
+import ShipmentTracking from './ShipmentTracking';
 
 interface Order {
   orderId: string;
@@ -443,6 +444,9 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       )}
                     </div>
                   </div>
+
+                  {/* Shipment Tracking */}
+                  <ShipmentTracking orderId={selectedOrder.orderId} orderStatus={selectedOrder.status} />
 
                   {/* Order Timeline */}
                   <div className="mb-6">

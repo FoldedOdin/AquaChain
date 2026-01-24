@@ -120,7 +120,7 @@ Consumer → Request Device → Backend (pending)
    - Login: `admin@aquachain.com` / `admin1234`
    - Go to "Orders" tab
    - Wait 10 seconds → See new order
-   - Click "Set Quote" → Enter ₹15,000 → Submit
+   - Click "Set Quote" → Enter ₹4,000 → Submit
    - Click "Provision Device" → Select IOA → Submit
    - Click "Assign Technician" → Select Lenin → Submit
    - Click "Mark as Shipped" → Confirm

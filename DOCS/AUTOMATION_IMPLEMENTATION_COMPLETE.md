@@ -90,7 +90,7 @@ POST /api/orders
 // Set quote
 PUT /api/admin/orders/:orderId/quote
 {
-  "quoteAmount": 15000  // Under ₹20,000
+  "quoteAmount": 4000  // Always auto-approved
 }
 ```
 
@@ -178,7 +178,7 @@ When running, you'll see automation events in the console:
 
 ```
 📦 [AUTO-EVENT] Order placed: ord_1234567890_abc123
-💰 [AUTO-EVENT] Order quoted: ord_1234567890_abc123 - ₹15000
+💰 [AUTO-EVENT] Order quoted: ord_1234567890_abc123 - ₹4000
 ✅ [AUTO-APPROVE] Order ord_1234567890_abc123 auto-approved
 📱 [AUTO-EVENT] Order provisioned: ord_1234567890_abc123
 🚚 [AUTO-EVENT] Order shipped: ord_1234567890_abc123

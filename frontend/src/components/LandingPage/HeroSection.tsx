@@ -44,8 +44,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({
 
         {/* Subtitle */}
         <p className="text-lg sm:text-xl lg:text-2xl text-gray-300 mb-8 lg:mb-12 max-w-4xl mx-auto leading-relaxed">
-          Monitor water quality with tamper-evident IoT sensors, blockchain-secured data,
-          and AI-powered insights for complete peace of mind.
+          Monitor water quality with secure IoT sensors, blockchain-inspired audit logging, and AI-powered insights for complete peace of mind.
         </p>
 
         {/* Call-to-Action Button */}

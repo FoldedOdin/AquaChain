@@ -161,11 +161,24 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   // Check if user profile is complete
   const isProfileComplete = useMemo(() => {
     const address = user?.profile?.address;
-    const hasAddress = address && 
-      (typeof address === 'string' ? (address as string).trim().length > 0 : 
-       !!(address as any)?.street && !!(address as any)?.city);
+    
+    // Check if address exists and has content
+    const hasAddress = address && (
+      // String format
+      (typeof address === 'string' && (address as string).trim().length > 0) ||
+      // Object format - check for any of the common address fields
+      (typeof address === 'object' && (
+        !!(address as any)?.formatted ||
+        !!(address as any)?.flatHouse ||
+        !!(address as any)?.areaStreet ||
+        !!(address as any)?.street ||
+        !!(address as any)?.city
+      ))
+    );
+    
     const phone = user?.profile?.phone;
     const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
+    
     return !!(hasAddress && hasPhone);
   }, [user]);
 
@@ -173,9 +186,21 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     if (!isProfileComplete) {
       // Show modal for incomplete profile
       const address = user?.profile?.address;
-      const hasAddress = address && 
-        (typeof address === 'string' ? (address as string).trim().length > 0 : 
-         !!(address as any)?.street && !!(address as any)?.city);
+      
+      // Check if address exists and has content
+      const hasAddress = address && (
+        // String format
+        (typeof address === 'string' && (address as string).trim().length > 0) ||
+        // Object format - check for any of the common address fields
+        (typeof address === 'object' && (
+          !!(address as any)?.formatted ||
+          !!(address as any)?.flatHouse ||
+          !!(address as any)?.areaStreet ||
+          !!(address as any)?.street ||
+          !!(address as any)?.city
+        ))
+      );
+      
       const phone = user?.profile?.phone;
       const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
       

@@ -134,9 +134,8 @@ orderEvents.on('ORDER_PLACED', (order) => {
 
 orderEvents.on('ORDER_QUOTED', (order) => {
   console.log(`💰 Order quoted: ${order.orderId} - ₹${order.quoteAmount}`);
-  // Auto-approve if under threshold
-  if (order.quoteAmount < 20000) {
-    autoProvisionOrder(order.orderId);
+  // Always auto-approve (no threshold)
+  autoProvisionOrder(order.orderId);
   }
 });
 ```
