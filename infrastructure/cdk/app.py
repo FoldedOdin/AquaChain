@@ -28,6 +28,7 @@ from stacks.lambda_performance_stack import LambdaPerformanceStack
 from stacks.data_classification_stack import DataClassificationStack
 from stacks.audit_logging_stack import AuditLoggingStack
 from stacks.gdpr_compliance_stack import GDPRComplianceStack
+from stacks.dashboard_overhaul_stack import DashboardOverhaulStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -293,6 +294,17 @@ def main():
     )
     lambda_performance_stack.add_dependency(lambda_layers_stack)
     lambda_performance_stack.add_dependency(monitoring_stack)
+    
+    # 22. Dashboard Overhaul Stack (New role-based dashboard system)
+    dashboard_overhaul_stack = DashboardOverhaulStack(
+        app,
+        f"AquaChain-DashboardOverhaul-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain Dashboard Overhaul Infrastructure - {env_name}"
+    )
+    # Dashboard overhaul is independent but benefits from security stack
+    dashboard_overhaul_stack.add_dependency(security_stack)
     
     # Synthesize the app
     app.synth()

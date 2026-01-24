@@ -11,9 +11,22 @@ import time
 from typing import Dict, List
 
 class InventoryTablesSetup:
-    def __init__(self, region='us-east-1'):
+    def __init__(self, region='us-east-1', environment='dev'):
+        """
+        Initialize inventory tables setup
+        
+        Args:
+            region: AWS region for table creation
+            environment: Environment tag (dev, staging, production)
+        """
+        if not region or not isinstance(region, str):
+            raise ValueError("Region must be a non-empty string")
+        if environment not in ['dev', 'staging', 'production']:
+            raise ValueError("Environment must be one of: dev, staging, production")
+            
         self.dynamodb = boto3.client('dynamodb', region_name=region)
         self.region = region
+        self.environment = environment
         
     def create_inventory_items_table(self) -> Dict:
         """Create the main inventory items table"""
@@ -67,10 +80,13 @@ class InventoryTablesSetup:
                     'StreamEnabled': True,
                     'StreamViewType': 'NEW_AND_OLD_IMAGES'
                 },
+                PointInTimeRecoverySpecification={
+                    'PointInTimeRecoveryEnabled': True
+                },
                 Tags=[
                     {'Key': 'Project', 'Value': 'AquaChain'},
                     {'Key': 'Component', 'Value': 'Inventory'},
-                    {'Key': 'Environment', 'Value': 'production'}
+                    {'Key': 'Environment', 'Value': self.environment}
                 ]
             )
             print(f"✅ Created table: {table_name}")
@@ -128,7 +144,7 @@ class InventoryTablesSetup:
                 Tags=[
                     {'Key': 'Project', 'Value': 'AquaChain'},
                     {'Key': 'Component', 'Value': 'Suppliers'},
-                    {'Key': 'Environment', 'Value': 'production'}
+                    {'Key': 'Environment', 'Value': self.environment}
                 ]
             )
             print(f"✅ Created table: {table_name}")
@@ -184,10 +200,13 @@ class InventoryTablesSetup:
                     'StreamEnabled': True,
                     'StreamViewType': 'NEW_AND_OLD_IMAGES'
                 },
+                PointInTimeRecoverySpecification={
+                    'PointInTimeRecoveryEnabled': True
+                },
                 Tags=[
                     {'Key': 'Project', 'Value': 'AquaChain'},
                     {'Key': 'Component', 'Value': 'PurchaseOrders'},
-                    {'Key': 'Environment', 'Value': 'production'}
+                    {'Key': 'Environment', 'Value': self.environment}
                 ]
             )
             print(f"✅ Created table: {table_name}")
@@ -241,7 +260,7 @@ class InventoryTablesSetup:
                 Tags=[
                     {'Key': 'Project', 'Value': 'AquaChain'},
                     {'Key': 'Component', 'Value': 'Warehouse'},
-                    {'Key': 'Environment', 'Value': 'production'}
+                    {'Key': 'Environment', 'Value': self.environment}
                 ]
             )
             print(f"✅ Created table: {table_name}")
@@ -290,7 +309,7 @@ class InventoryTablesSetup:
                 Tags=[
                     {'Key': 'Project', 'Value': 'AquaChain'},
                     {'Key': 'Component', 'Value': 'Forecasting'},
-                    {'Key': 'Environment', 'Value': 'production'}
+                    {'Key': 'Environment', 'Value': self.environment}
                 ]
             )
             print(f"✅ Created table: {table_name}")
@@ -316,8 +335,26 @@ class InventoryTablesSetup:
                     WaiterConfig={'Delay': 5, 'MaxAttempts': 20}
                 )
                 print(f"✅ Table {table_name} is active")
+            except ClientError as e:
+                print(f"❌ ClientError waiting for {table_name}: {e.response['Error']['Message']}")
+                raise
             except Exception as e:
-                print(f"❌ Error waiting for {table_name}: {e}")
+                print(f"❌ Unexpected error waiting for {table_name}: {str(e)}")
+                raise
+
+    def enable_deletion_protection(self, table_names: List[str]):
+        """Enable deletion protection on critical tables"""
+        print("🔒 Enabling deletion protection on critical tables...")
+        
+        for table_name in table_names:
+            try:
+                self.dynamodb.update_table(
+                    TableName=table_name,
+                    DeletionProtectionEnabled=True
+                )
+                print(f"✅ Deletion protection enabled for {table_name}")
+            except ClientError as e:
+                print(f"⚠️  Could not enable deletion protection for {table_name}: {e}")
 
     def setup_all_inventory_tables(self):
         """Create all inventory management tables"""
@@ -343,6 +380,14 @@ class InventoryTablesSetup:
         
         # Wait for all tables to be active
         self.wait_for_tables_active(tables_created)
+        
+        # Enable deletion protection on critical tables
+        critical_tables = [
+            'AquaChain-Inventory-Items',
+            'AquaChain-Purchase-Orders',
+            'AquaChain-Suppliers'
+        ]
+        self.enable_deletion_protection(critical_tables)
         
         print("✅ All inventory management tables created successfully!")
         return tables_created
