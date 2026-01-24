@@ -1,0 +1,24 @@
+{
+  "function_name": "warehouse-management-service",
+  "runtime": "python3.11",
+  "memory_size": 512,
+  "timeout": 30,
+  "environment_variables": {
+    "WAREHOUSE_TABLE": "AquaChain-Warehouse-Locations",
+    "INVENTORY_TABLE": "AquaChain-Inventory-Items",
+    "PURCHASE_ORDERS_TABLE": "AquaChain-Purchase-Orders",
+    "SHIPMENTS_TABLE": "AquaChain-Shipments",
+    "STOCK_MOVEMENTS_TABLE": "AquaChain-Stock-Movements",
+    "PERFORMANCE_METRICS_TABLE": "AquaChain-Performance-Metrics",
+    "AUDIT_TABLE": "AquaChain-Audit-Logs",
+    "LOG_LEVEL": "INFO",
+    "POWERTOOLS_SERVICE_NAME": "warehouse-service",
+    "POWERTOOLS_METRICS_NAMESPACE": "AquaChain/Warehouse"
+  },
+  "layers": [
+    "arn:aws:lambda:region:account:layer:warehouse-shared:1",
+    "arn:aws:lambda:region:account:layer:aws-lambda-powertools-python-layer:1"
+  ],
+  "reserved_concurrency": 100,
+  "provisioned_concurrency": 5
+}

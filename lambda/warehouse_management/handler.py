@@ -29,21 +29,24 @@ from audit_logger import audit_logger
 logger = get_logger(__name__, 'warehouse-service')
 health_monitor = SystemHealthMonitor('warehouse-service')
 
-# AWS clients
-dynamodb = boto3.resource('dynamodb')
-sns = boto3.client('sns')
-s3 = boto3.client('s3')
-eventbridge = boto3.client('events')
-lambda_client = boto3.client('lambda')
+# Lazy initialization of AWS clients to reduce cold start time
+_aws_clients = {}
+_dynamodb_tables = {}
 
-# Table references
-warehouse_table = dynamodb.Table(os.environ.get('WAREHOUSE_TABLE', 'AquaChain-Warehouse-Locations'))
-inventory_table = dynamodb.Table(os.environ.get('INVENTORY_TABLE', 'AquaChain-Inventory-Items'))
-purchase_orders_table = dynamodb.Table(os.environ.get('PURCHASE_ORDERS_TABLE', 'AquaChain-Purchase-Orders'))
-shipments_table = dynamodb.Table(os.environ.get('SHIPMENTS_TABLE', 'AquaChain-Shipments'))
-stock_movements_table = dynamodb.Table(os.environ.get('STOCK_MOVEMENTS_TABLE', 'AquaChain-Stock-Movements'))
-performance_metrics_table = dynamodb.Table(os.environ.get('PERFORMANCE_METRICS_TABLE', 'AquaChain-Performance-Metrics'))
-audit_table = dynamodb.Table(os.environ.get('AUDIT_TABLE', 'AquaChain-Audit-Logs'))
+def get_aws_client(service_name: str):
+    """Get cached AWS client to reduce cold start time"""
+    if service_name not in _aws_clients:
+        _aws_clients[service_name] = boto3.client(service_name)
+    return _aws_clients[service_name]
+
+def get_dynamodb_table(table_env_var: str, default_name: str):
+    """Get cached DynamoDB table reference"""
+    table_name = os.environ.get(table_env_var, default_name)
+    if table_name not in _dynamodb_tables:
+        if 'dynamodb' not in _aws_clients:
+            _aws_clients['dynamodb'] = boto3.resource('dynamodb')
+        _dynamodb_tables[table_name] = _aws_clients['dynamodb'].Table(table_name)
+    return _dynamodb_tables[table_name]
 
 class WarehouseService:
     """
