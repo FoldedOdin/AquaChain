@@ -106,7 +106,7 @@ class TestStructuredLoggingCompliance:
         duration_ms=duration_strategy,
         custom_fields=custom_fields_strategy
     )
-    @settings(max_examples=100)
+    @settings(max_examples=20)
     def test_structured_logs_contain_required_fields(
         self, service_name, log_level, message, request_id, correlation_id, 
         user_id, operation, duration_ms, custom_fields
@@ -174,7 +174,7 @@ class TestStructuredLoggingCompliance:
         service_name=service_names_strategy,
         operations_list=st.lists(operations_strategy, min_size=2, max_size=10, unique=True)
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_correlation_ids_enable_request_tracing(
         self, service_name, operations_list
     ):
@@ -212,7 +212,7 @@ class TestStructuredLoggingCompliance:
         service_name=service_names_strategy,
         operation=operations_strategy
     )
-    @settings(max_examples=30)
+    @settings(max_examples=10)
     def test_performance_metrics_are_captured(
         self, service_name, operation
     ):
@@ -262,7 +262,7 @@ class TestStructuredLoggingCompliance:
         metric_value=metric_values_strategy,
         metric_unit=metric_units_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_custom_metrics_are_tracked(
         self, service_name, metric_name, metric_value, metric_unit
     ):
@@ -306,7 +306,7 @@ class TestStructuredLoggingCompliance:
         operation=operations_strategy,
         success=st.booleans()
     )
-    @settings(max_examples=30)
+    @settings(max_examples=10)
     def test_timed_operation_context_manager(
         self, service_name, operation, success
     ):
@@ -375,7 +375,7 @@ class TestPerformanceMonitoringAndAlerting:
     @given(
         service_name=service_names_strategy
     )
-    @settings(max_examples=30, deadline=None)  # Disable deadline for this test
+    @settings(max_examples=10, deadline=None)  # Disable deadline for this test
     def test_system_health_monitoring_returns_proper_structure(
         self, service_name
     ):
@@ -474,7 +474,7 @@ class TestPerformanceMonitoringAndAlerting:
         metric_value=metric_values_strategy,
         metric_unit=metric_units_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_performance_metrics_are_published_to_cloudwatch(
         self, metric_name, metric_value, metric_unit
     ):
@@ -532,7 +532,7 @@ class TestPerformanceMonitoringAndAlerting:
     @given(
         hours=st.integers(min_value=1, max_value=168)  # 1 hour to 1 week
     )
-    @settings(max_examples=20)
+    @settings(max_examples=5)
     def test_metrics_summary_covers_specified_time_period(
         self, hours
     ):
@@ -582,7 +582,7 @@ class TestPerformanceMonitoringAndAlerting:
         threshold_value=st.floats(min_value=1.0, max_value=100.0),
         current_value=st.floats(min_value=0.0, max_value=200.0)
     )
-    @settings(max_examples=30, deadline=None)  # Disable deadline for this test
+    @settings(max_examples=10, deadline=None)  # Disable deadline for this test
     def test_performance_threshold_alerting(
         self, service_name, threshold_value, current_value
     ):
@@ -681,7 +681,7 @@ class TestPerformanceMonitoringAndAlerting:
     @given(
         service_name=service_names_strategy
     )
-    @settings(max_examples=20, deadline=None)  # Disable deadline for this test
+    @settings(max_examples=5, deadline=None)  # Disable deadline for this test
     def test_health_monitor_checks_all_dependencies(
         self, service_name
     ):

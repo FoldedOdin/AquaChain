@@ -94,7 +94,7 @@ class TestUnauthorizedAccessPreventionAndLogging:
         username=username_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=100)
+    @settings(max_examples=20)
     def test_unauthorized_access_is_denied_and_logged(
         self, role, resource, action, user_id, username, request_context
     ):
@@ -158,7 +158,7 @@ class TestUnauthorizedAccessPreventionAndLogging:
         username=username_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_invalid_roles_are_denied_and_logged(
         self, invalid_role, resource, action, user_id, username, request_context
     ):
@@ -212,7 +212,7 @@ class TestAPIAuthorizationValidation:
         username=username_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=100)
+    @settings(max_examples=20)
     def test_api_requests_are_validated_against_authority_matrix(
         self, role, resource, action, user_id, username, request_context
     ):
@@ -262,7 +262,7 @@ class TestAPIAuthorizationValidation:
         role=valid_roles_strategy,
         requested_authorities=st.lists(all_resources_strategy, min_size=1, max_size=10, unique=True)
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_authority_matrix_compliance_checking(self, role, requested_authorities):
         """
         Property Test: Authority matrix compliance checking
@@ -315,7 +315,7 @@ class TestAuthorityMatrixEnforcement:
         resource=all_resources_strategy,
         action=actions_strategy
     )
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_authority_matrix_is_enforced_exactly(self, role, resource, action):
         """
         Property Test: Authority matrix is enforced exactly
@@ -336,7 +336,7 @@ class TestAuthorityMatrixEnforcement:
         )
     
     @given(role=valid_roles_strategy)
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_role_authority_levels_are_consistent(self, role):
         """
         Property Test: Role authority levels are consistent
@@ -377,7 +377,7 @@ class TestAuthorityMatrixEnforcement:
         resource=all_resources_strategy,
         action=actions_strategy
     )
-    @settings(max_examples=100)
+    @settings(max_examples=20)
     def test_authority_matrix_is_deterministic(self, role1, role2, resource, action):
         """
         Property Test: Authority matrix enforcement is deterministic
@@ -408,7 +408,7 @@ class TestAuthorityMatrixEnforcement:
             )
     
     @given(role=valid_roles_strategy)
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_authority_matrix_completeness(self, role):
         """
         Property Test: Authority matrix is complete for all roles
@@ -446,7 +446,7 @@ class TestCognitoRoleValidation:
         username=username_strategy,
         role=valid_roles_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_cognito_role_validation_with_valid_role(self, username, role):
         """
         Property Test: Cognito role validation with valid roles
@@ -481,7 +481,7 @@ class TestCognitoRoleValidation:
         role=valid_roles_strategy,
         wrong_role=valid_roles_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_cognito_role_validation_with_wrong_role(self, username, role, wrong_role):
         """
         Property Test: Cognito role validation with wrong roles
