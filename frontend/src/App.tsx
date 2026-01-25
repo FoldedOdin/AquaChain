@@ -13,6 +13,7 @@ import './App.css';
 const ConsumerDashboard = lazy(() => import('./components/Dashboard/ConsumerDashboard'));
 const TechnicianDashboard = lazy(() => import('./components/Dashboard/TechnicianDashboard'));
 const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboard'));
+const OperationsDashboard = lazy(() => import('./components/Dashboard/OperationsDashboard'));
 
 // ✅ Loading component for Suspense fallback
 const DashboardLoadingFallback = () => (
@@ -88,6 +89,18 @@ function App() {
                 <ProtectedRoute requiredRole="admin">
                   <Suspense fallback={<DashboardLoadingFallback />}>
                     <AdminDashboard />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Operations Dashboard Route */}
+            <Route
+              path="/dashboard/operations"
+              element={
+                <ProtectedRoute requiredRole={["inventory_manager", "warehouse_manager", "supplier_coordinator"]}>
+                  <Suspense fallback={<DashboardLoadingFallback />}>
+                    <OperationsDashboard />
                   </Suspense>
                 </ProtectedRoute>
               }

@@ -78,3 +78,18 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
     </NotificationContext.Provider>
   );
 };
+// Convenience hook for simple notifications
+export const useNotification = () => {
+  const { addNotification } = useNotifications();
+
+  const showNotification = useCallback((message: string, type: 'success' | 'warning' | 'info' | 'error' = 'info', title?: string) => {
+    addNotification({
+      type,
+      title: title || type.charAt(0).toUpperCase() + type.slice(1),
+      message,
+      duration: type === 'error' ? 8000 : 5000
+    });
+  }, [addNotification]);
+
+  return { showNotification };
+};

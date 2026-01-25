@@ -32,10 +32,13 @@ interface AuthContextType {
   user: UserProfile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isMFAVerified: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   getAuthToken: () => Promise<string | null>;
   refreshUser: () => Promise<void>;
+  requireMFA?: () => void;
+  verifyMFA?: (code: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -56,6 +59,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isMFAVerified, setIsMFAVerified] = useState(false);
 
   useEffect(() => {
     checkAuthState();
@@ -318,14 +322,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const requireMFA = () => {
+    // In a real implementation, this would trigger MFA challenge
+    // For now, we'll simulate MFA verification after a short delay
+    setTimeout(() => {
+      setIsMFAVerified(true);
+    }, 2000);
+  };
+
+  const verifyMFA = async (code: string): Promise<boolean> => {
+    // In a real implementation, this would verify the MFA code
+    // For now, we'll accept any 6-digit code
+    if (code.length === 6 && /^\d+$/.test(code)) {
+      setIsMFAVerified(true);
+      return true;
+    }
+    return false;
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
     isAuthenticated,
+    isMFAVerified,
     login,
     logout,
     getAuthToken,
-    refreshUser
+    refreshUser,
+    requireMFA,
+    verifyMFA
   };
 
   return (
