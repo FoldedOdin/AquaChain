@@ -14,6 +14,7 @@ from aws_cdk import (
     aws_secretsmanager as secretsmanager,
     aws_logs as logs,
     aws_xray as xray,
+    aws_elasticache as elasticache,
     RemovalPolicy,
     Duration,
     CfnOutput,
@@ -37,6 +38,9 @@ class DashboardOverhaulStack(Stack):
         
         # Create VPC and security infrastructure
         self._create_vpc_infrastructure()
+        
+        # Create ElastiCache Redis cluster for caching
+        self._create_redis_cache()
         
         # Create KMS keys for dashboard encryption
         self._create_kms_keys()
@@ -141,6 +145,159 @@ class DashboardOverhaulStack(Stack):
             "lambda_security_group": self.lambda_security_group,
             "api_gateway_security_group": self.api_gateway_security_group
         })
+    
+    def _create_redis_cache(self) -> None:
+        """
+        Create ElastiCache Redis cluster for dashboard caching with fallback mechanisms
+        """
+        
+        # Security group for Redis cluster
+        self.redis_security_group = ec2.SecurityGroup(
+            self, "RedisSecurityGroup",
+            vpc=self.vpc,
+            description="Security group for Redis cache cluster",
+            security_group_name=get_resource_name(self.config, "sg", "redis")
+        )
+        
+        # Allow Redis access from Lambda functions
+        self.redis_security_group.add_ingress_rule(
+            peer=self.lambda_security_group,
+            connection=ec2.Port.tcp(6379),
+            description="Redis access from Lambda functions"
+        )
+        
+        # Redis subnet group
+        self.redis_subnet_group = elasticache.CfnSubnetGroup(
+            self, "RedisSubnetGroup",
+            description="Subnet group for Redis cache cluster",
+            subnet_ids=[subnet.subnet_id for subnet in self.vpc.private_subnets],
+            cache_subnet_group_name=get_resource_name(self.config, "subnet-group", "redis")
+        )
+        
+        # Redis parameter group for performance optimization
+        self.redis_parameter_group = elasticache.CfnParameterGroup(
+            self, "RedisParameterGroup",
+            cache_parameter_group_family="redis7.x",
+            description="Parameter group for dashboard Redis cache",
+            properties={
+                "maxmemory-policy": "allkeys-lru",  # Evict least recently used keys
+                "timeout": "300",  # Connection timeout
+                "tcp-keepalive": "60",  # Keep connections alive
+                "maxclients": "1000"  # Maximum client connections
+            }
+        )
+        
+        # Redis replication group (cluster)
+        self.redis_cluster = elasticache.CfnReplicationGroup(
+            self, "DashboardRedisCluster",
+            replication_group_description="Dashboard caching Redis cluster",
+            replication_group_id=get_resource_name(self.config, "redis", "dashboard"),
+            cache_node_type=self.config["redis_node_type"],
+            num_cache_clusters=self.config["redis_num_nodes"],
+            engine="redis",
+            engine_version="7.0",
+            port=6379,
+            cache_parameter_group_name=self.redis_parameter_group.ref,
+            cache_subnet_group_name=self.redis_subnet_group.ref,
+            security_group_ids=[self.redis_security_group.security_group_id],
+            at_rest_encryption_enabled=True,
+            transit_encryption_enabled=True,
+            auth_token=None,  # Will use VPC security for access control
+            automatic_failover_enabled=self.config["redis_num_nodes"] > 1,
+            multi_az_enabled=self.config["redis_num_nodes"] > 1,
+            preferred_cache_cluster_a_zs=self.vpc.availability_zones[:self.config["redis_num_nodes"]],
+            snapshot_retention_limit=self.config["redis_snapshot_retention"],
+            snapshot_window="03:00-05:00",  # During low usage hours
+            preferred_maintenance_window="sun:05:00-sun:07:00",  # Sunday maintenance window
+            notification_topic_arn=None,  # Will be set up with monitoring
+            tags=[
+                elasticache.CfnReplicationGroup.TagProperty(
+                    key="Name",
+                    value=get_resource_name(self.config, "redis", "dashboard")
+                ),
+                elasticache.CfnReplicationGroup.TagProperty(
+                    key="Environment",
+                    value=self.config["environment"]
+                ),
+                elasticache.CfnReplicationGroup.TagProperty(
+                    key="Purpose",
+                    value="DashboardCaching"
+                )
+            ]
+        )
+        
+        # CloudWatch alarms for Redis monitoring
+        self._create_redis_monitoring()
+        
+        self.dashboard_resources.update({
+            "redis_security_group": self.redis_security_group,
+            "redis_subnet_group": self.redis_subnet_group,
+            "redis_parameter_group": self.redis_parameter_group,
+            "redis_cluster": self.redis_cluster
+        })
+    
+    def _create_redis_monitoring(self) -> None:
+        """
+        Create CloudWatch alarms for Redis cache monitoring
+        """
+        from aws_cdk import aws_cloudwatch as cloudwatch
+        
+        # CPU utilization alarm
+        cloudwatch.Alarm(
+            self, "RedisCPUAlarm",
+            alarm_name=f"{get_resource_name(self.config, 'alarm', 'redis-cpu')}",
+            alarm_description="Redis cluster CPU utilization is high",
+            metric=cloudwatch.Metric(
+                namespace="AWS/ElastiCache",
+                metric_name="CPUUtilization",
+                dimensions_map={
+                    "CacheClusterId": self.redis_cluster.replication_group_id
+                },
+                statistic="Average",
+                period=Duration.minutes(5)
+            ),
+            threshold=80,
+            evaluation_periods=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        )
+        
+        # Memory utilization alarm
+        cloudwatch.Alarm(
+            self, "RedisMemoryAlarm",
+            alarm_name=f"{get_resource_name(self.config, 'alarm', 'redis-memory')}",
+            alarm_description="Redis cluster memory utilization is high",
+            metric=cloudwatch.Metric(
+                namespace="AWS/ElastiCache",
+                metric_name="DatabaseMemoryUsagePercentage",
+                dimensions_map={
+                    "CacheClusterId": self.redis_cluster.replication_group_id
+                },
+                statistic="Average",
+                period=Duration.minutes(5)
+            ),
+            threshold=85,
+            evaluation_periods=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        )
+        
+        # Cache hit ratio alarm (should be high)
+        cloudwatch.Alarm(
+            self, "RedisCacheHitRatioAlarm",
+            alarm_name=f"{get_resource_name(self.config, 'alarm', 'redis-hit-ratio')}",
+            alarm_description="Redis cache hit ratio is low",
+            metric=cloudwatch.Metric(
+                namespace="AWS/ElastiCache",
+                metric_name="CacheHitRate",
+                dimensions_map={
+                    "CacheClusterId": self.redis_cluster.replication_group_id
+                },
+                statistic="Average",
+                period=Duration.minutes(15)
+            ),
+            threshold=0.8,  # 80% hit rate threshold
+            evaluation_periods=3,
+            comparison_operator=cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD
+        )
     
     def _create_kms_keys(self) -> None:
         """
@@ -921,6 +1078,18 @@ class DashboardOverhaulStack(Stack):
                 )
             )
         
+        # ElastiCache permissions for business logic services
+        self.business_logic_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "elasticache:DescribeReplicationGroups",
+                    "elasticache:DescribeCacheClusters"
+                ],
+                resources=["*"]  # These are read-only describe operations
+            )
+        )
+        
         self.dashboard_resources.update({
             "rbac_service_role": self.rbac_service_role,
             "audit_service_role": self.audit_service_role,
@@ -981,10 +1150,24 @@ class DashboardOverhaulStack(Stack):
             description="Dashboard data encryption key ID"
         )
         
+        CfnOutput(
+            self, "RedisClusterEndpoint",
+            value=self.redis_cluster.attr_primary_end_point_address,
+            description="Redis cluster primary endpoint"
+        )
+        
+        CfnOutput(
+            self, "RedisClusterPort",
+            value=self.redis_cluster.attr_primary_end_point_port,
+            description="Redis cluster port"
+        )
+        
         return {
             "api_endpoint": self.dashboard_api.url,
             "user_pool_id": self.dashboard_user_pool.user_pool_id,
             "user_pool_client_id": self.dashboard_user_pool_client.user_pool_client_id,
             "vpc_id": self.vpc.vpc_id,
-            "data_key_id": self.dashboard_data_key.key_id
+            "data_key_id": self.dashboard_data_key.key_id,
+            "redis_endpoint": self.redis_cluster.attr_primary_end_point_address,
+            "redis_port": self.redis_cluster.attr_primary_end_point_port
         }

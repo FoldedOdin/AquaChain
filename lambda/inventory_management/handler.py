@@ -25,6 +25,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
 from rbac_middleware import require_permission, validate_user_permissions
+from cache_service import get_cache_service, CacheKeys, cached
+from health_check_service import get_health_service
 
 # Initialize structured logging
 logger = get_logger(__name__, 'inventory-service')
@@ -68,6 +70,9 @@ class InventoryService:
         self.user_id = self.request_context.get('user_id', 'system')
         self.correlation_id = self.request_context.get('correlation_id', str(uuid.uuid4()))
         
+        # Initialize cache service
+        self.cache = get_cache_service()
+        
         # Configuration
         self.sns_topic = os.environ.get('INVENTORY_ALERTS_TOPIC')
         self.websocket_api_endpoint = os.environ.get('WEBSOCKET_API_ENDPOINT')
@@ -82,7 +87,8 @@ class InventoryService:
         logger.info(
             "Inventory service initialized",
             correlation_id=self.correlation_id,
-            user_id=self.user_id
+            user_id=self.user_id,
+            cache_status=self.cache.health_check()['status']
         )
     
     def get_stock_levels(self, filters: Optional[Dict] = None) -> Dict:
@@ -97,6 +103,24 @@ class InventoryService:
         """
         with TimedOperation(logger, "get_stock_levels", correlation_id=self.correlation_id):
             try:
+                # Generate cache key based on filters
+                cache_key = f"inventory:stock_levels:{hash(str(filters) if filters else 'all')}"
+                
+                # Try to get from cache first
+                cached_result = self.cache.get(cache_key)
+                if cached_result is not None:
+                    logger.info(
+                        "Stock levels retrieved from cache",
+                        correlation_id=self.correlation_id,
+                        cache_key=cache_key
+                    )
+                    # Add correlation_id to cached result
+                    cached_result['correlation_id'] = self.correlation_id
+                    return {
+                        'statusCode': 200,
+                        'body': cached_result
+                    }
+                
                 # Log data access for audit
                 audit_logger.log_data_access(
                     user_id=self.user_id,
@@ -123,21 +147,28 @@ class InventoryService:
                 # Calculate summary statistics
                 summary = self._calculate_inventory_summary(enriched_items)
                 
+                # Prepare result for caching
+                result_data = {
+                    'items': enriched_items,
+                    'summary': summary,
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'correlation_id': self.correlation_id
+                }
+                
+                # Cache the result (5 minutes TTL for stock levels)
+                self.cache.set(cache_key, result_data, ttl=300)
+                
                 logger.info(
                     "Stock levels retrieved successfully",
                     correlation_id=self.correlation_id,
                     items_count=len(enriched_items),
-                    filters=filters
+                    filters=filters,
+                    cached=False
                 )
                 
                 return {
                     'statusCode': 200,
-                    'body': {
-                        'items': enriched_items,
-                        'summary': summary,
-                        'timestamp': datetime.utcnow().isoformat(),
-                        'correlation_id': self.correlation_id
-                    }
+                    'body': result_data
                 }
                 
             except Exception as e:
@@ -241,6 +272,9 @@ class InventoryService:
                 
                 # Send real-time update via WebSocket
                 self._send_realtime_update('stock_update', updated_item)
+                
+                # Invalidate related cache entries
+                self._invalidate_inventory_cache(item_id, location_id)
                 
                 logger.info(
                     "Stock level updated successfully",
@@ -1279,6 +1313,45 @@ def lambda_handler(event, context):
             return []
 
 
+    def _invalidate_inventory_cache(self, item_id: str, location_id: str) -> None:
+        """
+        Invalidate cache entries related to inventory updates
+        
+        Args:
+            item_id: Inventory item identifier
+            location_id: Warehouse location identifier
+        """
+        try:
+            # Invalidate specific item cache
+            item_cache_key = CacheKeys.inventory_item(f"{item_id}#{location_id}")
+            self.cache.delete(item_cache_key)
+            
+            # Invalidate stock levels cache (all variations)
+            self.cache.invalidate_pattern("inventory:stock_levels:*")
+            
+            # Invalidate inventory alerts cache
+            self.cache.invalidate_pattern("inventory:alerts:*")
+            
+            # Invalidate dashboard data cache for inventory managers
+            self.cache.invalidate_pattern("dashboard:inventory-manager:*")
+            
+            logger.info(
+                "Cache invalidated for inventory update",
+                correlation_id=self.correlation_id,
+                item_id=item_id,
+                location_id=location_id
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Failed to invalidate inventory cache",
+                correlation_id=self.correlation_id,
+                item_id=item_id,
+                location_id=location_id,
+                error=str(e)
+            )
+
+
 def lambda_handler(event, context):
     """
     Enhanced Lambda handler for inventory management service
@@ -1527,14 +1600,53 @@ def lambda_handler(event, context):
             result = inventory_service.get_audit_history(item_id, start_date, end_date, limit)
             
         elif http_method == 'GET' and path == '/api/inventory/health':
-            # Health check endpoint
-            health_status = health_monitor.check_service_health()
-            health_monitor.publish_health_metrics(health_status)
+            # Comprehensive health check endpoint
+            health_service = get_health_service('inventory-service', '1.0.0')
             
-            status_code = 200 if health_status['status'] == 'healthy' else 503
+            # Add critical dependencies
+            health_service.add_critical_dependency(
+                'inventory_table',
+                lambda: health_service.check_dynamodb_table(inventory_table.table_name)
+            )
+            
+            health_service.add_critical_dependency(
+                'cache_service',
+                lambda: health_service.check_cache_service(inventory_service.cache)
+            )
+            
+            # Add optional dependencies
+            if inventory_service.sns_topic:
+                health_service.add_optional_dependency(
+                    'sns_notifications',
+                    lambda: {'status': 'healthy', 'topic_arn': inventory_service.sns_topic, 'timestamp': datetime.utcnow().isoformat()}
+                )
+            
+            if inventory_service.ml_forecasting_function:
+                health_service.add_optional_dependency(
+                    'ml_forecasting',
+                    lambda: health_service.check_lambda_function(inventory_service.ml_forecasting_function)
+                )
+            
+            # Add custom checks
+            health_service.add_custom_check(
+                'circuit_breaker_status',
+                lambda: {
+                    'status': 'healthy' if inventory_service.ml_service_available else 'degraded',
+                    'ml_service_available': inventory_service.ml_service_available,
+                    'last_failure': inventory_service.ml_service_last_failure.isoformat() if inventory_service.ml_service_last_failure else None,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            )
+            
+            # Perform comprehensive health check
+            health_result = health_service.perform_health_check()
+            
+            # Determine HTTP status code
+            status_code = 200 if health_result['status'] == 'healthy' else (200 if health_result['status'] == 'degraded' else 503)
+            
             result = {
                 'statusCode': status_code,
-                'body': health_status
+                'body': health_result
             }
             
         else:

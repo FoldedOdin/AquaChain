@@ -22,6 +22,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 from structured_logger import get_logger
 from error_handler import handle_lambda_error, AuditServiceError
 from rbac_middleware import require_permission, validate_user_permissions
+from health_endpoint import create_health_endpoint, get_audit_service_dependencies
 
 # Configure structured logging
 logger = get_logger(__name__, "audit-service")
@@ -972,6 +973,11 @@ def lambda_handler(event, context):
                 end_date=event['endDate'],
                 requester_user_id=event['requesterUserId']
             )
+        
+        elif operation == 'health_check':
+            # Health check endpoint
+            dependencies = get_audit_service_dependencies()
+            return create_health_endpoint('audit-service', '1.0.0', dependencies)
         
         else:
             raise ValueError(f"Unknown operation: {operation}")

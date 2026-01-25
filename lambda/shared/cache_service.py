@@ -1,21 +1,24 @@
 """
-Cache Service for AquaChain
-Provides Redis caching functionality for Lambda functions
+Dashboard Caching Service
+Provides Redis-based caching with fallback mechanisms for dashboard services
 """
 
-import os
 import json
+import logging
+import os
+import time
+from typing import Any, Dict, Optional, Union, List
+from datetime import datetime, timedelta
 import redis
-from typing import Optional, Any, List
-from datetime import timedelta
-from .structured_logger import StructuredLogger
+from redis.exceptions import RedisError, ConnectionError, TimeoutError
+import boto3
+from botocore.exceptions import ClientError
 
-logger = StructuredLogger(__name__)
-
+logger = logging.getLogger(__name__)
 
 class CacheService:
     """
-    Service for interacting with ElastiCache Redis cluster
+    Redis-based caching service with fallback mechanisms and monitoring
     """
     
     def __init__(self, redis_endpoint: Optional[str] = None, redis_port: int = 6379):
@@ -23,94 +26,137 @@ class CacheService:
         Initialize cache service
         
         Args:
-            redis_endpoint: Redis cluster endpoint (defaults to env var)
+            redis_endpoint: Redis cluster endpoint (from environment if not provided)
             redis_port: Redis port (default 6379)
         """
         self.redis_endpoint = redis_endpoint or os.environ.get('REDIS_ENDPOINT')
         self.redis_port = redis_port
+        self.redis_client = None
+        self.fallback_cache = {}  # In-memory fallback cache
+        self.cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'errors': 0,
+            'fallback_hits': 0
+        }
         
-        if not self.redis_endpoint:
-            logger.log('warning', 'Redis endpoint not configured, caching disabled')
-            self.client = None
-        else:
-            try:
-                self.client = redis.Redis(
-                    host=self.redis_endpoint,
-                    port=self.redis_port,
-                    decode_responses=True,
-                    socket_connect_timeout=5,
-                    socket_timeout=5,
-                    retry_on_timeout=True,
-                    health_check_interval=30
-                )
-                # Test connection
-                self.client.ping()
-                logger.log('info', 'Redis connection established', 
-                          endpoint=self.redis_endpoint)
-            except Exception as e:
-                logger.log('error', f'Failed to connect to Redis: {str(e)}',
-                          endpoint=self.redis_endpoint)
-                self.client = None
+        # Initialize Redis connection
+        self._initialize_redis()
     
-    def get(self, key: str) -> Optional[Any]:
+    def _initialize_redis(self) -> None:
         """
-        Get value from cache
+        Initialize Redis connection with error handling
+        """
+        if not self.redis_endpoint:
+            logger.warning("Redis endpoint not configured, using fallback cache only")
+            return
+        
+        try:
+            self.redis_client = redis.Redis(
+                host=self.redis_endpoint,
+                port=self.redis_port,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
+                health_check_interval=30,
+                ssl=True,  # ElastiCache with encryption in transit
+                ssl_cert_reqs=None
+            )
+            
+            # Test connection
+            self.redis_client.ping()
+            logger.info(f"Redis connection established to {self.redis_endpoint}:{self.redis_port}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize Redis connection: {str(e)}")
+            self.redis_client = None
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """
+        Get value from cache with fallback mechanisms
         
         Args:
             key: Cache key
+            default: Default value if key not found
             
         Returns:
-            Cached value or None if not found or cache unavailable
+            Cached value or default
         """
-        if not self.client:
-            return None
-        
         try:
-            value = self.client.get(key)
-            if value:
-                logger.log('debug', 'Cache hit', key=key)
-                return json.loads(value)
-            else:
-                logger.log('debug', 'Cache miss', key=key)
-                return None
-        except json.JSONDecodeError as e:
-            logger.log('error', f'Failed to decode cached value: {str(e)}', key=key)
-            # Delete corrupted cache entry
-            self.delete(key)
-            return None
+            # Try Redis first
+            if self.redis_client:
+                try:
+                    value = self.redis_client.get(key)
+                    if value is not None:
+                        self.cache_stats['hits'] += 1
+                        return json.loads(value)
+                except (RedisError, ConnectionError, TimeoutError) as e:
+                    logger.warning(f"Redis get error for key {key}: {str(e)}")
+                    self.cache_stats['errors'] += 1
+                    # Fall through to fallback cache
+            
+            # Try fallback cache
+            if key in self.fallback_cache:
+                cache_entry = self.fallback_cache[key]
+                if cache_entry['expires_at'] > time.time():
+                    self.cache_stats['fallback_hits'] += 1
+                    return cache_entry['value']
+                else:
+                    # Expired entry
+                    del self.fallback_cache[key]
+            
+            self.cache_stats['misses'] += 1
+            return default
+            
         except Exception as e:
-            logger.log('error', f'Cache get error: {str(e)}', key=key)
-            return None
+            logger.error(f"Cache get error for key {key}: {str(e)}")
+            self.cache_stats['errors'] += 1
+            return default
     
-    def set(self, key: str, value: Any, ttl: int = 300) -> bool:
+    def set(self, key: str, value: Any, ttl: int = 3600) -> bool:
         """
         Set value in cache with TTL
         
         Args:
             key: Cache key
-            value: Value to cache (will be JSON serialized)
-            ttl: Time to live in seconds (default 300 = 5 minutes)
+            value: Value to cache
+            ttl: Time to live in seconds (default 1 hour)
             
         Returns:
             True if successful, False otherwise
         """
-        if not self.client:
-            return False
-        
         try:
-            serialized_value = json.dumps(value)
-            self.client.setex(
-                key,
-                timedelta(seconds=ttl),
-                serialized_value
-            )
-            logger.log('debug', 'Cache set', key=key, ttl=ttl)
+            serialized_value = json.dumps(value, default=str)
+            
+            # Try Redis first
+            if self.redis_client:
+                try:
+                    result = self.redis_client.setex(key, ttl, serialized_value)
+                    if result:
+                        # Also store in fallback cache for redundancy
+                        self.fallback_cache[key] = {
+                            'value': value,
+                            'expires_at': time.time() + ttl
+                        }
+                        return True
+                except (RedisError, ConnectionError, TimeoutError) as e:
+                    logger.warning(f"Redis set error for key {key}: {str(e)}")
+                    # Fall through to fallback cache
+            
+            # Use fallback cache
+            self.fallback_cache[key] = {
+                'value': value,
+                'expires_at': time.time() + ttl
+            }
+            
+            # Clean up expired entries periodically
+            self._cleanup_fallback_cache()
+            
             return True
-        except (TypeError, ValueError) as e:
-            logger.log('error', f'Failed to serialize value: {str(e)}', key=key)
-            return False
+            
         except Exception as e:
-            logger.log('error', f'Cache set error: {str(e)}', key=key)
+            logger.error(f"Cache set error for key {key}: {str(e)}")
             return False
     
     def delete(self, key: str) -> bool:
@@ -123,15 +169,26 @@ class CacheService:
         Returns:
             True if successful, False otherwise
         """
-        if not self.client:
-            return False
-        
         try:
-            self.client.delete(key)
-            logger.log('debug', 'Cache delete', key=key)
-            return True
+            success = False
+            
+            # Delete from Redis
+            if self.redis_client:
+                try:
+                    result = self.redis_client.delete(key)
+                    success = result > 0
+                except (RedisError, ConnectionError, TimeoutError) as e:
+                    logger.warning(f"Redis delete error for key {key}: {str(e)}")
+            
+            # Delete from fallback cache
+            if key in self.fallback_cache:
+                del self.fallback_cache[key]
+                success = True
+            
+            return success
+            
         except Exception as e:
-            logger.log('error', f'Cache delete error: {str(e)}', key=key)
+            logger.error(f"Cache delete error for key {key}: {str(e)}")
             return False
     
     def invalidate_pattern(self, pattern: str) -> int:
@@ -139,235 +196,249 @@ class CacheService:
         Invalidate all keys matching pattern
         
         Args:
-            pattern: Redis pattern (e.g., 'device:*', 'user:123:*')
+            pattern: Key pattern (e.g., "user:*", "inventory:*")
             
         Returns:
             Number of keys deleted
         """
-        if not self.client:
-            return 0
-        
         try:
             deleted_count = 0
-            # Use SCAN to avoid blocking Redis
-            cursor = 0
-            while True:
-                cursor, keys = self.client.scan(cursor, match=pattern, count=100)
-                if keys:
-                    self.client.delete(*keys)
-                    deleted_count += len(keys)
-                if cursor == 0:
-                    break
             
-            logger.log('info', 'Cache pattern invalidated', 
-                      pattern=pattern, deleted_count=deleted_count)
+            # Redis pattern deletion
+            if self.redis_client:
+                try:
+                    keys = self.redis_client.keys(pattern)
+                    if keys:
+                        deleted_count = self.redis_client.delete(*keys)
+                except (RedisError, ConnectionError, TimeoutError) as e:
+                    logger.warning(f"Redis pattern delete error for pattern {pattern}: {str(e)}")
+            
+            # Fallback cache pattern deletion
+            import fnmatch
+            keys_to_delete = [
+                key for key in self.fallback_cache.keys()
+                if fnmatch.fnmatch(key, pattern)
+            ]
+            
+            for key in keys_to_delete:
+                del self.fallback_cache[key]
+                deleted_count += 1
+            
             return deleted_count
+            
         except Exception as e:
-            logger.log('error', f'Cache invalidate pattern error: {str(e)}', 
-                      pattern=pattern)
+            logger.error(f"Cache pattern invalidation error for pattern {pattern}: {str(e)}")
             return 0
     
-    def exists(self, key: str) -> bool:
+    def get_stats(self) -> Dict[str, Any]:
         """
-        Check if key exists in cache
+        Get cache statistics
         
-        Args:
-            key: Cache key
-            
         Returns:
-            True if key exists, False otherwise
+            Dictionary with cache statistics
         """
-        if not self.client:
+        stats = self.cache_stats.copy()
+        
+        # Calculate hit ratio
+        total_requests = stats['hits'] + stats['misses']
+        if total_requests > 0:
+            stats['hit_ratio'] = stats['hits'] / total_requests
+            stats['fallback_ratio'] = stats['fallback_hits'] / total_requests
+        else:
+            stats['hit_ratio'] = 0.0
+            stats['fallback_ratio'] = 0.0
+        
+        # Redis connection status
+        stats['redis_connected'] = self._is_redis_connected()
+        stats['fallback_cache_size'] = len(self.fallback_cache)
+        
+        return stats
+    
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Perform health check on cache service
+        
+        Returns:
+            Health check results
+        """
+        health = {
+            'status': 'healthy',
+            'redis_status': 'disconnected',
+            'fallback_cache_status': 'available',
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # Check Redis connection
+        if self._is_redis_connected():
+            health['redis_status'] = 'connected'
+            try:
+                # Test Redis operations
+                test_key = f"health_check_{int(time.time())}"
+                self.redis_client.setex(test_key, 10, "test")
+                value = self.redis_client.get(test_key)
+                self.redis_client.delete(test_key)
+                
+                if value == "test":
+                    health['redis_status'] = 'healthy'
+                else:
+                    health['redis_status'] = 'degraded'
+                    
+            except Exception as e:
+                health['redis_status'] = 'error'
+                health['redis_error'] = str(e)
+        
+        # Overall status
+        if health['redis_status'] in ['disconnected', 'error']:
+            health['status'] = 'degraded'  # Still functional with fallback
+        
+        # Add statistics
+        health['stats'] = self.get_stats()
+        
+        return health
+    
+    def _is_redis_connected(self) -> bool:
+        """
+        Check if Redis is connected and responsive
+        
+        Returns:
+            True if Redis is connected, False otherwise
+        """
+        if not self.redis_client:
             return False
         
         try:
-            return bool(self.client.exists(key))
-        except Exception as e:
-            logger.log('error', f'Cache exists error: {str(e)}', key=key)
-            return False
-    
-    def get_ttl(self, key: str) -> Optional[int]:
-        """
-        Get remaining TTL for key
-        
-        Args:
-            key: Cache key
-            
-        Returns:
-            TTL in seconds, None if key doesn't exist or cache unavailable
-        """
-        if not self.client:
-            return None
-        
-        try:
-            ttl = self.client.ttl(key)
-            if ttl == -2:  # Key doesn't exist
-                return None
-            elif ttl == -1:  # Key exists but has no expiration
-                return -1
-            else:
-                return ttl
-        except Exception as e:
-            logger.log('error', f'Cache get TTL error: {str(e)}', key=key)
-            return None
-    
-    def increment(self, key: str, amount: int = 1) -> Optional[int]:
-        """
-        Increment a counter in cache
-        
-        Args:
-            key: Cache key
-            amount: Amount to increment by (default 1)
-            
-        Returns:
-            New value after increment, None if error
-        """
-        if not self.client:
-            return None
-        
-        try:
-            new_value = self.client.incrby(key, amount)
-            logger.log('debug', 'Cache increment', key=key, amount=amount, new_value=new_value)
-            return new_value
-        except Exception as e:
-            logger.log('error', f'Cache increment error: {str(e)}', key=key)
-            return None
-    
-    def get_many(self, keys: List[str]) -> dict:
-        """
-        Get multiple values from cache
-        
-        Args:
-            keys: List of cache keys
-            
-        Returns:
-            Dictionary mapping keys to values (only includes found keys)
-        """
-        if not self.client or not keys:
-            return {}
-        
-        try:
-            values = self.client.mget(keys)
-            result = {}
-            for key, value in zip(keys, values):
-                if value:
-                    try:
-                        result[key] = json.loads(value)
-                    except json.JSONDecodeError:
-                        logger.log('warning', 'Failed to decode cached value', key=key)
-            
-            logger.log('debug', 'Cache get many', 
-                      requested=len(keys), found=len(result))
-            return result
-        except Exception as e:
-            logger.log('error', f'Cache get many error: {str(e)}')
-            return {}
-    
-    def set_many(self, mapping: dict, ttl: int = 300) -> bool:
-        """
-        Set multiple values in cache
-        
-        Args:
-            mapping: Dictionary of key-value pairs
-            ttl: Time to live in seconds (default 300 = 5 minutes)
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.client or not mapping:
-            return False
-        
-        try:
-            # Use pipeline for atomic operation
-            pipe = self.client.pipeline()
-            for key, value in mapping.items():
-                serialized_value = json.dumps(value)
-                pipe.setex(key, timedelta(seconds=ttl), serialized_value)
-            pipe.execute()
-            
-            logger.log('debug', 'Cache set many', count=len(mapping), ttl=ttl)
+            self.redis_client.ping()
             return True
-        except Exception as e:
-            logger.log('error', f'Cache set many error: {str(e)}')
+        except Exception:
             return False
     
-    def flush_all(self) -> bool:
+    def _cleanup_fallback_cache(self) -> None:
         """
-        Flush all keys from cache (use with caution!)
-        
-        Returns:
-            True if successful, False otherwise
+        Clean up expired entries from fallback cache
         """
-        if not self.client:
-            return False
-        
         try:
-            self.client.flushdb()
-            logger.log('warning', 'Cache flushed - all keys deleted')
-            return True
-        except Exception as e:
-            logger.log('error', f'Cache flush error: {str(e)}')
-            return False
-    
-    def get_stats(self) -> Optional[dict]:
-        """
-        Get Redis server statistics
-        
-        Returns:
-            Dictionary of Redis stats or None if unavailable
-        """
-        if not self.client:
-            return None
-        
-        try:
-            info = self.client.info()
-            return {
-                'used_memory': info.get('used_memory_human'),
-                'connected_clients': info.get('connected_clients'),
-                'total_commands_processed': info.get('total_commands_processed'),
-                'keyspace_hits': info.get('keyspace_hits', 0),
-                'keyspace_misses': info.get('keyspace_misses', 0),
-                'hit_rate': self._calculate_hit_rate(
-                    info.get('keyspace_hits', 0),
-                    info.get('keyspace_misses', 0)
+            current_time = time.time()
+            expired_keys = [
+                key for key, entry in self.fallback_cache.items()
+                if entry['expires_at'] <= current_time
+            ]
+            
+            for key in expired_keys:
+                del self.fallback_cache[key]
+                
+            # Limit fallback cache size to prevent memory issues
+            if len(self.fallback_cache) > 1000:
+                # Remove oldest entries
+                sorted_entries = sorted(
+                    self.fallback_cache.items(),
+                    key=lambda x: x[1]['expires_at']
                 )
-            }
+                
+                # Keep only the 800 most recent entries
+                keys_to_remove = [entry[0] for entry in sorted_entries[:-800]]
+                for key in keys_to_remove:
+                    del self.fallback_cache[key]
+                    
         except Exception as e:
-            logger.log('error', f'Failed to get cache stats: {str(e)}')
-            return None
+            logger.error(f"Fallback cache cleanup error: {str(e)}")
+
+# Cache key generators for consistent naming
+class CacheKeys:
+    """
+    Standardized cache key generators for dashboard services
+    """
     
     @staticmethod
-    def _calculate_hit_rate(hits: int, misses: int) -> float:
-        """Calculate cache hit rate percentage"""
-        total = hits + misses
-        if total == 0:
-            return 0.0
-        return round((hits / total) * 100, 2)
+    def user_permissions(user_id: str) -> str:
+        """Generate cache key for user permissions"""
+        return f"user:permissions:{user_id}"
     
-    def close(self):
-        """Close Redis connection"""
-        if self.client:
-            try:
-                self.client.close()
-                logger.log('info', 'Redis connection closed')
-            except Exception as e:
-                logger.log('error', f'Error closing Redis connection: {str(e)}')
+    @staticmethod
+    def user_roles(user_id: str) -> str:
+        """Generate cache key for user roles"""
+        return f"user:roles:{user_id}"
+    
+    @staticmethod
+    def inventory_item(item_id: str) -> str:
+        """Generate cache key for inventory item"""
+        return f"inventory:item:{item_id}"
+    
+    @staticmethod
+    def inventory_alerts(user_id: str) -> str:
+        """Generate cache key for inventory alerts"""
+        return f"inventory:alerts:{user_id}"
+    
+    @staticmethod
+    def budget_utilization(category: str, period: str) -> str:
+        """Generate cache key for budget utilization"""
+        return f"budget:utilization:{category}:{period}"
+    
+    @staticmethod
+    def purchase_order_queue(user_id: str) -> str:
+        """Generate cache key for purchase order approval queue"""
+        return f"procurement:queue:{user_id}"
+    
+    @staticmethod
+    def supplier_performance(supplier_id: str) -> str:
+        """Generate cache key for supplier performance data"""
+        return f"supplier:performance:{supplier_id}"
+    
+    @staticmethod
+    def workflow_status(workflow_id: str) -> str:
+        """Generate cache key for workflow status"""
+        return f"workflow:status:{workflow_id}"
+    
+    @staticmethod
+    def dashboard_data(role: str, user_id: str) -> str:
+        """Generate cache key for dashboard data"""
+        return f"dashboard:{role}:{user_id}"
 
-
-# Singleton instance for reuse across Lambda invocations
-_cache_service_instance: Optional[CacheService] = None
-
+# Global cache service instance
+cache_service = None
 
 def get_cache_service() -> CacheService:
     """
-    Get singleton CacheService instance
+    Get global cache service instance (singleton pattern)
     
     Returns:
         CacheService instance
     """
-    global _cache_service_instance
+    global cache_service
     
-    if _cache_service_instance is None:
-        _cache_service_instance = CacheService()
+    if cache_service is None:
+        cache_service = CacheService()
     
-    return _cache_service_instance
+    return cache_service
+
+# Decorator for caching function results
+def cached(ttl: int = 3600, key_prefix: str = ""):
+    """
+    Decorator for caching function results
+    
+    Args:
+        ttl: Time to live in seconds
+        key_prefix: Prefix for cache key
+        
+    Returns:
+        Decorated function
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Generate cache key from function name and arguments
+            cache_key = f"{key_prefix}:{func.__name__}:{hash(str(args) + str(sorted(kwargs.items())))}"
+            
+            # Try to get from cache
+            cache = get_cache_service()
+            cached_result = cache.get(cache_key)
+            
+            if cached_result is not None:
+                return cached_result
+            
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            cache.set(cache_key, result, ttl)
+            
+            return result
+        
+        return wrapper
+    return decorator

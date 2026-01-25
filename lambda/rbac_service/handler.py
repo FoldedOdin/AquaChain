@@ -20,6 +20,7 @@ from errors import AuthenticationError, AuthorizationError, ValidationError
 from error_handler import handle_errors
 from structured_logger import get_logger
 from audit_logger import audit_logger
+from health_endpoint import create_health_endpoint, get_rbac_service_dependencies
 
 # Configure structured logging
 logger = get_logger(__name__, service='rbac-service')
@@ -551,6 +552,11 @@ def lambda_handler(event, context):
                 'authorityLevels': AuthorityMatrix.AUTHORITY_LEVELS
             })
         }
+    
+    elif http_method == 'GET' and path.endswith('/health'):
+        # Health check endpoint
+        dependencies = get_rbac_service_dependencies()
+        return create_health_endpoint('rbac-service', '1.0.0', dependencies)
     
     else:
         raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
