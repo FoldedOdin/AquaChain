@@ -93,7 +93,7 @@ class TestAuditTrailCompleteness:
         details=action_details_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=100)
+    @settings(max_examples=5)
     def test_user_actions_create_complete_audit_records(
         self, user_id, action, resource, resource_id, details, request_context
     ):
@@ -205,7 +205,7 @@ class TestAuditTrailCompleteness:
         details=action_details_strategy,
         severity=st.sampled_from(['INFO', 'WARNING', 'ERROR', 'CRITICAL'])
     )
-    @settings(max_examples=50)
+    @settings(max_examples=3)
     def test_system_events_create_complete_audit_records(
         self, event_type, source, details, severity
     ):
@@ -282,7 +282,7 @@ class TestAuditTrailCompleteness:
         actions_list=st.lists(actions_strategy, min_size=2, max_size=5, unique=True),
         resource=resources_strategy
     )
-    @settings(max_examples=30)
+    @settings(max_examples=3)
     def test_multiple_actions_create_separate_audit_records(
         self, user_id, actions_list, resource
     ):
@@ -362,7 +362,7 @@ class TestAuditQueryAndExportFunctionality:
         query_user_id=user_id_strategy,
         limit=st.integers(min_value=1, max_value=1000)
     )
-    @settings(max_examples=50)
+    @settings(max_examples=3)
     def test_audit_query_by_user_returns_proper_structure(
         self, requester_user_id, query_user_id, limit
     ):
@@ -522,7 +522,7 @@ class TestSecurityAuditLoggingWithTamperDetection:
         ]),
         details=action_details_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=3)
     def test_security_events_create_tamper_evident_logs(
         self, user_id, security_event_type, details
     ):

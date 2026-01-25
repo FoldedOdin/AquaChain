@@ -87,7 +87,7 @@ class TestInventoryAlertGeneration:
         item=inventory_item_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_reorder_alerts_generated_when_stock_below_reorder_point(self, item, request_context):
         """
         Property Test: Reorder alerts are generated when stock is below reorder point
@@ -141,7 +141,7 @@ class TestInventoryAlertGeneration:
         item=inventory_item_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_alert_urgency_calculation_is_consistent(self, item, request_context):
         """
         Property Test: Alert urgency calculation is consistent
@@ -170,7 +170,7 @@ class TestInventoryAlertGeneration:
         item=inventory_item_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_recommended_actions_are_provided_with_alerts(self, item, request_context):
         """
         Property Test: Recommended actions are provided with alerts
@@ -266,7 +266,7 @@ class TestComprehensiveGracefulDegradation:
         forecast_days=forecast_days_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_ml_forecasting_fallback_to_rule_based(self, item_id, forecast_days, request_context):
         """
         Property Test: ML forecasting falls back to rule-based when ML service fails

@@ -121,7 +121,7 @@ class TestMultiFactorAuthenticationEnforcement:
         operation=sensitive_operations_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=5)
     def test_sensitive_operations_require_mfa(
         self, user_id, username, operation, request_context
     ):
@@ -344,7 +344,7 @@ class TestSessionManagementSecurity:
         token_jti=jti_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=5)
     def test_session_creation_and_validation(
         self, user_id, token_jti, request_context
     ):

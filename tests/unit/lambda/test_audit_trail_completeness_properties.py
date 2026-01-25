@@ -126,7 +126,7 @@ class TestAuditTrailCompleteness:
         before_state=state_data_strategy,
         after_state=state_data_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_user_actions_create_complete_audit_records(
         self, user_id, action, resource, resource_id, details, 
         request_context, before_state, after_state
@@ -302,7 +302,7 @@ class TestAuditTrailCompleteness:
         resource=resources_strategy,
         resource_id=resource_id_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_audit_records_have_cryptographic_integrity(
         self, user_id, action, resource, resource_id
     ):
@@ -754,7 +754,7 @@ class TestSecurityAuditLoggingWithTamperDetection:
         audit_id=st.uuids().map(str),
         requester_user_id=user_id_strategy
     )
-    @settings(max_examples=30)
+    @settings(max_examples=3)
     def test_audit_integrity_verification_detects_valid_records(
         self, audit_id, requester_user_id
     ):

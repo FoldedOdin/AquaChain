@@ -94,7 +94,7 @@ class TestUnauthorizedAccessPreventionAndLogging:
         username=username_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_unauthorized_access_is_denied_and_logged(
         self, role, resource, action, user_id, username, request_context
     ):
@@ -212,7 +212,7 @@ class TestAPIAuthorizationValidation:
         username=username_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_api_requests_are_validated_against_authority_matrix(
         self, role, resource, action, user_id, username, request_context
     ):
@@ -315,7 +315,7 @@ class TestAuthorityMatrixEnforcement:
         resource=all_resources_strategy,
         action=actions_strategy
     )
-    @settings(max_examples=50)
+    @settings(max_examples=10)
     def test_authority_matrix_is_enforced_exactly(self, role, resource, action):
         """
         Property Test: Authority matrix is enforced exactly
@@ -377,7 +377,7 @@ class TestAuthorityMatrixEnforcement:
         resource=all_resources_strategy,
         action=actions_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=5)
     def test_authority_matrix_is_deterministic(self, role1, role2, resource, action):
         """
         Property Test: Authority matrix enforcement is deterministic

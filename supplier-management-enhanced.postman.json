@@ -1,0 +1,805 @@
+{
+  "info": {
+    "name": "AquaChain Supplier Management - Enhanced API",
+    "description": "Comprehensive API collection for testing the enhanced supplier management service with dashboard overhaul features including audit logging, performance scoring, financial risk assessment, and contract management",
+    "version": "2.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.aquachain.com/api",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "supplier_id",
+      "value": "SUPPLIER-001",
+      "type": "string"
+    },
+    {
+      "key": "contract_id",
+      "value": "CONTRACT-001",
+      "type": "string"
+    },
+    {
+      "key": "po_id",
+      "value": "PO-001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Supplier Profile Management",
+      "item": [
+        {
+          "name": "Get Suppliers List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/suppliers?status=active&category=electronics&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "Filter by supplier status"
+                },
+                {
+                  "key": "category",
+                  "value": "electronics",
+                  "description": "Filter by supplier category"
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Maximum number of results"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has suppliers array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('suppliers');",
+                  "    pm.expect(jsonData.suppliers).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Response time is acceptable', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create New Supplier",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_name\": \"TechSensors Inc\",\n  \"contact_email\": \"orders@techsensors.com\",\n  \"contact_phone\": \"+1-555-0123\",\n  \"address\": \"123 Tech Street, Silicon Valley, CA\",\n  \"category\": \"electronics\",\n  \"payment_terms\": \"NET30\",\n  \"api_endpoint\": \"https://api.techsensors.com/orders\",\n  \"notes\": \"Primary supplier for ESP32 sensors\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/suppliers",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response contains supplier_id', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('supplier_id');",
+                  "    pm.environment.set('created_supplier_id', jsonData.supplier_id);",
+                  "});",
+                  "",
+                  "pm.test('Audit trail created', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('audit_id');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Supplier Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_email\": \"neworders@techsensors.com\",\n  \"contact_phone\": \"+1-555-0124\",\n  \"payment_terms\": \"NET15\",\n  \"notes\": \"Updated contact information per supplier request - January 2026\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/suppliers/{{supplier_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers", "{{supplier_id}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Changes applied correctly', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.supplier.contact_email).to.eql('neworders@techsensors.com');",
+                  "    pm.expect(jsonData.supplier.payment_terms).to.eql('NET15');",
+                  "});",
+                  "",
+                  "pm.test('Audit trail updated', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('audit_id');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Performance Metrics",
+      "item": [
+        {
+          "name": "Get Supplier Performance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/suppliers/{{supplier_id}}/performance?period=12months",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers", "{{supplier_id}}", "performance"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "12months",
+                  "description": "Performance analysis period"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Performance metrics present', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.performance_metrics).to.have.property('on_time_delivery_rate');",
+                  "    pm.expect(jsonData.performance_metrics).to.have.property('quality_score');",
+                  "    pm.expect(jsonData.performance_metrics).to.have.property('overall_score');",
+                  "});",
+                  "",
+                  "pm.test('Recommendations provided', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('recommendations');",
+                  "    pm.expect(jsonData.recommendations).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Financial Risk Assessment",
+      "item": [
+        {
+          "name": "Update Financial Data",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credit_rating\": \"A\",\n  \"debt_to_equity_ratio\": 0.6,\n  \"cash_flow_trend\": 5,\n  \"market_reputation_score\": 85,\n  \"industry_rating\": \"Excellent\",\n  \"annual_revenue\": 50000000,\n  \"years_in_business\": 15\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/suppliers/{{supplier_id}}/financial-data",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers", "{{supplier_id}}", "financial-data"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Financial data updated', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('updated');",
+                  "    pm.expect(jsonData.updated).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Risk score recalculated', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('new_risk_score');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Calculate Risk Assessment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"financial_data\": {\n    \"credit_rating\": \"B\",\n    \"debt_to_equity_ratio\": 0.8,\n    \"cash_flow_trend\": -2,\n    \"market_reputation_score\": 65,\n    \"industry_rating\": \"Average\"\n  },\n  \"force_recalculation\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/suppliers/{{supplier_id}}/risk-assessment",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers", "{{supplier_id}}", "risk-assessment"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Risk assessment calculated', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('risk_level');",
+                  "    pm.expect(jsonData).to.have.property('overall_risk_score');",
+                  "    pm.expect(jsonData.overall_risk_score).to.be.within(0, 100);",
+                  "});",
+                  "",
+                  "pm.test('Risk factors identified', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('risk_factors');",
+                  "    pm.expect(jsonData.risk_factors).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Contract Management",
+      "item": [
+        {
+          "name": "Create Contract",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": \"{{supplier_id}}\",\n  \"contract_type\": \"SUPPLY_AGREEMENT\",\n  \"contract_value\": 50000.00,\n  \"start_date\": \"2026-02-01\",\n  \"end_date\": \"2027-01-31\",\n  \"terms\": {\n    \"payment_terms\": \"NET30\",\n    \"delivery_terms\": \"FOB Destination\",\n    \"quality_requirements\": \"ISO 9001 certified\",\n    \"minimum_order_quantity\": 100,\n    \"volume_discounts\": {\n      \"1000+\": 0.05,\n      \"5000+\": 0.10\n    }\n  },\n  \"auto_renewal\": true,\n  \"renewal_notice_days\": 90\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/contracts",
+              "host": ["{{base_url}}"],
+              "path": ["contracts"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Contract created with ID', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('contract_id');",
+                  "    pm.environment.set('created_contract_id', jsonData.contract_id);",
+                  "});",
+                  "",
+                  "pm.test('Contract terms stored correctly', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.contract.contract_value).to.eql(50000.00);",
+                  "    pm.expect(jsonData.contract.contract_type).to.eql('SUPPLY_AGREEMENT');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Supplier Contracts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/suppliers/{{supplier_id}}/contracts?status=active",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers", "{{supplier_id}}", "contracts"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "Filter by contract status"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Contracts list returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('contracts');",
+                  "    pm.expect(jsonData.contracts).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Contract summary included', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('summary');",
+                  "    pm.expect(jsonData.summary).to.have.property('total_active_value');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Contract Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\",\n  \"notes\": \"Contract activated after legal review and supplier confirmation\",\n  \"effective_date\": \"2026-02-01\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/contracts/{{contract_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["contracts", "{{contract_id}}", "status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Status updated correctly', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.contract.contract_status).to.eql('active');",
+                  "});",
+                  "",
+                  "pm.test('Status change audited', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('audit_id');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Legacy Purchase Orders",
+      "item": [
+        {
+          "name": "Get Purchase Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/purchase-orders?supplier_id={{supplier_id}}&status=pending&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["purchase-orders"],
+              "query": [
+                {
+                  "key": "supplier_id",
+                  "value": "{{supplier_id}}",
+                  "description": "Filter by supplier"
+                },
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "Filter by status"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Maximum results"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Purchase orders returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('purchase_orders');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Purchase Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_id\": \"{{supplier_id}}\",\n  \"items\": [\n    {\n      \"item_id\": \"ESP32-SENSOR-001\",\n      \"quantity\": 100,\n      \"unit_price\": 45.99,\n      \"description\": \"ESP32 Water Quality Sensor\"\n    },\n    {\n      \"item_id\": \"CABLE-USB-C-001\",\n      \"quantity\": 100,\n      \"unit_price\": 12.99,\n      \"description\": \"USB-C Cable for Sensor\"\n    }\n  ],\n  \"total_amount\": 5898.00,\n  \"expected_delivery\": \"2026-02-15\",\n  \"delivery_address\": \"AquaChain Warehouse, 456 Industrial Blvd, Tech City, CA\",\n  \"special_instructions\": \"Quality inspection required upon receipt\",\n  \"priority\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/purchase-orders",
+              "host": ["{{base_url}}"],
+              "path": ["purchase-orders"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 or 202', function () {",
+                  "    pm.expect([201, 202]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test('PO created with ID', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('po_id');",
+                  "    pm.environment.set('created_po_id', jsonData.po_id);",
+                  "});",
+                  "",
+                  "pm.test('Approval workflow handled', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (pm.response.code === 202) {",
+                  "        pm.expect(jsonData).to.have.property('approval_required');",
+                  "        pm.expect(jsonData.approval_required).to.be.true;",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Purchase Order Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"notes\": \"Approved by procurement manager - budget validated\",\n  \"approved_amount\": 5898.00\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/purchase-orders/{{po_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["purchase-orders", "{{po_id}}", "status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Status updated', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.purchase_order.status).to.eql('approved');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health & Monitoring",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Service is healthy', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('healthy');",
+                  "    pm.expect(jsonData.service).to.eql('supplier-management');",
+                  "});",
+                  "",
+                  "pm.test('Version information present', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('version');",
+                  "    pm.expect(jsonData).to.have.property('timestamp');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Error Handling Tests",
+      "item": [
+        {
+          "name": "Invalid Supplier ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/suppliers/INVALID-SUPPLIER-ID/performance",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers", "INVALID-SUPPLIER-ID", "performance"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('Error message provided', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('error');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid JSON Payload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplier_name\": \"Test Supplier\",\n  \"invalid_field\": \n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/suppliers",
+              "host": ["{{base_url}}"],
+              "path": ["suppliers"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Validation error returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('error');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set correlation ID for request tracking",
+          "pm.environment.set('correlation_id', pm.variables.replaceIn('{{$guid}}'));",
+          "",
+          "// Add correlation ID to headers",
+          "pm.request.headers.add({",
+          "    key: 'X-Correlation-ID',",
+          "    value: pm.environment.get('correlation_id')",
+          "});"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test for response time",
+          "pm.test('Response time is reasonable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+          "});",
+          "",
+          "// Global test for proper JSON response",
+          "pm.test('Response is valid JSON', function () {",
+          "    pm.response.to.be.json;",
+          "});",
+          "",
+          "// Log response for debugging",
+          "console.log('Response Status:', pm.response.status);",
+          "console.log('Response Time:', pm.response.responseTime + 'ms');",
+          "console.log('Correlation ID:', pm.environment.get('correlation_id'));"
+        ]
+      }
+    }
+  ]
+}

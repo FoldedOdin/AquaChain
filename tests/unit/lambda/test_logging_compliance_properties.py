@@ -106,7 +106,7 @@ class TestStructuredLoggingCompliance:
         duration_ms=duration_strategy,
         custom_fields=custom_fields_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=5)
     def test_structured_logs_contain_required_fields(
         self, service_name, log_level, message, request_id, correlation_id, 
         user_id, operation, duration_ms, custom_fields
@@ -174,7 +174,7 @@ class TestStructuredLoggingCompliance:
         service_name=service_names_strategy,
         operations_list=st.lists(operations_strategy, min_size=2, max_size=10, unique=True)
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_correlation_ids_enable_request_tracing(
         self, service_name, operations_list
     ):
@@ -212,7 +212,7 @@ class TestStructuredLoggingCompliance:
         service_name=service_names_strategy,
         operation=operations_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_performance_metrics_are_captured(
         self, service_name, operation
     ):

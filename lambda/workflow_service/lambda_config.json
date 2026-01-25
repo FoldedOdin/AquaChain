@@ -1,0 +1,18 @@
+{
+  "memorySize": 512,
+  "timeout": 30,
+  "environment": {
+    "PYTHONPATH": "/opt/python:/var/runtime",
+    "AWS_LAMBDA_EXEC_WRAPPER": "/opt/bootstrap"
+  },
+  "layers": [
+    "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:workflow-shared:1"
+  ],
+  "reservedConcurrency": 100,
+  "deadLetterQueue": {
+    "targetArn": "${WorkflowDLQArn}"
+  },
+  "tracingConfig": {
+    "mode": "Active"
+  }
+}
