@@ -21,6 +21,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from structured_logger import get_logger
 from error_handler import handle_lambda_error, AuditServiceError
+from rbac_middleware import require_permission, validate_user_permissions
 
 # Configure structured logging
 logger = get_logger(__name__, "audit-service")
@@ -801,10 +802,20 @@ def lambda_handler(event, context):
     try:
         audit_service = DashboardAuditService()
         
+        # Extract request context for RBAC validation
+        request_context = {
+            'user_id': event.get('requestContext', {}).get('authorizer', {}).get('userId', 'system'),
+            'username': event.get('requestContext', {}).get('authorizer', {}).get('username', 'unknown'),
+            'correlation_id': event.get('headers', {}).get('X-Correlation-ID', str(uuid.uuid4())),
+            'ipAddress': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+            'userAgent': event.get('headers', {}).get('User-Agent', 'unknown')
+        }
+        
         # Extract operation from event
         operation = event.get('operation')
         
         if operation == 'log_user_action':
+            # No RBAC check needed for logging - this is internal system operation
             return audit_service.log_user_action(
                 user_id=event['userId'],
                 action=event['action'],
@@ -817,6 +828,7 @@ def lambda_handler(event, context):
             )
         
         elif operation == 'log_system_event':
+            # No RBAC check needed for logging - this is internal system operation
             return audit_service.log_system_event(
                 event_type=event['eventType'],
                 source=event['source'],
@@ -825,24 +837,136 @@ def lambda_handler(event, context):
             )
         
         elif operation == 'query_audit_logs':
+            # Validate RBAC permissions for audit log querying
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'audit-trails',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for audit log querying",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'audit-trails',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             return audit_service.query_audit_logs(
                 query_params=event['queryParams'],
                 requester_user_id=event['requesterUserId']
             )
         
         elif operation == 'export_audit_data':
+            # Validate RBAC permissions for audit data export
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'compliance-reports',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for audit data export",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'compliance-reports',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             return audit_service.export_audit_data(
                 export_request=event['exportRequest'],
                 requester_user_id=event['requesterUserId']
             )
         
         elif operation == 'verify_audit_integrity':
+            # Validate RBAC permissions for audit integrity verification
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'audit-trails',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for audit integrity verification",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'audit-trails',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             return audit_service.verify_audit_integrity(
                 audit_id=event['auditId'],
                 requester_user_id=event['requesterUserId']
             )
         
         elif operation == 'detect_tampering':
+            # Validate RBAC permissions for tampering detection
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'security-logs',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for tampering detection",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'security-logs',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             return audit_service.detect_tampering(
                 start_date=event['startDate'],
                 end_date=event['endDate'],

@@ -24,6 +24,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
+from rbac_middleware import require_permission, validate_user_permissions
 
 # Initialize structured logging
 logger = get_logger(__name__, 'procurement-service')
@@ -1041,6 +1042,7 @@ def lambda_handler(event, context):
         # Extract request context
         request_context = {
             'user_id': event.get('requestContext', {}).get('authorizer', {}).get('userId', 'anonymous'),
+            'username': event.get('requestContext', {}).get('authorizer', {}).get('username', 'unknown'),
             'correlation_id': event.get('headers', {}).get('X-Correlation-ID', str(uuid.uuid4())),
             'ipAddress': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
             'userAgent': event.get('headers', {}).get('User-Agent', 'unknown')
@@ -1055,18 +1057,215 @@ def lambda_handler(event, context):
         
         # Route to appropriate method
         if action == 'submit_purchase_order':
+            # Validate RBAC permissions for purchase order submission
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'purchase-orders',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for purchase order submission",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'purchase-orders',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.submit_purchase_order(body.get('orderData', {}))
+            
         elif action == 'get_approval_queue':
+            # Validate RBAC permissions for approval queue access
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'purchase-orders',
+                'approve',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for approval queue access",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'purchase-orders',
+                        'action': 'approve',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.get_approval_queue(body.get('filters', {}))
+            
         elif action == 'approve_purchase_order':
+            # Validate RBAC permissions for purchase order approval
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'purchase-orders',
+                'approve',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for purchase order approval",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'purchase-orders',
+                        'action': 'approve',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             order_id = body.get('orderId') or event.get('pathParameters', {}).get('orderId')
             result = service.approve_purchase_order(order_id, body.get('approvalData', {}))
+            
         elif action == 'reject_purchase_order':
+            # Validate RBAC permissions for purchase order rejection
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'purchase-orders',
+                'approve',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for purchase order rejection",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'purchase-orders',
+                        'action': 'approve',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             order_id = body.get('orderId') or event.get('pathParameters', {}).get('orderId')
             result = service.reject_purchase_order(order_id, body.get('rejectionData', {}))
+            
         elif action == 'process_emergency_purchase':
+            # Validate RBAC permissions for emergency purchases
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'emergency-purchases',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for emergency purchase processing",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'emergency-purchases',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.process_emergency_purchase(body.get('orderData', {}))
+            
         elif action == 'get_financial_audit_log':
+            # Validate RBAC permissions for financial audit log access
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'audit-trails',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for financial audit log access",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'audit-trails',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.get_financial_audit_log(body.get('filters', {}))
         else:
             raise ProcurementServiceError(f"Unknown action: {action}")

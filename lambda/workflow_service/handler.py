@@ -25,6 +25,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
+from rbac_middleware import require_permission, validate_user_permissions
 
 # Initialize structured logging
 logger = get_logger(__name__, 'workflow-service')
@@ -1407,6 +1408,7 @@ def lambda_handler(event, context):
         # Extract request context
         request_context = {
             'user_id': event.get('requestContext', {}).get('authorizer', {}).get('userId', 'system'),
+            'username': event.get('requestContext', {}).get('authorizer', {}).get('username', 'unknown'),
             'correlation_id': event.get('headers', {}).get('X-Correlation-ID', str(uuid.uuid4())),
             'ipAddress': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
             'userAgent': event.get('headers', {}).get('User-Agent', 'unknown')
@@ -1426,12 +1428,77 @@ def lambda_handler(event, context):
         
         # Route to appropriate method
         elif action == 'create_workflow':
+            # Validate RBAC permissions for workflow creation
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'workflow-management',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for workflow creation",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'workflow-management',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.create_workflow(
                 body.get('workflowType'),
                 body.get('payload', {}),
                 body.get('metadata', {})
             )
+            
         elif action == 'transition_workflow':
+            # Validate RBAC permissions for workflow transitions
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'workflow-management',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for workflow transition",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'workflow-management',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             workflow_id = body.get('workflowId') or event.get('pathParameters', {}).get('workflowId')
             result = service.transition_workflow(
                 workflow_id,
@@ -1439,13 +1506,112 @@ def lambda_handler(event, context):
                 body.get('justification'),
                 body.get('additionalData', {})
             )
+            
         elif action == 'get_workflow_status':
+            # Validate RBAC permissions for workflow status viewing
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'workflow-management',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for workflow status viewing",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'workflow-management',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             workflow_id = body.get('workflowId') or event.get('pathParameters', {}).get('workflowId')
             result = service.get_workflow_status(workflow_id)
+            
         elif action == 'rollback_workflow':
+            # Validate RBAC permissions for workflow rollback
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'workflow-management',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for workflow rollback",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'workflow-management',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             workflow_id = body.get('workflowId') or event.get('pathParameters', {}).get('workflowId')
             result = service.rollback_workflow(workflow_id, body.get('rollbackReason'))
+            
         elif action == 'get_audit_trail':
+            # Validate RBAC permissions for audit trail access
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'audit-trails',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for workflow audit trail access",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'audit-trails',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             workflow_id = body.get('workflowId') or event.get('pathParameters', {}).get('workflowId')
             result = service.get_workflow_audit_trail(workflow_id, body.get('filters', {}))
         else:

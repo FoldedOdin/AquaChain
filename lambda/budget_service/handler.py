@@ -25,6 +25,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
+from rbac_middleware import require_permission, validate_user_permissions
 
 # Initialize structured logging
 logger = get_logger(__name__, 'budget-service')
@@ -1055,6 +1056,7 @@ def lambda_handler(event, context):
         # Extract request context
         request_context = {
             'user_id': event.get('requestContext', {}).get('authorizer', {}).get('userId', 'system'),
+            'username': event.get('requestContext', {}).get('authorizer', {}).get('username', 'unknown'),
             'correlation_id': event.get('headers', {}).get('X-Correlation-ID', str(uuid.uuid4())),
             'ipAddress': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
             'userAgent': event.get('headers', {}).get('User-Agent', 'unknown')
@@ -1069,26 +1071,256 @@ def lambda_handler(event, context):
         
         # Route to appropriate method
         if action == 'validate_budget_availability':
+            # Validate RBAC permissions for budget validation
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'budgets',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for budget availability validation",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'budgets',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.validate_budget_availability(
                 body.get('amount'),
                 body.get('category'),
                 body.get('orderId')
             )
+            
         elif action == 'reserve_budget':
+            # Validate RBAC permissions for budget reservation
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'budget-allocation',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for budget reservation",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'budget-allocation',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.reserve_budget(
                 body.get('amount'),
                 body.get('category'),
                 body.get('orderId')
             )
+            
         elif action == 'get_budget_utilization':
+            # Validate RBAC permissions for budget utilization viewing
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'budget-utilization',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for budget utilization viewing",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'budget-utilization',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.get_budget_utilization(body.get('filters', {}))
+            
         elif action == 'allocate_budget':
+            # Validate RBAC permissions for budget allocation
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'budget-allocation',
+                'configure',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for budget allocation",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'budget-allocation',
+                        'action': 'configure',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.allocate_budget(body.get('allocationData', {}))
+            
         elif action == 'reallocate_budget':
+            # Validate RBAC permissions for budget reallocation
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'budget-changes',
+                'approve',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for budget reallocation",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'budget-changes',
+                        'action': 'approve',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.reallocate_budget(body.get('reallocationData', {}))
+            
         elif action == 'get_spend_forecast_comparison':
+            # Validate RBAC permissions for spend analysis
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'spend-analysis',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for spend forecast comparison",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'spend-analysis',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.get_spend_forecast_comparison(body.get('filters', {}))
+            
         elif action == 'generate_budget_alerts':
+            # Validate RBAC permissions for budget alert generation
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context['username'],
+                'budget-allocation',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for budget alert generation",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'X-Correlation-ID': request_context['correlation_id']
+                    },
+                    'body': json.dumps({
+                        'success': False,
+                        'error': 'Access denied',
+                        'resource': 'budget-allocation',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = service.generate_budget_alerts()
         else:
             raise BudgetServiceError(f"Unknown action: {action}")

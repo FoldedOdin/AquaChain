@@ -1,0 +1,183 @@
+{
+  "overall_success_rate": 83.33333333333334,
+  "total_passed_tests": 15,
+  "total_tests": 18,
+  "test_results": [
+    {
+      "test_name": "valid_workflow_transitions",
+      "passed_tests": 4,
+      "total_tests": 7,
+      "success_rate": 57.14285714285714,
+      "results": [
+        {
+          "from_state": "PENDING_APPROVAL",
+          "action": "APPROVE",
+          "expected_state": "APPROVED",
+          "actual_state": null,
+          "success": false,
+          "passed": false
+        },
+        {
+          "from_state": "PENDING_APPROVAL",
+          "action": "REJECT",
+          "expected_state": "REJECTED",
+          "actual_state": "REJECTED",
+          "success": true,
+          "passed": true
+        },
+        {
+          "from_state": "PENDING_APPROVAL",
+          "action": "TIMEOUT",
+          "expected_state": "TIMEOUT_ESCALATED",
+          "actual_state": "TIMEOUT_ESCALATED",
+          "success": true,
+          "passed": true
+        },
+        {
+          "from_state": "TIMEOUT_ESCALATED",
+          "action": "APPROVE",
+          "expected_state": "APPROVED",
+          "actual_state": null,
+          "success": false,
+          "passed": false
+        },
+        {
+          "from_state": "APPROVED",
+          "action": "COMPLETE",
+          "expected_state": "COMPLETED",
+          "actual_state": "COMPLETED",
+          "success": true,
+          "passed": true
+        },
+        {
+          "from_state": "APPROVED",
+          "action": "FAIL",
+          "expected_state": "FAILED",
+          "actual_state": "FAILED",
+          "success": true,
+          "passed": true
+        },
+        {
+          "from_state": "FAILED",
+          "action": "APPROVE",
+          "expected_state": "APPROVED",
+          "actual_state": null,
+          "success": false,
+          "passed": false
+        }
+      ]
+    },
+    {
+      "test_name": "invalid_workflow_transitions",
+      "passed_tests": 4,
+      "total_tests": 4,
+      "success_rate": 100.0,
+      "results": [
+        {
+          "from_state": "REJECTED",
+          "action": "APPROVE",
+          "attempted_state": "APPROVED",
+          "success": false,
+          "passed": true
+        },
+        {
+          "from_state": "COMPLETED",
+          "action": "REJECT",
+          "attempted_state": "REJECTED",
+          "success": false,
+          "passed": true
+        },
+        {
+          "from_state": "CANCELLED",
+          "action": "APPROVE",
+          "attempted_state": "APPROVED",
+          "success": false,
+          "passed": true
+        },
+        {
+          "from_state": "PENDING_APPROVAL",
+          "action": "COMPLETE",
+          "attempted_state": "COMPLETED",
+          "success": false,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "test_name": "budget_enforcement",
+      "passed_tests": 3,
+      "total_tests": 3,
+      "success_rate": 100.0,
+      "results": [
+        {
+          "test_case": "within_budget",
+          "amount": 500.0,
+          "category": "limited-budget",
+          "expected_success": true,
+          "actual_success": true,
+          "passed": true
+        },
+        {
+          "test_case": "exceeds_budget",
+          "amount": 1500.0,
+          "category": "limited-budget",
+          "expected_success": false,
+          "actual_success": false,
+          "passed": true
+        },
+        {
+          "test_case": "nonexistent_category",
+          "amount": 100.0,
+          "category": "nonexistent-budget",
+          "expected_success": false,
+          "actual_success": false,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "test_name": "workflow_timeout_escalation",
+      "passed_tests": 1,
+      "total_tests": 1,
+      "success_rate": 100,
+      "results": [
+        {
+          "test_name": "workflow_timeout_escalation",
+          "timed_out": true,
+          "escalated": true,
+          "new_state": "TIMEOUT_ESCALATED",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "test_name": "complete_purchase_workflow",
+      "passed_tests": 3,
+      "total_tests": 3,
+      "success_rate": 100.0,
+      "results": [
+        {
+          "action": "APPROVE",
+          "expected_state": "APPROVED",
+          "actual_state": "APPROVED",
+          "success": true,
+          "passed": true
+        },
+        {
+          "action": "COMPLETE",
+          "expected_state": "COMPLETED",
+          "actual_state": "COMPLETED",
+          "success": true,
+          "passed": true
+        },
+        {
+          "action": "BUDGET_COMMIT",
+          "expected": 750.0,
+          "actual": 750.0,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "status": "FAILED"
+}

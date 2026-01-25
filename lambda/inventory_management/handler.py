@@ -24,6 +24,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
+from rbac_middleware import require_permission, validate_user_permissions
 
 # Initialize structured logging
 logger = get_logger(__name__, 'inventory-service')
@@ -1294,6 +1295,7 @@ def lambda_handler(event, context):
         # Extract request context for audit logging
         request_context = {
             'user_id': event.get('requestContext', {}).get('authorizer', {}).get('user_id', 'anonymous'),
+            'username': event.get('requestContext', {}).get('authorizer', {}).get('username', 'unknown'),
             'correlation_id': event.get('headers', {}).get('X-Correlation-ID', str(uuid.uuid4())),
             'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
             'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
@@ -1334,9 +1336,65 @@ def lambda_handler(event, context):
         
         # Route requests to appropriate handlers
         if http_method == 'GET' and path == '/api/inventory/stock-levels':
+            # Validate RBAC permissions
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context.get('username', 'unknown'),
+                'inventory-data',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for inventory stock levels",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({
+                        'error': 'Access denied',
+                        'resource': 'inventory-data',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             result = inventory_service.get_stock_levels(query_parameters)
             
         elif http_method == 'PUT' and '/api/inventory/stock-levels/' in path:
+            # Validate RBAC permissions for stock updates
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context.get('username', 'unknown'),
+                'stock-adjustments',
+                'act',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for inventory stock update",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({
+                        'error': 'Access denied',
+                        'resource': 'stock-adjustments',
+                        'action': 'act',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             item_id = path_parameters.get('item_id')
             location_id = path_parameters.get('location_id')
             if not item_id or not location_id:
@@ -1351,10 +1409,66 @@ def lambda_handler(event, context):
             result = inventory_service.update_stock_level(item_id, location_id, body)
             
         elif http_method == 'GET' and path == '/api/inventory/reorder-alerts':
+            # Validate RBAC permissions for reorder alerts
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context.get('username', 'unknown'),
+                'reorder-alerts',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for reorder alerts",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({
+                        'error': 'Access denied',
+                        'resource': 'reorder-alerts',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             urgency_filter = query_parameters.get('urgency')
             result = inventory_service.get_reorder_alerts(urgency_filter)
             
         elif http_method == 'GET' and '/api/inventory/forecast/' in path:
+            # Validate RBAC permissions for demand forecasts
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context.get('username', 'unknown'),
+                'demand-forecasts',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for demand forecasts",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({
+                        'error': 'Access denied',
+                        'resource': 'demand-forecasts',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             item_id = path_parameters.get('item_id')
             if not item_id:
                 return {
@@ -1369,6 +1483,34 @@ def lambda_handler(event, context):
             result = inventory_service.get_demand_forecast(item_id, forecast_days)
             
         elif http_method == 'GET' and '/api/inventory/audit/' in path:
+            # Validate RBAC permissions for audit history
+            is_authorized, user_role, audit_details = validate_user_permissions(
+                request_context['user_id'],
+                request_context.get('username', 'unknown'),
+                'inventory-audit-history',
+                'view',
+                request_context
+            )
+            
+            if not is_authorized:
+                logger.warning(
+                    "Access denied for inventory audit history",
+                    user_id=request_context['user_id'],
+                    user_role=user_role,
+                    correlation_id=request_context['correlation_id']
+                )
+                return {
+                    'statusCode': 403,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({
+                        'error': 'Access denied',
+                        'resource': 'inventory-audit-history',
+                        'action': 'view',
+                        'userRole': user_role,
+                        'correlationId': request_context['correlation_id']
+                    })
+                }
+            
             item_id = path_parameters.get('item_id')
             if not item_id:
                 return {

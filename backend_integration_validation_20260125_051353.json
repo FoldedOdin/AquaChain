@@ -1,0 +1,142 @@
+{
+  "validation_id": "20260125_051353",
+  "timestamp": "2026-01-25T05:13:53.891545",
+  "checkpoint": "Backend Services Integration Validation",
+  "status": "completed",
+  "tests": {
+    "service_files": {
+      "status": "passed",
+      "existing_files": [
+        "lambda/rbac_service/handler.py",
+        "lambda/inventory_management/handler.py",
+        "lambda/procurement_service/handler.py",
+        "lambda/workflow_service/handler.py",
+        "lambda/budget_service/handler.py",
+        "lambda/audit_service/handler.py"
+      ],
+      "missing_files": [],
+      "total_required": 6,
+      "total_existing": 6
+    },
+    "shared_modules": {
+      "status": "passed",
+      "existing_modules": [
+        "lambda/shared/structured_logger.py",
+        "lambda/shared/audit_logger.py",
+        "lambda/shared/errors.py",
+        "lambda/shared/error_handler.py"
+      ],
+      "missing_modules": [],
+      "total_required": 4,
+      "total_existing": 4
+    },
+    "service_interfaces": {
+      "rbac_service": {
+        "importable": true,
+        "has_main_class": true,
+        "error": null
+      },
+      "inventory_service": {
+        "importable": false,
+        "has_main_class": false,
+        "error": "cannot import name 'InventoryService' from 'handler' (C:\\PROJECT\\AquaChain-Final\\tests\\integration\\..\\..\\lambda\\rbac_service\\handler.py)"
+      },
+      "procurement_service": {
+        "importable": false,
+        "has_main_class": false,
+        "error": "cannot import name 'ProcurementService' from 'handler' (C:\\PROJECT\\AquaChain-Final\\tests\\integration\\..\\..\\lambda\\rbac_service\\handler.py)"
+      },
+      "workflow_service": {
+        "importable": false,
+        "has_main_class": false,
+        "error": "cannot import name 'WorkflowService' from 'handler' (C:\\PROJECT\\AquaChain-Final\\tests\\integration\\..\\..\\lambda\\rbac_service\\handler.py)"
+      },
+      "budget_service": {
+        "importable": false,
+        "has_main_class": false,
+        "error": "cannot import name 'BudgetService' from 'handler' (C:\\PROJECT\\AquaChain-Final\\tests\\integration\\..\\..\\lambda\\rbac_service\\handler.py)"
+      },
+      "audit_service": {
+        "importable": false,
+        "has_main_class": false,
+        "error": "cannot import name 'DashboardAuditService' from 'handler' (C:\\PROJECT\\AquaChain-Final\\tests\\integration\\..\\..\\lambda\\rbac_service\\handler.py)"
+      }
+    },
+    "property_based_tests": {
+      "status": "passed",
+      "existing_files": [
+        "tests/unit/lambda/test_rbac_authorization_properties.py",
+        "tests/unit/lambda/test_inventory_operations_properties.py",
+        "tests/unit/lambda/test_procurement_operations_properties.py",
+        "tests/unit/lambda/test_workflow_management_properties.py",
+        "tests/unit/lambda/test_budget_enforcement_properties.py",
+        "tests/unit/lambda/test_audit_trail_completeness_properties.py"
+      ],
+      "missing_files": [],
+      "total_expected": 6,
+      "total_existing": 6
+    },
+    "integration": {
+      "rbac_integration": [
+        {
+          "test_case": {
+            "role": "inventory-manager",
+            "resource": "inventory-data",
+            "action": "view",
+            "expected": true
+          },
+          "actual_authorized": true,
+          "expected_authorized": true,
+          "passed": true
+        },
+        {
+          "test_case": {
+            "role": "inventory-manager",
+            "resource": "purchase-orders",
+            "action": "approve",
+            "expected": false
+          },
+          "actual_authorized": false,
+          "expected_authorized": false,
+          "passed": true
+        },
+        {
+          "test_case": {
+            "role": "procurement-finance-controller",
+            "resource": "purchase-orders",
+            "action": "approve",
+            "expected": true
+          },
+          "actual_authorized": true,
+          "expected_authorized": true,
+          "passed": true
+        },
+        {
+          "test_case": {
+            "role": "warehouse-manager",
+            "resource": "budget-allocation",
+            "action": "configure",
+            "expected": false
+          },
+          "actual_authorized": false,
+          "expected_authorized": false,
+          "passed": true
+        }
+      ],
+      "overall_success": false,
+      "error": "Failed to allocate budget: An error occurred (ResourceNotFoundException) when calling the GetItem operation: Requested resource not found"
+    }
+  },
+  "summary": {
+    "total_tests": 5,
+    "passed_tests": 3,
+    "success_rate": 60.0,
+    "overall_status": "failed",
+    "critical_issues": 1,
+    "total_recommendations": 2
+  },
+  "recommendations": [
+    "Failed to import services: inventory_service, procurement_service, workflow_service, budget_service, audit_service. Check service implementations and dependencies.",
+    "Integration test error: Failed to allocate budget: An error occurred (ResourceNotFoundException) when calling the GetItem operation: Requested resource not found"
+  ]
+}

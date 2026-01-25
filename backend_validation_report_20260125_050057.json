@@ -1,0 +1,537 @@
+{
+  "validation_id": "20260125_050057",
+  "timestamp": "2026-01-25T05:00:57.255128",
+  "checkpoint": "Backend Services Integration Validation (Simple)",
+  "status": "completed",
+  "services": {
+    "rbac_service": {
+      "exists": true,
+      "file_size": 19848,
+      "line_count": 556,
+      "classes": [
+        {
+          "name": "AuthorityMatrix",
+          "methods": [
+            "get_role_authorities",
+            "has_authority_level",
+            "can_perform_action"
+          ],
+          "method_count": 3
+        },
+        {
+          "name": "CognitoRoleValidator",
+          "methods": [
+            "__init__",
+            "get_user_groups",
+            "validate_user_role",
+            "get_primary_role"
+          ],
+          "method_count": 4
+        },
+        {
+          "name": "RBACService",
+          "methods": [
+            "__init__",
+            "validate_user_permissions",
+            "check_authority_matrix_compliance",
+            "get_user_permissions",
+            "_log_access_attempt"
+          ],
+          "method_count": 5
+        }
+      ],
+      "class_count": 3,
+      "functions": [
+        "lambda_handler"
+      ],
+      "has_lambda_handler": true,
+      "has_error_handling": true,
+      "has_logging": true,
+      "has_audit_logging": true,
+      "has_boto3": true,
+      "has_dynamodb": false,
+      "pattern_matches": 4,
+      "total_patterns": 4,
+      "imports": [
+        "json",
+        "os",
+        "sys",
+        "boto3",
+        "typing",
+        "datetime",
+        "botocore.exceptions",
+        "errors",
+        "error_handler",
+        "structured_logger"
+      ],
+      "quality_score": 10.0
+    },
+    "inventory_management": {
+      "exists": true,
+      "file_size": 59133,
+      "line_count": 1459,
+      "classes": [
+        {
+          "name": "InventoryService",
+          "methods": [
+            "__init__",
+            "get_stock_levels",
+            "update_stock_level",
+            "get_reorder_alerts",
+            "get_demand_forecast",
+            "get_audit_history",
+            "_query_with_filters",
+            "_enrich_inventory_item",
+            "_calculate_stock_status",
+            "_calculate_days_of_supply",
+            "_calculate_reorder_urgency",
+            "_calculate_projected_stockout_date",
+            "_calculate_inventory_summary",
+            "_validate_stock_updates",
+            "_check_and_generate_alerts",
+            "_generate_reorder_alert",
+            "_send_realtime_update"
+          ],
+          "method_count": 17
+        }
+      ],
+      "class_count": 1,
+      "functions": [
+        "lambda_handler",
+        "lambda_handler"
+      ],
+      "has_lambda_handler": true,
+      "has_error_handling": true,
+      "has_logging": true,
+      "has_audit_logging": true,
+      "has_boto3": true,
+      "has_dynamodb": true,
+      "pattern_matches": 4,
+      "total_patterns": 4,
+      "imports": [
+        "json",
+        "boto3",
+        "os",
+        "datetime",
+        "decimal",
+        "typing",
+        "uuid",
+        "logging",
+        "botocore.exceptions",
+        "sys"
+      ],
+      "quality_score": 10.0
+    },
+    "procurement_service": {
+      "exists": true,
+      "file_size": 47452,
+      "line_count": 1125,
+      "classes": [
+        {
+          "name": "ProcurementServiceError",
+          "methods": [],
+          "method_count": 0
+        },
+        {
+          "name": "ProcurementService",
+          "methods": [
+            "__init__",
+            "submit_purchase_order",
+            "get_approval_queue",
+            "approve_purchase_order",
+            "reject_purchase_order",
+            "process_emergency_purchase",
+            "get_financial_audit_log",
+            "_validate_purchase_order_data",
+            "_calculate_total_amount",
+            "_validate_budget_availability",
+            "_validate_supplier",
+            "_create_approval_workflow",
+            "_update_workflow_status",
+            "_reserve_budget",
+            "_notify_approval_queue",
+            "_send_approval_notification",
+            "_process_emergency_notifications",
+            "_calculate_days_in_queue",
+            "_calculate_risk_level",
+            "_convert_decimals"
+          ],
+          "method_count": 20
+        }
+      ],
+      "class_count": 2,
+      "functions": [
+        "lambda_handler"
+      ],
+      "has_lambda_handler": true,
+      "has_error_handling": true,
+      "has_logging": true,
+      "has_audit_logging": true,
+      "has_boto3": true,
+      "has_dynamodb": true,
+      "pattern_matches": 4,
+      "total_patterns": 4,
+      "imports": [
+        "json",
+        "boto3",
+        "os",
+        "datetime",
+        "decimal",
+        "typing",
+        "uuid",
+        "logging",
+        "botocore.exceptions",
+        "sys"
+      ],
+      "quality_score": 10.0
+    },
+    "workflow_service": {
+      "exists": true,
+      "file_size": 62262,
+      "line_count": 1505,
+      "classes": [
+        {
+          "name": "WorkflowState",
+          "methods": [],
+          "method_count": 0
+        },
+        {
+          "name": "WorkflowType",
+          "methods": [],
+          "method_count": 0
+        },
+        {
+          "name": "WorkflowAction",
+          "methods": [],
+          "method_count": 0
+        },
+        {
+          "name": "WorkflowServiceError",
+          "methods": [],
+          "method_count": 0
+        },
+        {
+          "name": "WorkflowStateMachine",
+          "methods": [
+            "is_valid_transition",
+            "get_valid_transitions",
+            "is_terminal_state"
+          ],
+          "method_count": 3
+        },
+        {
+          "name": "WorkflowService",
+          "methods": [
+            "__init__",
+            "create_workflow",
+            "transition_workflow",
+            "get_workflow_status",
+            "handle_workflow_timeout",
+            "rollback_workflow",
+            "get_workflow_audit_trail",
+            "_determine_new_state",
+            "_prepare_rollback_data",
+            "_create_state_audit_entry",
+            "_handle_post_transition_actions",
+            "_handle_purchase_order_actions",
+            "_handle_budget_allocation_actions",
+            "_update_purchase_order_status",
+            "_escalate_to_finance_controller",
+            "_get_finance_controllers",
+            "_send_escalation_notification",
+            "_send_workflow_notification",
+            "_schedule_timeout_check",
+            "_get_workflow_audit_trail",
+            "_calculate_workflow_metrics",
+            "_execute_rollback_operations",
+            "_rollback_purchase_order",
+            "_rollback_budget_changes",
+            "_convert_decimals"
+          ],
+          "method_count": 25
+        }
+      ],
+      "class_count": 6,
+      "functions": [
+        "lambda_handler"
+      ],
+      "has_lambda_handler": true,
+      "has_error_handling": true,
+      "has_logging": true,
+      "has_audit_logging": true,
+      "has_boto3": true,
+      "has_dynamodb": true,
+      "pattern_matches": 4,
+      "total_patterns": 4,
+      "imports": [
+        "json",
+        "boto3",
+        "os",
+        "datetime",
+        "decimal",
+        "typing",
+        "uuid",
+        "logging",
+        "botocore.exceptions",
+        "sys"
+      ],
+      "quality_score": 10.0
+    },
+    "budget_service": {
+      "exists": true,
+      "file_size": 50545,
+      "line_count": 1147,
+      "classes": [
+        {
+          "name": "BudgetServiceError",
+          "methods": [],
+          "method_count": 0
+        },
+        {
+          "name": "BudgetService",
+          "methods": [
+            "__init__",
+            "validate_budget_availability",
+            "reserve_budget",
+            "get_budget_utilization",
+            "allocate_budget",
+            "reallocate_budget",
+            "get_spend_forecast_comparison",
+            "generate_budget_alerts",
+            "_get_current_budget_period",
+            "_get_budget_info",
+            "_create_default_budget_allocation",
+            "_get_validation_message",
+            "_get_budget_status",
+            "_get_alert_level",
+            "_generate_budget_alert",
+            "_get_threshold_for_level",
+            "_get_alert_message",
+            "_send_budget_alert_notification",
+            "_get_ml_forecast",
+            "_get_detailed_ml_forecast",
+            "_generate_rule_based_forecast",
+            "_calculate_trend_direction",
+            "_calculate_forecast_risk_level",
+            "_validate_allocation_data",
+            "_validate_reallocation_data",
+            "_convert_decimals"
+          ],
+          "method_count": 26
+        }
+      ],
+      "class_count": 2,
+      "functions": [
+        "lambda_handler"
+      ],
+      "has_lambda_handler": true,
+      "has_error_handling": true,
+      "has_logging": true,
+      "has_audit_logging": true,
+      "has_boto3": true,
+      "has_dynamodb": true,
+      "pattern_matches": 3,
+      "total_patterns": 4,
+      "imports": [
+        "json",
+        "boto3",
+        "os",
+        "datetime",
+        "decimal",
+        "typing",
+        "uuid",
+        "logging",
+        "botocore.exceptions",
+        "sys"
+      ],
+      "quality_score": 9.0
+    },
+    "audit_service": {
+      "exists": true,
+      "file_size": 31770,
+      "line_count": 856,
+      "classes": [
+        {
+          "name": "DashboardAuditService",
+          "methods": [
+            "__init__",
+            "log_user_action",
+            "log_system_event",
+            "query_audit_logs",
+            "export_audit_data",
+            "verify_audit_integrity",
+            "detect_tampering",
+            "_add_integrity_verification",
+            "_create_digital_signature",
+            "_store_audit_record_dynamodb",
+            "_store_audit_record_s3",
+            "_execute_audit_query",
+            "_generate_audit_export",
+            "_get_audit_record",
+            "_verify_record_integrity",
+            "_verify_digital_signature",
+            "_perform_tampering_detection"
+          ],
+          "method_count": 17
+        }
+      ],
+      "class_count": 1,
+      "functions": [
+        "lambda_handler"
+      ],
+      "has_lambda_handler": true,
+      "has_error_handling": true,
+      "has_logging": true,
+      "has_audit_logging": true,
+      "has_boto3": true,
+      "has_dynamodb": true,
+      "pattern_matches": 4,
+      "total_patterns": 4,
+      "imports": [
+        "json",
+        "boto3",
+        "hashlib",
+        "hmac",
+        "uuid",
+        "os",
+        "datetime",
+        "typing",
+        "botocore.exceptions",
+        "logging"
+      ],
+      "quality_score": 10.0
+    }
+  },
+  "integration_points": {
+    "rbac_integration": {
+      "description": "RBAC service integration across all services",
+      "files_checked": [
+        "lambda/inventory_management/handler.py",
+        "lambda/procurement_service/handler.py",
+        "lambda/workflow_service/handler.py",
+        "lambda/budget_service/handler.py"
+      ],
+      "pattern_matches": {
+        "lambda/inventory_management/handler.py": 1,
+        "lambda/procurement_service/handler.py": 1,
+        "lambda/workflow_service/handler.py": 1,
+        "lambda/budget_service/handler.py": 1
+      },
+      "total_matches": 4,
+      "integration_score": 2.5
+    },
+    "audit_integration": {
+      "description": "Audit logging integration across all services",
+      "files_checked": [
+        "lambda/inventory_management/handler.py",
+        "lambda/procurement_service/handler.py",
+        "lambda/workflow_service/handler.py",
+        "lambda/budget_service/handler.py"
+      ],
+      "pattern_matches": {
+        "lambda/inventory_management/handler.py": 3,
+        "lambda/procurement_service/handler.py": 3,
+        "lambda/workflow_service/handler.py": 3,
+        "lambda/budget_service/handler.py": 3
+      },
+      "total_matches": 12,
+      "integration_score": 7.5
+    },
+    "workflow_integration": {
+      "description": "Workflow service integration with procurement",
+      "files_checked": [
+        "lambda/procurement_service/handler.py"
+      ],
+      "pattern_matches": {
+        "lambda/procurement_service/handler.py": 3
+      },
+      "total_matches": 3,
+      "integration_score": 7.5
+    },
+    "budget_integration": {
+      "description": "Budget service integration with procurement",
+      "files_checked": [
+        "lambda/procurement_service/handler.py"
+      ],
+      "pattern_matches": {
+        "lambda/procurement_service/handler.py": 4
+      },
+      "total_matches": 4,
+      "integration_score": 10.0
+    }
+  },
+  "summary": {
+    "avg_service_score": 9.833333333333334,
+    "avg_integration_score": 6.875,
+    "pbt_score": 10.0,
+    "overall_score": 8.979166666666668,
+    "status": "passed",
+    "total_services": 6,
+    "services_with_errors": 0,
+    "integration_points_checked": 4,
+    "pbt_files_found": 6,
+    "pbt_files_missing": 0
+  },
+  "property_based_tests": {
+    "total_expected": 6,
+    "existing_files": [
+      "tests/unit/lambda/test_rbac_authorization_properties.py",
+      "tests/unit/lambda/test_inventory_operations_properties.py",
+      "tests/unit/lambda/test_procurement_operations_properties.py",
+      "tests/unit/lambda/test_workflow_management_properties.py",
+      "tests/unit/lambda/test_budget_enforcement_properties.py",
+      "tests/unit/lambda/test_audit_trail_completeness_properties.py"
+    ],
+    "missing_files": [],
+    "test_analysis": {
+      "tests/unit/lambda/test_rbac_authorization_properties.py": {
+        "has_hypothesis": true,
+        "has_fast_check": false,
+        "has_property_decorator": true,
+        "test_count": 10,
+        "property_count": 17,
+        "file_size": 20998
+      },
+      "tests/unit/lambda/test_inventory_operations_properties.py": {
+        "has_hypothesis": true,
+        "has_fast_check": false,
+        "has_property_decorator": true,
+        "test_count": 10,
+        "property_count": 15,
+        "file_size": 24634
+      },
+      "tests/unit/lambda/test_procurement_operations_properties.py": {
+        "has_hypothesis": true,
+        "has_fast_check": false,
+        "has_property_decorator": true,
+        "test_count": 5,
+        "property_count": 10,
+        "file_size": 30286
+      },
+      "tests/unit/lambda/test_workflow_management_properties.py": {
+        "has_hypothesis": true,
+        "has_fast_check": false,
+        "has_property_decorator": true,
+        "test_count": 9,
+        "property_count": 16,
+        "file_size": 42243
+      },
+      "tests/unit/lambda/test_budget_enforcement_properties.py": {
+        "has_hypothesis": true,
+        "has_fast_check": false,
+        "has_property_decorator": true,
+        "test_count": 6,
+        "property_count": 15,
+        "file_size": 26884
+      },
+      "tests/unit/lambda/test_audit_trail_completeness_properties.py": {
+        "has_hypothesis": true,
+        "has_fast_check": false,
+        "has_property_decorator": true,
+        "test_count": 10,
+        "property_count": 17,
+        "file_size": 37366
+      }
+    }
+  }
+}
