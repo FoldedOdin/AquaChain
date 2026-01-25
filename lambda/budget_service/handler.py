@@ -26,6 +26,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
 from rbac_middleware import require_permission, validate_user_permissions
+from transaction_manager import TransactionManager, TransactionError, ConcurrencyError
 
 # Initialize structured logging
 logger = get_logger(__name__, 'budget-service')
@@ -193,7 +194,7 @@ class BudgetService:
     
     def reserve_budget(self, amount: float, category: str, order_id: str) -> Dict:
         """
-        Reserve budget for approved purchase order
+        Reserve budget for approved purchase order using atomic transactions
         
         Args:
             amount: Amount to reserve
@@ -207,26 +208,73 @@ class BudgetService:
             try:
                 current_period = self._get_current_budget_period()
                 timestamp = datetime.utcnow().isoformat() + 'Z'
+                budget_key = {'PK': f"BUDGET#{category}#{current_period}", 'SK': 'ALLOCATION'}
                 
-                # Update budget utilization atomically
-                response = budget_table.update_item(
-                    Key={'PK': f"BUDGET#{category}#{current_period}", 'SK': 'ALLOCATION'},
-                    UpdateExpression='''
-                        SET utilizedAmount = utilizedAmount + :amount,
-                            updatedAt = :timestamp,
-                            updatedBy = :user_id
-                        ADD reservations :reservation
-                    ''',
-                    ExpressionAttributeValues={
-                        ':amount': Decimal(str(amount)),
-                        ':timestamp': timestamp,
-                        ':user_id': self.user_id,
-                        ':reservation': {order_id: Decimal(str(amount))}
-                    },
-                    ReturnValues='ALL_NEW'
-                )
+                # Get current budget info for version check and validation
+                response = budget_table.get_item(Key=budget_key)
                 
-                updated_budget = response['Attributes']
+                if 'Item' not in response:
+                    # Create default budget allocation if not exists
+                    self._create_default_budget_allocation(category, current_period)
+                    response = budget_table.get_item(Key=budget_key)
+                
+                current_budget = response['Item']
+                current_version = int(current_budget.get('version', 0))
+                
+                # Validate sufficient budget available
+                allocated_amount = float(current_budget['allocatedAmount'])
+                utilized_amount = float(current_budget['utilizedAmount'])
+                reserved_amount = float(current_budget.get('reservedAmount', 0))
+                available_amount = allocated_amount - utilized_amount - reserved_amount
+                
+                if available_amount < amount:
+                    raise BudgetServiceError(
+                        f"Insufficient budget: requested {amount}, available {available_amount}"
+                    )
+                
+                # Execute atomic budget reservation
+                tm = TransactionManager(self.correlation_id)
+                
+                with tm.transaction_context(idempotency_key=f"reserve_budget_{order_id}_{timestamp}") as txn:
+                    # Update budget utilization with version check
+                    txn.update(
+                        table_name=budget_table.name,
+                        key=budget_key,
+                        update_expression='''
+                            ADD utilizedAmount :amount, reservedAmount :amount
+                            SET updatedAt = :timestamp, updatedBy = :user_id
+                        ''',
+                        expression_attribute_values={
+                            ':amount': Decimal(str(amount)),
+                            ':timestamp': timestamp,
+                            ':user_id': self.user_id
+                        },
+                        expected_version=current_version
+                    )
+                    
+                    # Create reservation record for audit trail
+                    reservation_record = {
+                        'PK': f"BUDGET#{category}#{current_period}",
+                        'SK': f"RESERVATION#{order_id}",
+                        'orderId': order_id,
+                        'amount': Decimal(str(amount)),
+                        'category': category,
+                        'period': current_period,
+                        'reservedBy': self.user_id,
+                        'reservedAt': timestamp,
+                        'status': 'ACTIVE',
+                        'correlationId': self.correlation_id
+                    }
+                    
+                    txn.put(
+                        table_name=budget_table.name,
+                        item=reservation_record,
+                        condition_expression='attribute_not_exists(PK)'
+                    )
+                
+                # Get updated budget for response
+                updated_response = budget_table.get_item(Key=budget_key)
+                updated_budget = updated_response['Item']
                 
                 # Log audit event
                 audit_logger.log_user_action(
@@ -238,18 +286,21 @@ class BudgetService:
                         'amount': amount,
                         'category': category,
                         'orderId': order_id,
-                        'newUtilization': float(updated_budget['utilizedAmount'])
+                        'newUtilization': float(updated_budget['utilizedAmount']),
+                        'transactionId': self.correlation_id
                     },
                     request_context=self.request_context,
+                    before_state=self._convert_decimals(current_budget),
                     after_state=self._convert_decimals(updated_budget)
                 )
                 
                 logger.info(
-                    "Budget reserved successfully",
+                    "Budget reserved atomically",
                     category=category,
                     amount=amount,
                     order_id=order_id,
                     new_utilization=float(updated_budget['utilizedAmount']),
+                    transaction_id=self.correlation_id,
                     correlation_id=self.correlation_id
                 )
                 
@@ -259,8 +310,31 @@ class BudgetService:
                     'category': category,
                     'orderId': order_id,
                     'newUtilization': float(updated_budget['utilizedAmount']),
-                    'reservedAt': timestamp
+                    'reservedAt': timestamp,
+                    'transactionId': self.correlation_id
                 }
+                
+            except ConcurrencyError as e:
+                logger.warning(
+                    "Concurrent modification detected during budget reservation",
+                    category=category,
+                    amount=amount,
+                    order_id=order_id,
+                    error=str(e),
+                    correlation_id=self.correlation_id
+                )
+                raise BudgetServiceError(f"Budget was modified by another operation. Please retry.")
+                
+            except TransactionError as e:
+                logger.error(
+                    "Transaction failed during budget reservation",
+                    category=category,
+                    amount=amount,
+                    order_id=order_id,
+                    error=str(e),
+                    correlation_id=self.correlation_id
+                )
+                raise BudgetServiceError(f"Failed to reserve budget: {str(e)}")
                 
             except Exception as e:
                 logger.error(

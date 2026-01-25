@@ -25,6 +25,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 from structured_logger import get_logger, TimedOperation, SystemHealthMonitor
 from audit_logger import audit_logger
 from rbac_middleware import require_permission, validate_user_permissions
+from transaction_manager import TransactionManager, TransactionError, ConcurrencyError
+from input_validator import validator, ValidationError as InputValidationError, idempotency_manager
+from error_handler import (
+    ErrorHandler, AquaChainError, ValidationError, BusinessRuleViolationError,
+    ConflictError, create_lambda_error_response
+)
 
 # Initialize structured logging
 logger = get_logger(__name__, 'procurement-service')
@@ -75,6 +81,9 @@ class ProcurementService:
         self.user_id = self.request_context.get('user_id', 'system')
         self.correlation_id = self.request_context.get('correlation_id', str(uuid.uuid4()))
         
+        # Initialize error handler
+        self.error_handler = ErrorHandler('procurement-service', enable_debug=False)
+        
         # Configuration
         self.approval_topic = os.environ.get('APPROVAL_NOTIFICATIONS_TOPIC')
         self.workflow_state_machine_arn = os.environ.get('WORKFLOW_STATE_MACHINE_ARN')
@@ -87,47 +96,84 @@ class ProcurementService:
             user_id=self.user_id
         )
     
-    def submit_purchase_order(self, order_data: Dict) -> Dict:
+    def submit_purchase_order(self, order_data: Dict, idempotency_key: Optional[str] = None) -> Dict:
         """
         Submit a new purchase order with validation and workflow initiation
         
         Args:
             order_data: Purchase order data including items, supplier, budget category
+            idempotency_key: Optional idempotency key for duplicate prevention
             
         Returns:
             Created purchase order with workflow information
             
         Raises:
-            ProcurementServiceError: If submission fails
+            ValidationError: If input validation fails
+            BusinessRuleViolationError: If business rules are violated
+            ConflictError: If duplicate operation detected
         """
         with TimedOperation(logger, "submit_purchase_order"):
             try:
-                # Validate input data
-                self._validate_purchase_order_data(order_data)
+                # Check for duplicate operation if idempotency key provided
+                if idempotency_key:
+                    if not idempotency_manager.validate_idempotency_key(idempotency_key):
+                        raise ValidationError("Invalid idempotency key format")
+                    
+                    operation_signature = f"submit_purchase_order_{json.dumps(order_data, sort_keys=True)}"
+                    
+                    if idempotency_manager.is_duplicate_operation(idempotency_key, operation_signature):
+                        cached_result = idempotency_manager.get_cached_result(idempotency_key)
+                        if cached_result:
+                            logger.info(
+                                "Returning cached result for duplicate operation",
+                                idempotency_key=idempotency_key,
+                                correlation_id=self.correlation_id
+                            )
+                            return cached_result
+                
+                # Validate input data using schema
+                try:
+                    validated_data = validator.validate_input(
+                        order_data, 
+                        'purchase_order', 
+                        self.correlation_id
+                    )
+                except InputValidationError as e:
+                    raise ValidationError(
+                        message=e.message,
+                        field_errors=[{
+                            'field': e.field,
+                            'message': e.message,
+                            'code': e.code
+                        }] if e.field else [],
+                        correlation_id=self.correlation_id
+                    )
                 
                 # Generate order ID and timestamp
                 order_id = str(uuid.uuid4())
                 timestamp = datetime.utcnow().isoformat() + 'Z'
                 
                 # Calculate total amount
-                total_amount = self._calculate_total_amount(order_data['items'])
+                total_amount = self._calculate_total_amount(validated_data['items'])
                 
                 # Validate budget availability
                 budget_validation = self._validate_budget_availability(
                     total_amount, 
-                    order_data['budgetCategory']
+                    validated_data['budgetCategory']
                 )
                 
                 if not budget_validation['available']:
-                    raise ProcurementServiceError(
-                        f"Insufficient budget: {budget_validation['message']}"
+                    raise BusinessRuleViolationError(
+                        f"Insufficient budget: {budget_validation['message']}",
+                        rule="BUDGET_AVAILABILITY",
+                        correlation_id=self.correlation_id
                     )
                 
                 # Validate supplier
-                supplier_info = self._validate_supplier(order_data['supplierId'])
+                supplier_info = self._validate_supplier(validated_data['supplierId'])
                 
                 # Determine if emergency purchase
-                is_emergency = order_data.get('isEmergency', False)
+                is_emergency = validated_data.get('isEmergency', False)
                 priority = 'EMERGENCY' if is_emergency else 'NORMAL'
                 
                 # Create purchase order record
@@ -136,19 +182,20 @@ class ProcurementService:
                     'SK': 'CURRENT',
                     'orderId': order_id,
                     'requesterId': self.user_id,
-                    'supplierId': order_data['supplierId'],
+                    'supplierId': validated_data['supplierId'],
                     'supplierName': supplier_info['name'],
-                    'items': order_data['items'],
+                    'items': validated_data['items'],
                     'totalAmount': Decimal(str(total_amount)),
-                    'budgetCategory': order_data['budgetCategory'],
+                    'budgetCategory': validated_data['budgetCategory'],
                     'priority': priority,
                     'status': 'PENDING',
-                    'justification': order_data.get('justification', ''),
-                    'deliveryAddress': order_data.get('deliveryAddress', ''),
-                    'requestedDeliveryDate': order_data.get('requestedDeliveryDate'),
+                    'justification': validated_data.get('justification', ''),
+                    'deliveryAddress': validated_data.get('deliveryAddress', ''),
+                    'requestedDeliveryDate': validated_data.get('requestedDeliveryDate'),
                     'createdAt': timestamp,
                     'updatedAt': timestamp,
                     'correlationId': self.correlation_id,
+                    'version': 1,
                     'GSI1PK': f"STATUS#PENDING",
                     'GSI1SK': f"CREATED#{timestamp}",
                     'GSI2PK': f"REQUESTER#{self.user_id}",
@@ -176,10 +223,11 @@ class ProcurementService:
                     resource_id=order_id,
                     details={
                         'totalAmount': float(total_amount),
-                        'budgetCategory': order_data['budgetCategory'],
-                        'supplierId': order_data['supplierId'],
+                        'budgetCategory': validated_data['budgetCategory'],
+                        'supplierId': validated_data['supplierId'],
                         'priority': priority,
-                        'workflowId': workflow_id
+                        'workflowId': workflow_id,
+                        'idempotencyKey': idempotency_key
                     },
                     request_context=self.request_context,
                     after_state=purchase_order
@@ -188,16 +236,7 @@ class ProcurementService:
                 # Send notification for approval queue
                 self._notify_approval_queue(order_id, is_emergency, total_amount)
                 
-                logger.info(
-                    "Purchase order submitted successfully",
-                    order_id=order_id,
-                    workflow_id=workflow_id,
-                    total_amount=total_amount,
-                    priority=priority,
-                    correlation_id=self.correlation_id
-                )
-                
-                return {
+                result = {
                     'orderId': order_id,
                     'workflowId': workflow_id,
                     'status': 'PENDING',
@@ -206,6 +245,29 @@ class ProcurementService:
                     'createdAt': timestamp
                 }
                 
+                # Cache result if idempotency key provided
+                if idempotency_key:
+                    idempotency_manager.store_operation_result(
+                        idempotency_key, 
+                        operation_signature, 
+                        result
+                    )
+                
+                logger.info(
+                    "Purchase order submitted successfully",
+                    order_id=order_id,
+                    workflow_id=workflow_id,
+                    total_amount=total_amount,
+                    priority=priority,
+                    idempotency_key=idempotency_key,
+                    correlation_id=self.correlation_id
+                )
+                
+                return result
+                
+            except (ValidationError, BusinessRuleViolationError, ConflictError) as e:
+                # Re-raise known errors
+                raise
             except Exception as e:
                 logger.error(
                     "Failed to submit purchase order",
@@ -213,7 +275,12 @@ class ProcurementService:
                     correlation_id=self.correlation_id,
                     user_id=self.user_id
                 )
-                raise ProcurementServiceError(f"Failed to submit purchase order: {str(e)}")
+                raise AquaChainError(
+                    message="Failed to submit purchase order",
+                    code="SUBMISSION_FAILED",
+                    status_code=500,
+                    correlation_id=self.correlation_id
+                )
     
     def get_approval_queue(self, filters: Optional[Dict] = None) -> Dict:
         """
@@ -287,7 +354,7 @@ class ProcurementService:
     
     def approve_purchase_order(self, order_id: str, approval_data: Dict) -> Dict:
         """
-        Approve a purchase order with mandatory justification
+        Approve a purchase order with mandatory justification using atomic transactions
         
         Args:
             order_id: Purchase order ID to approve
@@ -302,7 +369,7 @@ class ProcurementService:
                 if not approval_data.get('justification'):
                     raise ProcurementServiceError("Approval justification is required")
                 
-                # Get current purchase order
+                # Get current purchase order with version for optimistic concurrency
                 response = purchase_orders_table.get_item(
                     Key={'PK': f"ORDER#{order_id}", 'SK': 'CURRENT'}
                 )
@@ -311,6 +378,7 @@ class ProcurementService:
                     raise ProcurementServiceError(f"Purchase order {order_id} not found")
                 
                 current_order = response['Item']
+                current_version = int(current_order.get('version', 0))
                 
                 # Validate current status
                 if current_order['status'] != 'PENDING':
@@ -331,42 +399,87 @@ class ProcurementService:
                 
                 timestamp = datetime.utcnow().isoformat() + 'Z'
                 
-                # Update purchase order status
-                updated_order = purchase_orders_table.update_item(
-                    Key={'PK': f"ORDER#{order_id}", 'SK': 'CURRENT'},
-                    UpdateExpression='''
-                        SET #status = :status,
-                            approvedBy = :approver,
-                            approvedAt = :timestamp,
-                            approvalJustification = :justification,
-                            updatedAt = :timestamp,
-                            GSI1PK = :gsi1pk
-                    ''',
-                    ExpressionAttributeNames={'#status': 'status'},
-                    ExpressionAttributeValues={
-                        ':status': 'APPROVED',
-                        ':approver': self.user_id,
-                        ':timestamp': timestamp,
-                        ':justification': approval_data['justification'],
-                        ':gsi1pk': 'STATUS#APPROVED'
-                    },
-                    ReturnValues='ALL_NEW'
-                )
+                # Execute atomic transaction for approval
+                tm = TransactionManager(self.correlation_id)
                 
-                # Update workflow status
-                if current_order.get('workflowId'):
-                    self._update_workflow_status(
-                        current_order['workflowId'],
-                        'APPROVED',
-                        approval_data['justification']
+                with tm.transaction_context(idempotency_key=f"approve_order_{order_id}_{timestamp}") as txn:
+                    # Update purchase order status with version check
+                    txn.update(
+                        table_name=purchase_orders_table.name,
+                        key={'PK': f"ORDER#{order_id}", 'SK': 'CURRENT'},
+                        update_expression='''
+                            SET #status = :status,
+                                approvedBy = :approver,
+                                approvedAt = :timestamp,
+                                approvalJustification = :justification,
+                                updatedAt = :timestamp,
+                                GSI1PK = :gsi1pk
+                        ''',
+                        expression_attribute_names={'#status': 'status'},
+                        expression_attribute_values={
+                            ':status': 'APPROVED',
+                            ':approver': self.user_id,
+                            ':timestamp': timestamp,
+                            ':justification': approval_data['justification'],
+                            ':gsi1pk': 'STATUS#APPROVED'
+                        },
+                        expected_version=current_version
                     )
+                    
+                    # Update workflow status if exists
+                    if current_order.get('workflowId'):
+                        workflow_response = workflows_table.get_item(
+                            Key={'PK': f"WORKFLOW#{current_order['workflowId']}", 'SK': 'CURRENT'}
+                        )
+                        
+                        if 'Item' in workflow_response:
+                            workflow_version = int(workflow_response['Item'].get('version', 0))
+                            
+                            txn.update(
+                                table_name=workflows_table.name,
+                                key={'PK': f"WORKFLOW#{current_order['workflowId']}", 'SK': 'CURRENT'},
+                                update_expression='''
+                                    SET currentState = :state,
+                                        updatedAt = :timestamp,
+                                        approvalDetails = :details
+                                ''',
+                                expression_attribute_values={
+                                    ':state': 'APPROVED',
+                                    ':timestamp': timestamp,
+                                    ':details': {
+                                        'approvedBy': self.user_id,
+                                        'justification': approval_data['justification'],
+                                        'approvedAt': timestamp
+                                    }
+                                },
+                                expected_version=workflow_version
+                            )
+                    
+                    # Reserve budget atomically
+                    current_period = self._get_current_budget_period()
+                    budget_key = {'PK': f"BUDGET#{current_order['budgetCategory']}#{current_period}", 'SK': 'ALLOCATION'}
+                    
+                    # Get current budget info for version check
+                    budget_response = budget_table.get_item(Key=budget_key)
+                    if 'Item' in budget_response:
+                        budget_version = int(budget_response['Item'].get('version', 0))
+                        
+                        txn.update(
+                            table_name=budget_table.name,
+                            key=budget_key,
+                            update_expression='ADD reservedAmount :amount SET updatedAt = :timestamp',
+                            expression_attribute_values={
+                                ':amount': current_order['totalAmount'],
+                                ':timestamp': timestamp
+                            },
+                            expected_version=budget_version
+                        )
                 
-                # Reserve budget
-                self._reserve_budget(
-                    float(current_order['totalAmount']),
-                    current_order['budgetCategory'],
-                    order_id
+                # Get the updated order for response
+                updated_response = purchase_orders_table.get_item(
+                    Key={'PK': f"ORDER#{order_id}", 'SK': 'CURRENT'}
                 )
+                updated_order = updated_response['Item']
                 
                 # Log audit event
                 audit_logger.log_user_action(
@@ -378,21 +491,23 @@ class ProcurementService:
                         'totalAmount': float(current_order['totalAmount']),
                         'budgetCategory': current_order['budgetCategory'],
                         'justification': approval_data['justification'],
-                        'workflowId': current_order.get('workflowId')
+                        'workflowId': current_order.get('workflowId'),
+                        'transactionId': self.correlation_id
                     },
                     request_context=self.request_context,
                     before_state=current_order,
-                    after_state=updated_order['Attributes']
+                    after_state=updated_order
                 )
                 
-                # Send approval notification
+                # Send approval notification (async, outside transaction)
                 self._send_approval_notification(order_id, 'APPROVED', current_order['requesterId'])
                 
                 logger.info(
-                    "Purchase order approved",
+                    "Purchase order approved atomically",
                     order_id=order_id,
                     approver=self.user_id,
                     total_amount=float(current_order['totalAmount']),
+                    transaction_id=self.correlation_id,
                     correlation_id=self.correlation_id
                 )
                 
@@ -401,8 +516,27 @@ class ProcurementService:
                     'status': 'APPROVED',
                     'approvedBy': self.user_id,
                     'approvedAt': timestamp,
-                    'justification': approval_data['justification']
+                    'justification': approval_data['justification'],
+                    'transactionId': self.correlation_id
                 }
+                
+            except ConcurrencyError as e:
+                logger.warning(
+                    "Concurrent modification detected during approval",
+                    order_id=order_id,
+                    error=str(e),
+                    correlation_id=self.correlation_id
+                )
+                raise ProcurementServiceError(f"Order was modified by another user. Please refresh and try again.")
+                
+            except TransactionError as e:
+                logger.error(
+                    "Transaction failed during approval",
+                    order_id=order_id,
+                    error=str(e),
+                    correlation_id=self.correlation_id
+                )
+                raise ProcurementServiceError(f"Failed to approve purchase order: {str(e)}")
                 
             except Exception as e:
                 logger.error(
@@ -706,6 +840,10 @@ class ProcurementService:
         for item in items:
             total += item['quantity'] * item['unitPrice']
         return total
+    
+    def _get_current_budget_period(self) -> str:
+        """Get current budget period in YYYY-MM format"""
+        return datetime.utcnow().strftime('%Y-%m')
     
     def _validate_budget_availability(self, amount: float, budget_category: str) -> Dict:
         """Validate budget availability for purchase amount"""
