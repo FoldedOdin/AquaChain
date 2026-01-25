@@ -8,6 +8,7 @@ Requirements: 3.1, 3.3, 3.5, 12.1, 12.3
 import json
 import os
 import sys
+import uuid
 import boto3
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ from botocore.exceptions import ClientError
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from errors import AuthenticationError, AuthorizationError, ValidationError
-from error_handler import handle_errors
+from error_handler import create_lambda_error_response
 from structured_logger import get_logger
 from audit_logger import audit_logger
 from health_endpoint import create_health_endpoint, get_rbac_service_dependencies
@@ -458,105 +459,109 @@ class RBACService:
             logger.error(f"Error logging access attempt: {e}")
 
 
-@handle_errors
 def lambda_handler(event, context):
     """
     Main Lambda handler for RBAC service operations.
     """
-    # Get configuration from environment variables
-    user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
-    region = os.environ.get('AWS_REGION', 'us-east-1')
-    
-    if not user_pool_id:
-        raise ValidationError('Missing Cognito configuration')
-    
-    rbac_service = RBACService(user_pool_id, region)
-    
-    # Extract request information
-    http_method = event.get('httpMethod')
-    path = event.get('path', '')
-    body = json.loads(event.get('body', '{}'))
-    
-    # Extract request context for audit logging
-    request_context = {
-        'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
-        'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
-        'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
-        'source': 'rbac_api'
-    }
-    
-    if http_method == 'POST' and path.endswith('/validate-permissions'):
-        # Validate user permissions for resource and action
-        user_id = body.get('userId')
-        username = body.get('username')
-        resource = body.get('resource')
-        action = body.get('action')
+    try:
+        # Get configuration from environment variables
+        user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
+        region = os.environ.get('AWS_REGION', 'us-east-1')
         
-        if not all([user_id, username, resource, action]):
-            raise ValidationError('Missing required fields: userId, username, resource, action')
+        if not user_pool_id:
+            raise ValidationError('Missing Cognito configuration')
         
-        is_authorized, user_role, audit_details = rbac_service.validate_user_permissions(
-            user_id, username, resource, action, request_context
-        )
+        rbac_service = RBACService(user_pool_id, region)
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'authorized': is_authorized,
-                'userRole': user_role,
-                'auditDetails': audit_details
-            })
+        # Extract request information
+        http_method = event.get('httpMethod')
+        path = event.get('path', '')
+        body = json.loads(event.get('body', '{}'))
+        
+        # Extract request context for audit logging
+        request_context = {
+            'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+            'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
+            'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+            'source': 'rbac_api'
         }
-    
-    elif http_method == 'POST' and path.endswith('/check-authority-matrix'):
-        # Check authority matrix compliance
-        user_role = body.get('userRole')
-        requested_authorities = body.get('requestedAuthorities', [])
         
-        if not user_role or not requested_authorities:
-            raise ValidationError('Missing required fields: userRole, requestedAuthorities')
+        if http_method == 'POST' and path.endswith('/validate-permissions'):
+            # Validate user permissions for resource and action
+            user_id = body.get('userId')
+            username = body.get('username')
+            resource = body.get('resource')
+            action = body.get('action')
+            
+            if not all([user_id, username, resource, action]):
+                raise ValidationError('Missing required fields: userId, username, resource, action')
+            
+            is_authorized, user_role, audit_details = rbac_service.validate_user_permissions(
+                user_id, username, resource, action, request_context
+            )
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'authorized': is_authorized,
+                    'userRole': user_role,
+                    'auditDetails': audit_details
+                })
+            }
         
-        compliance_results = rbac_service.check_authority_matrix_compliance(
-            user_role, requested_authorities
-        )
+        elif http_method == 'POST' and path.endswith('/check-authority-matrix'):
+            # Check authority matrix compliance
+            user_role = body.get('userRole')
+            requested_authorities = body.get('requestedAuthorities', [])
+            
+            if not user_role or not requested_authorities:
+                raise ValidationError('Missing required fields: userRole, requestedAuthorities')
+            
+            compliance_results = rbac_service.check_authority_matrix_compliance(
+                user_role, requested_authorities
+            )
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'complianceResults': compliance_results,
+                    'userRole': user_role
+                })
+            }
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'complianceResults': compliance_results,
-                'userRole': user_role
-            })
-        }
-    
-    elif http_method == 'GET' and path.endswith('/user-permissions'):
-        # Get user permissions
-        username = event.get('queryStringParameters', {}).get('username')
+        elif http_method == 'GET' and path.endswith('/user-permissions'):
+            # Get user permissions
+            username = event.get('queryStringParameters', {}).get('username')
+            
+            if not username:
+                raise ValidationError('Missing required parameter: username')
+            
+            permissions = rbac_service.get_user_permissions(username)
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps(permissions)
+            }
         
-        if not username:
-            raise ValidationError('Missing required parameter: username')
+        elif http_method == 'GET' and path.endswith('/authority-matrix'):
+            # Get complete authority matrix (admin only)
+            # This endpoint would need additional authentication in real implementation
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'authorityMatrix': AuthorityMatrix.ROLE_AUTHORITIES,
+                    'authorityLevels': AuthorityMatrix.AUTHORITY_LEVELS
+                })
+            }
         
-        permissions = rbac_service.get_user_permissions(username)
+        elif http_method == 'GET' and path.endswith('/health'):
+            # Health check endpoint
+            dependencies = get_rbac_service_dependencies()
+            return create_health_endpoint('rbac-service', '1.0.0', dependencies)
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps(permissions)
-        }
-    
-    elif http_method == 'GET' and path.endswith('/authority-matrix'):
-        # Get complete authority matrix (admin only)
-        # This endpoint would need additional authentication in real implementation
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'authorityMatrix': AuthorityMatrix.ROLE_AUTHORITIES,
-                'authorityLevels': AuthorityMatrix.AUTHORITY_LEVELS
-            })
-        }
-    
-    elif http_method == 'GET' and path.endswith('/health'):
-        # Health check endpoint
-        dependencies = get_rbac_service_dependencies()
-        return create_health_endpoint('rbac-service', '1.0.0', dependencies)
-    
-    else:
-        raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
+        else:
+            raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
+
+    except Exception as e:
+        correlation_id = request_context.get('request_id', str(uuid.uuid4()))
+        return create_lambda_error_response(e, correlation_id, 'rbac-service')

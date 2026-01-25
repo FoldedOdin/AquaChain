@@ -20,7 +20,7 @@ sys.path.append('/opt/python')
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 from structured_logger import get_logger
-from error_handler import handle_lambda_error, AuditServiceError
+from error_handler import create_lambda_error_response
 from rbac_middleware import require_permission, validate_user_permissions
 from health_endpoint import create_health_endpoint, get_audit_service_dependencies
 
@@ -983,4 +983,4 @@ def lambda_handler(event, context):
             raise ValueError(f"Unknown operation: {operation}")
     
     except Exception as e:
-        return handle_lambda_error(e, event, context)
+        return create_lambda_error_response(e, event.get('requestContext', {}).get('requestId'), 'audit-service')
