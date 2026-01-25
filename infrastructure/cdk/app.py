@@ -29,6 +29,8 @@ from stacks.data_classification_stack import DataClassificationStack
 from stacks.audit_logging_stack import AuditLoggingStack
 from stacks.gdpr_compliance_stack import GDPRComplianceStack
 from stacks.dashboard_overhaul_stack import DashboardOverhaulStack
+from stacks.deployment_pipeline_stack import DeploymentPipelineStack
+from stacks.production_monitoring_stack import ProductionMonitoringStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -305,6 +307,26 @@ def main():
     )
     # Dashboard overhaul is independent but benefits from security stack
     dashboard_overhaul_stack.add_dependency(security_stack)
+    
+    # 23. Deployment Pipeline Stack (Blue-green deployment, feature flags, canary deployment)
+    deployment_pipeline_stack = DeploymentPipelineStack(
+        app,
+        f"AquaChain-DeploymentPipeline-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain Dashboard Deployment Pipeline - {env_name}"
+    )
+    # Deployment pipeline is independent infrastructure
+    
+    # 24. Production Monitoring Stack (Comprehensive monitoring, alerting, and incident response)
+    production_monitoring_stack = ProductionMonitoringStack(
+        app,
+        f"AquaChain-ProductionMonitoring-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain Dashboard Production Monitoring - {env_name}"
+    )
+    # Production monitoring is independent but benefits from other stacks being deployed
     
     # Synthesize the app
     app.synth()
