@@ -193,6 +193,19 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
   // Calculate user statistics by role
   const userStats = useMemo(() => {
+    if (!users || !Array.isArray(users)) {
+      return { 
+        consumers: 0, 
+        technicians: 0, 
+        admins: 0, 
+        inventoryManagers: 0,
+        warehouseManagers: 0,
+        supplierCoordinators: 0,
+        procurementControllers: 0,
+        total: 0 
+      };
+    }
+    
     const consumers = users.filter(u => u.role === 'consumer').length;
     const technicians = users.filter(u => u.role === 'technician').length;
     const admins = users.filter(u => u.role === 'admin' || u.role === 'administrator').length;
@@ -215,6 +228,10 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
   // Filter users based on search and role filter
   const filteredUsers = useMemo(() => {
+    if (!users || !Array.isArray(users)) {
+      return [];
+    }
+    
     return users.filter(user => {
       const matchesSearch = !userSearchTerm || 
         user.email.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
