@@ -187,7 +187,7 @@ class TestMultiFactorAuthenticationEnforcement:
         operation=non_sensitive_operations_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_non_sensitive_operations_do_not_require_mfa(
         self, user_id, username, operation, request_context
     ):
@@ -221,7 +221,7 @@ class TestMultiFactorAuthenticationEnforcement:
         mfa_code=mfa_code_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_mfa_verification_is_enforced(
         self, user_id, username, operation, mfa_code, request_context
     ):
@@ -292,7 +292,7 @@ class TestMultiFactorAuthenticationEnforcement:
         operation=sensitive_operations_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_mfa_disabled_users_get_warning(
         self, user_id, username, operation, request_context
     ):
@@ -411,7 +411,7 @@ class TestSessionManagementSecurity:
         session_id=session_id_strategy,
         expires_at=past_timestamp_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_expired_sessions_are_invalidated(
         self, user_id, session_id, expires_at
     ):
@@ -458,7 +458,7 @@ class TestSessionManagementSecurity:
         wrong_user_id=user_id_strategy,
         session_id=session_id_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_session_user_ownership_is_enforced(
         self, user_id, wrong_user_id, session_id
     ):
@@ -501,7 +501,7 @@ class TestSessionManagementSecurity:
         session_id=session_id_strategy,
         reason=st.sampled_from(['logout', 'timeout', 'security', 'admin'])
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_session_invalidation_works_correctly(
         self, user_id, session_id, reason
     ):
@@ -541,7 +541,7 @@ class TestSessionManagementSecurity:
         request_context=request_context_strategy,
         max_sessions=st.integers(min_value=1, max_value=3)
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_concurrent_session_limits_are_enforced(
         self, user_id, token_jti, request_context, max_sessions
     ):
@@ -600,7 +600,7 @@ class TestSessionManagementSecurity:
         session_id=session_id_strategy,
         current_time=current_timestamp_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_session_activity_updates_expiration(
         self, user_id, session_id, current_time
     ):

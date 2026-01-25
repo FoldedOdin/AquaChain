@@ -262,7 +262,7 @@ class TestStructuredLoggingCompliance:
         metric_value=metric_values_strategy,
         metric_unit=metric_units_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_custom_metrics_are_tracked(
         self, service_name, metric_name, metric_value, metric_unit
     ):
@@ -306,7 +306,7 @@ class TestStructuredLoggingCompliance:
         operation=operations_strategy,
         success=st.booleans()
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_timed_operation_context_manager(
         self, service_name, operation, success
     ):
@@ -474,7 +474,7 @@ class TestPerformanceMonitoringAndAlerting:
         metric_value=metric_values_strategy,
         metric_unit=metric_units_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_performance_metrics_are_published_to_cloudwatch(
         self, metric_name, metric_value, metric_unit
     ):

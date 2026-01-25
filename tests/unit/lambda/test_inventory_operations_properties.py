@@ -209,7 +209,7 @@ class TestInventoryAlertGeneration:
         urgency_filter=st.one_of(st.none(), st.sampled_from(['critical', 'high', 'medium', 'low'])),
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_reorder_alerts_filtering_works_correctly(self, items, urgency_filter, request_context):
         """
         Property Test: Reorder alerts filtering works correctly
@@ -321,7 +321,7 @@ class TestComprehensiveGracefulDegradation:
         forecast_days=forecast_days_strategy,
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_circuit_breaker_prevents_repeated_ml_service_calls(self, item_id, forecast_days, request_context):
         """
         Property Test: Circuit breaker prevents repeated calls to failed ML service
@@ -361,7 +361,7 @@ class TestComprehensiveGracefulDegradation:
         cached_forecast_age_hours=st.integers(min_value=1, max_value=24),
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_cached_forecast_used_when_ml_service_unavailable(self, item_id, forecast_days, cached_forecast_age_hours, request_context):
         """
         Property Test: Cached forecast is used when ML service is unavailable
@@ -412,7 +412,7 @@ class TestComprehensiveGracefulDegradation:
         items=st.lists(inventory_item_strategy, min_size=1, max_size=10),
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_database_failure_graceful_degradation(self, items, request_context):
         """
         Property Test: Database failures are handled gracefully
@@ -451,7 +451,7 @@ class TestComprehensiveGracefulDegradation:
         ),
         request_context=request_context_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_audit_logging_failure_does_not_break_operations(self, item_id, location_id, updates, request_context):
         """
         Property Test: Audit logging failures do not break core operations

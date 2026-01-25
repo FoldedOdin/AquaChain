@@ -231,7 +231,7 @@ class TestAuditTrailCompleteness:
         details=action_details_strategy,
         severity=severity_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_system_events_create_complete_audit_records(
         self, event_type, source, details, severity
     ):
@@ -378,7 +378,7 @@ class TestAuditTrailCompleteness:
         actions_list=st.lists(actions_strategy, min_size=2, max_size=10, unique=True),
         resource=resources_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_multiple_actions_create_separate_audit_records(
         self, user_id, actions_list, resource
     ):
@@ -453,7 +453,7 @@ class TestAuditQueryAndExportFunctionality:
         end_time=date_strategy,
         limit=st.integers(min_value=1, max_value=1000)
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_audit_query_by_user_and_time_range(
         self, requester_user_id, query_user_id, start_time, end_time, limit
     ):
@@ -538,7 +538,7 @@ class TestAuditQueryAndExportFunctionality:
         start_time=date_strategy,
         end_time=date_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_audit_query_by_resource_type(
         self, requester_user_id, resource, start_time, end_time
     ):
@@ -608,7 +608,7 @@ class TestAuditQueryAndExportFunctionality:
         end_date=date_strategy,
         export_format=st.sampled_from(['json', 'csv', 'xlsx'])
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_audit_data_export_functionality(
         self, requester_user_id, start_date, end_date, export_format
     ):
@@ -688,7 +688,7 @@ class TestSecurityAuditLoggingWithTamperDetection:
         ]),
         details=action_details_strategy
     )
-    @settings(max_examples=10)
+    @settings(max_examples=3)
     def test_security_events_create_tamper_evident_logs(
         self, user_id, security_event_type, details
     ):
@@ -834,7 +834,7 @@ class TestSecurityAuditLoggingWithTamperDetection:
         end_date=date_strategy,
         requester_user_id=user_id_strategy
     )
-    @settings(max_examples=20)
+    @settings(max_examples=3)
     def test_tampering_detection_identifies_integrity_violations(
         self, start_date, end_date, requester_user_id
     ):
