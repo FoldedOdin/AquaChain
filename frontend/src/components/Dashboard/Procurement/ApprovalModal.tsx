@@ -359,7 +359,7 @@ const ApprovalModal: React.FC<ApprovalModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setDecision('approve')}
-                  disabled={budgetValidation && !budgetValidation.isValid}
+                  disabled={budgetValidation ? !budgetValidation.isValid : false}
                   className={`px-6 py-3 rounded-lg font-medium transition-colors duration-200 ${
                     decision === 'approve'
                       ? 'bg-green-600 text-white'

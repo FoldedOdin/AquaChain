@@ -256,7 +256,7 @@ export const warehouseService = {
   async exportWarehouseData(type: 'locations' | 'pick-lists' | 'quality-checks', format: 'csv' | 'xlsx' = 'csv') {
     try {
       const response = await apiClient.get(`/api/warehouse/export/${type}?format=${format}`, {
-        responseType: 'blob'
+        expectBlob: true
       });
       
       // Create download link

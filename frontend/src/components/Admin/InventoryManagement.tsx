@@ -45,7 +45,7 @@ const InventoryManagement: React.FC<InventoryManagementProps> = ({ userRole }) =
           totalItems: itemsResponse.data.count,
           lowStockCount: itemsResponse.data.low_stock_count,
           outOfStockCount: itemsResponse.data.out_of_stock_count,
-          totalValue: itemsResponse.data.items.reduce((sum, item) => 
+          totalValue: itemsResponse.data.items.reduce((sum: number, item: any) => 
             sum + (item.current_stock * item.unit_cost || 0), 0
           )
         });

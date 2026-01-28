@@ -219,7 +219,7 @@ export const supplierService = {
   async exportSuppliers(format: 'csv' | 'xlsx' = 'csv') {
     try {
       const response = await apiClient.get(`/api/suppliers/export?format=${format}`, {
-        responseType: 'blob'
+        expectBlob: true
       });
       
       // Create download link

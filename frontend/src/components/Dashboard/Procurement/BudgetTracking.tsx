@@ -30,10 +30,7 @@ const BudgetTracking: React.FC = () => {
       setIsLoading(true);
       
       const [utilization, comparison, alerts] = await Promise.all([
-        budgetService.getBudgetUtilization({ 
-          start: `${selectedPeriod}-01`, 
-          end: getEndOfMonth(selectedPeriod) 
-        }),
+        budgetService.getAllBudgetUtilizations(`${selectedPeriod}`),
         budgetService.getSpendForecastComparison({ 
           start: `${selectedPeriod}-01`, 
           end: getEndOfMonth(selectedPeriod) 

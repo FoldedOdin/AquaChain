@@ -166,24 +166,26 @@ const OperationsDashboard: React.FC = () => {
 
   return (
     <ErrorBoundary>
-      <DashboardLayout>
+      <DashboardLayout 
+        header={
+          <div className="flex justify-between items-center py-6">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Operations Dashboard</h1>
+              <p className="text-gray-600">Monitor and manage system operations</p>
+            </div>
+          </div>
+        }
+        role="admin"
+      >
         <div className="min-h-screen bg-gray-50">
-          {/* Header */}
+          {/* Navigation Tabs */}
           <div className="bg-white shadow-sm border-b border-gray-200">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between items-center py-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Operations Dashboard</h1>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Welcome back, {user.profile.firstName} {user.profile.lastName}
-                  </p>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <div className="text-sm text-gray-500">
-                    Role: <span className="font-medium text-gray-900 capitalize">
-                      {user.role.replace('_', ' ')}
-                    </span>
-                  </div>
+              <div className="flex items-center space-x-4">
+                <div className="text-sm text-gray-500">
+                  Role: <span className="font-medium text-gray-900 capitalize">
+                    {user.role.replace('_', ' ')}
+                  </span>
                 </div>
               </div>
             </div>

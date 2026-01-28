@@ -98,40 +98,116 @@ const WarehouseManagerView: React.FC = () => {
       ];
 
       const mockLocations: WarehouseLocation[] = [
-        { id: 'A1-B2', zone: 'A', aisle: '1', shelf: 'B', position: '2', capacity: 100, occupied: 75, items: ['ESP32-001'] },
-        { id: 'A2-C1', zone: 'A', aisle: '2', shelf: 'C', position: '1', capacity: 50, occupied: 30, items: ['PROBE-PH'] },
-        { id: 'B1-A3', zone: 'B', aisle: '1', shelf: 'A', position: '3', capacity: 80, occupied: 45, items: ['TDS-METER'] },
-        { id: 'B2-D1', zone: 'B', aisle: '2', shelf: 'D', position: '1', capacity: 120, occupied: 0, items: [] }
+        { 
+          locationId: 'A1-B2', 
+          id: 'A1-B2', 
+          zone: 'A', 
+          aisle: '1', 
+          shelf: 'B', 
+          position: '2', 
+          bin: 'B2',
+          capacity: 100, 
+          currentOccupancy: 75,
+          occupied: 75, 
+          itemIds: ['ESP32-001'],
+          items: ['ESP32-001'],
+          status: 'available'
+        },
+        { 
+          locationId: 'A2-C1', 
+          id: 'A2-C1', 
+          zone: 'A', 
+          aisle: '2', 
+          shelf: 'C', 
+          position: '1', 
+          bin: 'C1',
+          capacity: 50, 
+          currentOccupancy: 30,
+          occupied: 30, 
+          itemIds: ['PROBE-PH'],
+          items: ['PROBE-PH'],
+          status: 'available'
+        },
+        { 
+          locationId: 'B1-A3', 
+          id: 'B1-A3', 
+          zone: 'B', 
+          aisle: '1', 
+          shelf: 'A', 
+          position: '3', 
+          bin: 'A3',
+          capacity: 80, 
+          currentOccupancy: 45,
+          occupied: 45, 
+          itemIds: ['TDS-METER'],
+          items: ['TDS-METER'],
+          status: 'available'
+        },
+        { 
+          locationId: 'B2-D1', 
+          id: 'B2-D1', 
+          zone: 'B', 
+          aisle: '2', 
+          shelf: 'D', 
+          position: '1', 
+          bin: 'D1',
+          capacity: 120, 
+          currentOccupancy: 0,
+          occupied: 0, 
+          itemIds: [],
+          items: [],
+          status: 'available'
+        }
       ];
 
       const mockMovements: StockMovement[] = [
         {
+          movementId: 'MOV-001',
           id: 'MOV-001',
-          timestamp: '2024-01-25T10:30:00Z',
+          itemId: 'ESP32-001',
+          itemName: 'ESP32 Water Sensor',
+          movementType: 'receipt',
           type: 'inbound',
           sku: 'ESP32-001',
           quantity: 25,
           fromLocation: 'RECEIVING',
           toLocation: 'A1-B2',
+          reason: 'Stock receipt',
+          performedBy: 'John Smith',
           operator: 'John Smith',
-          reason: 'Stock receipt'
+          timestamp: '2024-01-25T10:30:00Z',
+          referenceNumber: 'PO-2024-001'
         },
         {
+          movementId: 'MOV-002',
           id: 'MOV-002',
-          timestamp: '2024-01-25T11:15:00Z',
+          itemId: 'PROBE-PH',
+          itemName: 'pH Probe Sensor',
+          movementType: 'dispatch',
           type: 'outbound',
           sku: 'PROBE-PH',
           quantity: 5,
           fromLocation: 'A2-C1',
           toLocation: 'SHIPPING',
+          reason: 'Order fulfillment',
+          performedBy: 'Jane Doe',
           operator: 'Jane Doe',
-          reason: 'Order fulfillment'
+          timestamp: '2024-01-25T11:15:00Z',
+          referenceNumber: 'ORD-2024-001'
         }
       ];
 
       const mockMetrics: WarehouseMetrics = {
+        totalCapacity: 1000,
+        currentOccupancy: 780,
         utilizationRate: 78,
+        throughputToday: 156,
+        throughputWeek: 1092,
+        throughputMonth: 4680,
         averagePickTime: 4.2,
+        averagePackTime: 2.8,
+        errorRate: 0.5,
+        onTimeShipmentRate: 98.2,
         orderAccuracy: 99.5,
         throughputPerHour: 45,
         pendingReceipts: 12,

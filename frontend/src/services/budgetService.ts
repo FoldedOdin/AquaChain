@@ -26,6 +26,7 @@ export interface BudgetUtilization {
   remainingAmount: number;
   utilizationPercentage: number;
   projectedUtilization: number;
+  projectedSpend: number; // Alias for projectedUtilization for UI compatibility
   trend: 'increasing' | 'decreasing' | 'stable';
   transactions: BudgetTransaction[];
 }
@@ -46,9 +47,12 @@ export interface SpendForecastComparison {
   period: string;
   forecastedSpend: number;
   actualSpend: number;
+  forecastedAmount: number; // Alias for forecastedSpend for UI compatibility
+  actualAmount: number; // Alias for actualSpend for UI compatibility
   variance: number;
   variancePercentage: number;
   trend: 'above_forecast' | 'below_forecast' | 'on_track';
+  confidence: number; // Confidence level (0-1) for forecast accuracy
   monthlyBreakdown: MonthlySpendData[];
 }
 
@@ -62,6 +66,7 @@ export interface MonthlySpendData {
 export interface BudgetAlert {
   alertId: string;
   category: string;
+  budgetCategory: string; // Alias for category for UI compatibility
   alertType: 'threshold_warning' | 'threshold_critical' | 'exhausted' | 'overspend';
   threshold: number;
   currentUtilization: number;
@@ -149,6 +154,23 @@ class BudgetService {
     } catch (error) {
       console.error('Error fetching budget utilization:', error);
       throw new Error('Failed to fetch budget utilization');
+    }
+  }
+
+  /**
+   * Get budget utilization for all categories
+   */
+  async getAllBudgetUtilizations(period?: string): Promise<BudgetUtilization[]> {
+    try {
+      const queryParams = period ? `?period=${period}` : '';
+      const response = await apiRequest(`/api/budget/utilizations${queryParams}`, {
+        method: 'GET'
+      });
+
+      return response.utilizations || [];
+    } catch (error) {
+      console.error('Error fetching budget utilizations:', error);
+      throw new Error('Failed to fetch budget utilizations');
     }
   }
 

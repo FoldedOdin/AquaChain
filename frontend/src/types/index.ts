@@ -257,26 +257,34 @@ export interface DemandForecast {
 
 export interface WarehouseLocation {
   locationId: string;
+  id: string; // Alias for locationId for UI compatibility
   zone: string;
   aisle: string;
   shelf: string;
+  position: string; // Additional property for UI
   bin: string;
   capacity: number;
   currentOccupancy: number;
+  occupied: number; // Alias for currentOccupancy for UI compatibility
   itemIds: string[];
+  items: string[]; // Alias for itemIds for UI compatibility
   status: 'available' | 'full' | 'reserved' | 'maintenance';
 }
 
 export interface StockMovement {
   movementId: string;
+  id: string; // Alias for movementId for UI compatibility
   itemId: string;
   itemName: string;
   movementType: 'receipt' | 'dispatch' | 'transfer' | 'adjustment';
+  type: 'inbound' | 'outbound' | 'transfer' | 'adjustment'; // Alias for movementType for UI compatibility
+  sku: string; // Alias for itemName for UI compatibility
   quantity: number;
   fromLocation?: string;
   toLocation?: string;
   reason: string;
   performedBy: string;
+  operator: string; // Alias for performedBy for UI compatibility
   timestamp: string;
   referenceNumber?: string;
 }
@@ -408,6 +416,12 @@ export interface WarehouseMetrics {
   averagePackTime: number;
   errorRate: number;
   onTimeShipmentRate: number;
+  performanceScore: number; // Overall performance rating
+  dailyMovements: number; // Daily inventory movements
+  orderAccuracy: number; // Order accuracy percentage
+  throughputPerHour: number; // Items processed per hour
+  pendingReceipts: number; // Pending receipt count
+  pendingDispatches: number; // Pending dispatch count
 }
 
 export interface AuditEntry {

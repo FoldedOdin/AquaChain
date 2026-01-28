@@ -131,7 +131,7 @@ export const inventoryService = {
       });
       
       const response = await apiClient.get(`/api/inventory/export?${params}`, {
-        responseType: 'blob'
+        expectBlob: true
       });
       
       // Create download link
