@@ -139,6 +139,17 @@ class InputValidator:
         self.schemas[schema_name] = schema
         logger.debug(f"Registered validation schema: {schema_name}")
     
+    def _json_serializer(self, obj):
+        """Custom JSON serializer for handling Decimal and other non-serializable objects"""
+        if isinstance(obj, Decimal):
+            return float(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif hasattr(obj, '__dict__'):
+            return obj.__dict__
+        else:
+            return str(obj)
+    
     def validate_input(self, data: Dict[str, Any], schema_name: str, 
                       correlation_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -163,13 +174,22 @@ class InputValidator:
         validated_data = {}
         errors = []
         
-        # Check request size
-        request_size = len(json.dumps(data).encode('utf-8'))
-        if request_size > self.max_request_size:
-            raise ValidationError(
-                f"Request too large: {request_size} bytes (max: {self.max_request_size})",
-                code="REQUEST_TOO_LARGE"
-            )
+        # Check request size - use custom JSON encoder for Decimal objects
+        try:
+            request_size = len(json.dumps(data, default=self._json_serializer).encode('utf-8'))
+            if request_size > self.max_request_size:
+                raise ValidationError(
+                    f"Request too large: {request_size} bytes (max: {self.max_request_size})",
+                    code="REQUEST_TOO_LARGE"
+                )
+        except (TypeError, ValueError) as e:
+            # If serialization fails, estimate size from string representation
+            request_size = len(str(data).encode('utf-8'))
+            if request_size > self.max_request_size:
+                raise ValidationError(
+                    f"Request too large: {request_size} bytes (max: {self.max_request_size})",
+                    code="REQUEST_TOO_LARGE"
+                )
         
         # Validate each field in schema
         for field_name, rule in schema.items():
