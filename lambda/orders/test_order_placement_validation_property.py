@@ -89,12 +89,9 @@ class TestOrderPlacementValidationProperty:
         # Initialize service
         self.service = OrderManagementService()
         
-        # Mock AWS clients
+        # Mock AWS clients - will be reset per test example
         self.mock_orders_table = Mock()
         self.service.orders_table = self.mock_orders_table
-        
-        # Reset mock before each test
-        self.mock_orders_table.reset_mock()
     
     @given(
         consumer_id=consumer_id_strategy,
@@ -129,8 +126,9 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 1.3, 2.5**
         """
-        # Reset mock for this test example
-        self.mock_orders_table.reset_mock()
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
         
         # Arrange: Create valid order request
         request_data = {
@@ -145,7 +143,7 @@ class TestOrderPlacementValidationProperty:
         }
         
         # Mock successful DynamoDB put_item
-        self.mock_orders_table.put_item.return_value = {}
+        mock_orders_table.put_item.return_value = {}
         
         # Act
         with patch('enhanced_order_management.uuid.uuid4') as mock_uuid, \
@@ -172,9 +170,9 @@ class TestOrderPlacementValidationProperty:
         
         assert result['data']['status'] == expected_status, f"Order should have correct initial status for {payment_method}"
         
-        # Verify DynamoDB was called
-        self.mock_orders_table.put_item.assert_called_once()
-        call_args = self.mock_orders_table.put_item.call_args[1]
+        # Verify DynamoDB was called exactly once for this example
+        mock_orders_table.put_item.assert_called_once()
+        call_args = mock_orders_table.put_item.call_args[1]
         
         # Verify order data preservation
         order_item = call_args['Item']
@@ -196,24 +194,12 @@ class TestOrderPlacementValidationProperty:
         assert payment_method in initial_status_entry['message'], "Status message should mention payment method"
     
     @given(
-        consumer_id=consumer_id_strategy,
-        device_type=device_type_strategy,
-        service_type=service_type_strategy,
-        payment_method=invalid_payment_method_strategy,
-        delivery_address=address_strategy,
-        contact_info=contact_info_strategy,
-        amount=amount_strategy
+        payment_method=invalid_payment_method_strategy
     )
     @settings(max_examples=20, deadline=None)
     def test_invalid_payment_method_prevents_order_placement(
         self,
-        consumer_id: str,
-        device_type: str,
-        service_type: str,
-        payment_method,  # Can be any type
-        delivery_address: dict,
-        contact_info: dict,
-        amount: Decimal
+        payment_method  # Can be any type - this is the invalid field we're testing
     ):
         """
         Property Test: Invalid payment method prevents order placement
@@ -226,22 +212,33 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 1.3, 2.5**
         """
-        # Reset mock for this test example
-        self.mock_orders_table.reset_mock()
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
         
-        # Arrange: Create order request with invalid payment method
+        # Use fixed valid values for all fields except payment method to isolate payment method validation
         request_data = {
-            'consumerId': consumer_id,
-            'deviceType': device_type,
-            'serviceType': service_type,
-            'paymentMethod': payment_method,
-            'deliveryAddress': delivery_address,
-            'contactInfo': contact_info,
-            'amount': amount
+            'consumerId': 'f47ac10b-58cc-4372-a567-0e02b2c3d479',  # Fixed valid UUID
+            'deviceType': 'Water Quality Monitor',  # Fixed valid value
+            'serviceType': 'Installation',  # Fixed valid value
+            'paymentMethod': payment_method,  # This is the invalid field we're testing
+            'deliveryAddress': {
+                'street': '123 Main Street',
+                'city': 'Test City',
+                'state': 'Test State',
+                'pincode': '123456',
+                'country': 'India'
+            },
+            'contactInfo': {
+                'name': 'Test User',
+                'phone': '+919876543210',
+                'email': 'test@example.com'
+            },
+            'amount': Decimal('100.00')  # Fixed valid amount
         }
         
         # Act & Assert: Invalid payment method should be rejected
-        from error_handler import ValidationError
+        from input_validator import ValidationError
         
         with pytest.raises(ValidationError) as exc_info:
             self.service.create_order(request_data)
@@ -252,7 +249,7 @@ class TestOrderPlacementValidationProperty:
             "Error should indicate validation failure"
         
         # Verify no database operation was attempted
-        self.mock_orders_table.put_item.assert_not_called()
+        mock_orders_table.put_item.assert_not_called()
     
     @given(
         consumer_id=consumer_id_strategy,
@@ -279,8 +276,9 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 1.3**
         """
-        # Reset mock for this test example
-        self.mock_orders_table.reset_mock()
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
         
         # Test missing deviceType
         incomplete_request = {
@@ -292,13 +290,13 @@ class TestOrderPlacementValidationProperty:
             'contactInfo': contact_info
         }
         
-        from error_handler import ValidationError
+        from input_validator import ValidationError
         
         with pytest.raises(ValidationError):
             self.service.create_order(incomplete_request)
         
         # Verify no database operation was attempted
-        self.mock_orders_table.put_item.assert_not_called()
+        mock_orders_table.put_item.assert_not_called()
         
         # Test missing serviceType
         incomplete_request = {
@@ -368,8 +366,9 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 1.3**
         """
-        # Reset mock for this test example
-        self.mock_orders_table.reset_mock()
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
         
         # Test various invalid consumer IDs
         invalid_consumer_ids = [
@@ -381,7 +380,7 @@ class TestOrderPlacementValidationProperty:
             'abc-def-ghi'
         ]
         
-        from error_handler import ValidationError
+        from input_validator import ValidationError
         
         for invalid_consumer_id in invalid_consumer_ids:
             request_data = {
@@ -403,7 +402,7 @@ class TestOrderPlacementValidationProperty:
                 f"Error should indicate validation failure for consumer ID: {invalid_consumer_id}"
         
         # Verify no database operations were attempted
-        self.mock_orders_table.put_item.assert_not_called()
+        mock_orders_table.put_item.assert_not_called()
     
     @given(
         consumer_id=consumer_id_strategy,
@@ -434,8 +433,9 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 1.3**
         """
-        # Reset mock for this test example
-        self.mock_orders_table.reset_mock()
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
         
         # Test various invalid amounts
         invalid_amounts = [
@@ -447,7 +447,7 @@ class TestOrderPlacementValidationProperty:
             ''  # Empty string
         ]
         
-        from error_handler import ValidationError
+        from input_validator import ValidationError
         
         for invalid_amount in invalid_amounts:
             request_data = {
@@ -469,7 +469,7 @@ class TestOrderPlacementValidationProperty:
                 f"Error should indicate validation failure for amount: {invalid_amount}"
         
         # Verify no database operations were attempted
-        self.mock_orders_table.put_item.assert_not_called()
+        mock_orders_table.put_item.assert_not_called()
     
     @given(
         consumer_id=consumer_id_strategy,
@@ -502,6 +502,10 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 2.5**
         """
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
+        
         # Arrange: Create valid order request
         request_data = {
             'consumerId': consumer_id,
@@ -514,7 +518,7 @@ class TestOrderPlacementValidationProperty:
         }
         
         # Mock successful DynamoDB put_item
-        self.mock_orders_table.put_item.return_value = {}
+        mock_orders_table.put_item.return_value = {}
         
         # Act
         with patch('enhanced_order_management.uuid.uuid4') as mock_uuid, \
@@ -550,7 +554,7 @@ class TestOrderPlacementValidationProperty:
             "Orders must not be placed in final states initially"
         
         # Verify DynamoDB call has correct status
-        call_args = self.mock_orders_table.put_item.call_args[1]
+        call_args = mock_orders_table.put_item.call_args[1]
         order_item = call_args['Item']
         assert order_item['status'] == expected_status, \
             "Database record should have correct pending status"
@@ -586,8 +590,9 @@ class TestOrderPlacementValidationProperty:
         
         **Validates: Requirements 2.5**
         """
-        # Reset mock for this test example
-        self.mock_orders_table.reset_mock()
+        # Create fresh mock for this test example to avoid cross-contamination
+        mock_orders_table = Mock()
+        self.service.orders_table = mock_orders_table
         
         # Arrange: Create valid order request
         request_data = {
@@ -601,7 +606,7 @@ class TestOrderPlacementValidationProperty:
         }
         
         # Mock successful DynamoDB put_item
-        self.mock_orders_table.put_item.return_value = {}
+        mock_orders_table.put_item.return_value = {}
         
         # Act
         with patch('enhanced_order_management.uuid.uuid4') as mock_uuid, \
@@ -617,8 +622,8 @@ class TestOrderPlacementValidationProperty:
         assert result['success'] is True, "Order creation should succeed"
         
         # Verify DynamoDB put_item was called with conditional expression
-        self.mock_orders_table.put_item.assert_called_once()
-        call_args = self.mock_orders_table.put_item.call_args[1]
+        mock_orders_table.put_item.assert_called_once()
+        call_args = mock_orders_table.put_item.call_args[1]
         
         # Verify conditional expression is used to prevent duplicates
         assert 'ConditionExpression' in call_args, \
