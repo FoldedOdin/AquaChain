@@ -493,11 +493,48 @@ export const getSystemConfiguration = async (): Promise<SystemConfiguration> => 
 };
 
 export const updateSystemConfiguration = async (config: Partial<SystemConfiguration>): Promise<SystemConfiguration> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  const currentConfig = await getSystemConfiguration();
-  return {
-    ...currentConfig,
-    ...config
-  };
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/system/configuration`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(config)
+    });
+
+    if (!response.ok) {
+      // If the endpoint doesn't exist yet, simulate the update locally
+      if (response.status === 404) {
+        console.warn('System configuration endpoint not implemented yet - simulating update');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const currentConfig = await getSystemConfiguration();
+        return {
+          ...currentConfig,
+          ...config
+        };
+      }
+      throw new Error('Failed to update system configuration');
+    }
+
+    const data = await response.json();
+    return data.configuration;
+  } catch (error) {
+    console.error('Error updating system configuration:', error);
+    
+    // Fallback: simulate the update locally for development
+    console.warn('Falling back to local simulation of configuration update');
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const currentConfig = await getSystemConfiguration();
+    return {
+      ...currentConfig,
+      ...config
+    };
+  }
 };

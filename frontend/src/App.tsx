@@ -12,7 +12,8 @@ import './App.css';
 // ✅ Lazy load dashboard components for code splitting
 const ConsumerDashboard = lazy(() => import('./components/Dashboard/ConsumerDashboard'));
 const TechnicianDashboard = lazy(() => import('./components/Dashboard/TechnicianDashboard'));
-const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboard'));
+//const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboard'));
+const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboardRestructured'));
 const OperationsDashboard = lazy(() => import('./components/Dashboard/OperationsDashboard'));
 
 // ✅ Loading component for Suspense fallback

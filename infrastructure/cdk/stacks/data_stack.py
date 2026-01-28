@@ -348,6 +348,26 @@ class AquaChainDataStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL
         )
         
+        # System Configuration table for admin settings
+        self.system_config_table = dynamodb.Table(
+            self, "SystemConfigTable",
+            table_name=get_resource_name(self.config, "table", "system-config"),
+            partition_key=dynamodb.Attribute(
+                name="config_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PROVISIONED,
+            read_capacity=5,
+            write_capacity=5,
+            encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
+            encryption_key=self.kms_key,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
+            ),
+            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
+        )
+        
         self.data_resources.update({
             "readings_table": self.readings_table,
             "ledger_table": self.ledger_table,
@@ -355,13 +375,14 @@ class AquaChainDataStack(Stack):
             "users_table": self.users_table,
             "service_requests_table": self.service_requests_table,
             "devices_table": self.devices_table,
-            "audit_logs_table": self.audit_logs_table
+            "audit_logs_table": self.audit_logs_table,
+            "system_config_table": self.system_config_table
         })
         
         # Tag all tables for AWS Backup
         for table in [self.readings_table, self.ledger_table, self.sequence_table, 
                       self.users_table, self.service_requests_table, self.devices_table, 
-                      self.audit_logs_table]:
+                      self.audit_logs_table, self.system_config_table]:
             Tags.of(table).add("BackupEnabled", "true")
     
     def _create_s3_buckets(self) -> None:

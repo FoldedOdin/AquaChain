@@ -304,6 +304,150 @@ class AquaChainApiStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO
         )
         
+        # /api/admin root - Admin endpoints
+        api_admin = self.rest_api.root.add_resource("api").add_resource("admin")
+        
+        # Admin Lambda integration (if admin service exists)
+        if "admin_service" in self.lambda_functions:
+            admin_integration = apigateway.LambdaIntegration(self.lambda_functions["admin_service"])
+            
+            # /api/admin/users - User management
+            admin_users_resource = api_admin.add_resource("users")
+            admin_users_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            admin_users_resource.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/users/{userId}
+            admin_user_resource = admin_users_resource.add_resource("{userId}")
+            admin_user_resource.add_method(
+                "PUT",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            admin_user_resource.add_method(
+                "DELETE",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/users/{userId}/reset-password
+            admin_user_reset_resource = admin_user_resource.add_resource("reset-password")
+            admin_user_reset_resource.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/system - System management
+            admin_system_resource = api_admin.add_resource("system")
+            
+            # /api/admin/system/configuration
+            admin_config_resource = admin_system_resource.add_resource("configuration")
+            admin_config_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            admin_config_resource.add_method(
+                "PUT",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/system/health
+            admin_health_resource = admin_system_resource.add_resource("health")
+            admin_health_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/system/performance
+            admin_performance_resource = admin_system_resource.add_resource("performance")
+            admin_performance_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/incidents - Incident management
+            admin_incidents_resource = api_admin.add_resource("incidents")
+            admin_incidents_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            admin_incidents_resource.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/incidents/stats
+            admin_incidents_stats_resource = admin_incidents_resource.add_resource("stats")
+            admin_incidents_stats_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/incidents/{incidentId}
+            admin_incident_resource = admin_incidents_resource.add_resource("{incidentId}")
+            admin_incident_resource.add_method(
+                "PUT",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/audit - Audit management
+            admin_audit_resource = api_admin.add_resource("audit")
+            admin_audit_trail_resource = admin_audit_resource.add_resource("trail")
+            admin_audit_trail_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/devices - Device management
+            admin_devices_resource = api_admin.add_resource("devices")
+            admin_devices_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/compliance - Compliance reporting
+            admin_compliance_resource = api_admin.add_resource("compliance")
+            admin_compliance_report_resource = admin_compliance_resource.add_resource("report")
+            admin_compliance_report_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+        
         self.api_resources.update({
             "rest_api": self.rest_api,
             "cognito_authorizer": self.cognito_authorizer

@@ -40,7 +40,10 @@ import {
   updateSystemConfiguration,
   getSystemHealthMetrics,
   getPerformanceMetrics,
+  getAuditTrail,
+  generateComplianceReport,
 } from '../../services/adminService';
+import { getIncidentReports, getIncidentStats } from '../../services/incidentService';
 import { formatRelativeTime } from '../../utils/dateFormat';
 
 // Import dashboard components
@@ -59,23 +62,70 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const [selectedView, setSelectedView] = useState('overview');
   
   // System configuration state
-  const [systemConfig, setSystemConfig] = useState<any>(null);
+  const [systemConfig, setSystemConfig] = useState<{
+    alertThresholds?: {
+      global?: {
+        pH?: { min: number; max: number };
+        turbidity?: { max: number };
+        tds?: { max: number };
+        temperature?: { min: number; max: number };
+      };
+    };
+    systemLimits?: {
+      maxDevicesPerUser?: number;
+      dataRetentionDays?: number;
+      auditRetentionYears?: number;
+    };
+  } | null>(null);
   const [showSystemConfigModal, setShowSystemConfigModal] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [configChanges, setConfigChanges] = useState<any>({});
+  const [configChanges, setConfigChanges] = useState<Record<string, any>>({});
   
   // User management state
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<Array<{
+    userId: string;
+    email: string;
+    role: string;
+    status: string;
+    createdAt: string;
+    lastLogin: string | null;
+    deviceCount: number;
+    profile?: {
+      firstName: string;
+      lastName: string;
+      phone: string;
+    };
+  }>>([]);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showViewUserModal, setShowViewUserModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [showDeleteUserModal, setShowDeleteUserModal] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<{
+    userId: string;
+    email: string;
+    role: string;
+    status: string;
+    createdAt: string;
+    lastLogin: string | null;
+    deviceCount: number;
+    profile?: {
+      firstName: string;
+      lastName: string;
+      phone: string;
+    };
+  } | null>(null);
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState('all');
   
   // Edit user form state
-  const [editFormData, setEditFormData] = useState({
+  const [editFormData, setEditFormData] = useState<{
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    role: string;
+    status: string;
+  }>({
     firstName: '',
     lastName: '',
     email: '',
@@ -86,7 +136,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   
   // Add user form state
-  const [addFormData, setAddFormData] = useState({
+  const [addFormData, setAddFormData] = useState<{
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    password: string;
+    role: string;
+    status: string;
+  }>({
     firstName: '',
     lastName: '',
     email: '',
@@ -98,13 +156,77 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const [isSubmittingAdd, setIsSubmittingAdd] = useState(false);
   
   // System monitoring state
-  const [systemMetrics, setSystemMetrics] = useState<any>(null);
-  const [performanceMetrics, setPerformanceMetrics] = useState<any[]>([]);
+  const [systemMetrics, setSystemMetrics] = useState<{
+    criticalPathUptime?: number;
+    apiUptime?: number;
+    notificationUptime?: number;
+    errorRate?: number;
+    activeDevices?: number;
+    totalDevices?: number;
+    activeAlerts?: number;
+    pendingServiceRequests?: number;
+    failedLogins?: number;
+    systemAvailability?: number;
+    backupStatus?: string;
+    lastBackup?: string;
+    rtoTarget?: string;
+    rpoTarget?: string;
+  } | null>(null);
+  const [performanceMetrics, setPerformanceMetrics] = useState<Array<{
+    timestamp: string;
+    avgAlertLatency: number;
+    p95AlertLatency: number;
+    p99AlertLatency: number;
+    avgApiResponseTime: number;
+    p95ApiResponseTime: number;
+    throughput: number;
+    lambdaInvocations: number;
+    lambdaErrors: number;
+    dynamodbReadCapacity: number;
+    dynamodbWriteCapacity: number;
+  }>>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   
   // Security and audit state
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [complianceReport, setComplianceReport] = useState<any>(null);
+  const [auditLogs, setAuditLogs] = useState<Array<{
+    logId: string;
+    timestamp: string;
+    deviceId: string;
+    wqi: number;
+    anomalyType: string;
+    verified: boolean;
+    dataHash: string;
+  }>>([]);
+  const [complianceReport, setComplianceReport] = useState<{
+    reportId: string;
+    generatedAt: string;
+    period: {
+      startDate: string;
+      endDate: string;
+    };
+    summary: {
+      totalReadings: number;
+      devicesMonitored: number;
+      alertsGenerated: number;
+      complianceRate: number;
+    };
+    ledgerVerification: {
+      totalEntries: number;
+      verifiedEntries: number;
+      hashChainIntact: boolean;
+      lastVerificationDate: string;
+    };
+    dataIntegrity: {
+      missingReadings: number;
+      duplicateReadings: number;
+      invalidReadings: number;
+    };
+    uptimeMetrics: {
+      criticalPathUptime: number;
+      apiUptime: number;
+      notificationUptime: number;
+    };
+  } | null>(null);
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [showComplianceModal, setShowComplianceModal] = useState(false);
   const [showIncidentModal, setShowIncidentModal] = useState(false);
@@ -118,7 +240,31 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     verified: 'all',
     searchTerm: ''
   });
-  const [incidentReports, setIncidentReports] = useState<any[]>([]);
+  const [incidentReports, setIncidentReports] = useState<Array<{
+    id: string;
+    title: string;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    status: 'open' | 'investigating' | 'resolved' | 'closed';
+    createdAt: string;
+    updatedAt: string;
+    assignedTo: string;
+    description: string;
+    category?: string;
+    priority?: number;
+    resolution?: string;
+    resolvedAt?: string;
+  }>>([]);
+  const [incidentStats, setIncidentStats] = useState<{
+    totalIncidents: number;
+    openIncidents: number;
+    criticalIncidents: number;
+    avgResolutionTime: number;
+  }>({
+    totalIncidents: 0,
+    openIncidents: 0,
+    criticalIncidents: 0,
+    avgResolutionTime: 0
+  });
 
   // Fetch dashboard data
   const { data: dashboardData, isLoading, error } = useDashboardData('admin');
@@ -130,17 +276,21 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     const fetchData = async () => {
       setIsLoadingData(true);
       try {
-        const [usersData, configData, healthMetrics, perfMetrics] = await Promise.all([
+        const [usersData, configData, healthMetrics, perfMetrics, incidentData, incidentStatsData] = await Promise.all([
           getAllUsers(),
           getSystemConfiguration(),
           getSystemHealthMetrics(),
-          getPerformanceMetrics('24h')
+          getPerformanceMetrics('24h'),
+          getIncidentReports('', '', 10), // Get recent incidents for overview
+          getIncidentStats(30) // Get 30-day incident statistics
         ]);
         
         setUsers(usersData);
         setSystemConfig(configData);
         setSystemMetrics(healthMetrics);
         setPerformanceMetrics(perfMetrics);
+        setIncidentReports(incidentData);
+        setIncidentStats(incidentStatsData);
       } catch (err) {
         console.error('Failed to fetch admin data:', err);
       } finally {
@@ -153,12 +303,14 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     // Refresh metrics every 30 seconds
     const interval = setInterval(async () => {
       try {
-        const [healthMetrics, perfMetrics] = await Promise.all([
+        const [healthMetrics, perfMetrics, incidentStatsData] = await Promise.all([
           getSystemHealthMetrics(),
-          getPerformanceMetrics('24h')
+          getPerformanceMetrics('24h'),
+          getIncidentStats(30)
         ]);
         setSystemMetrics(healthMetrics);
         setPerformanceMetrics(perfMetrics);
+        setIncidentStats(incidentStatsData);
       } catch (err) {
         console.error('Failed to refresh metrics:', err);
       }
@@ -296,20 +448,80 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   }, []);
 
   const handleConfigChange = useCallback((path: string[], value: any) => {
-    setConfigChanges((prev: any) => {
+    setConfigChanges((prev: Record<string, any>) => {
       const newChanges = { ...prev };
-      let current = newChanges;
+      let current: any = newChanges;
       
+      // Create nested structure if it doesn't exist
       for (let i = 0; i < path.length - 1; i++) {
-        if (!current[path[i]]) {
+        if (!current[path[i]] || typeof current[path[i]] !== 'object') {
           current[path[i]] = {};
         }
         current = current[path[i]];
       }
       
+      // Set the final value
       current[path[path.length - 1]] = value;
+      
+      // Debug log to see what's being changed
+      console.log('Config change:', { path, value, newChanges });
+      
       return newChanges;
     });
+  }, []);
+
+  // Helper function to get the current value (original config + changes)
+  const getCurrentConfigValue = useCallback((path: string[], defaultValue: any) => {
+    if (!systemConfig) return defaultValue;
+    
+    // First try to get from configChanges
+    let current: any = configChanges;
+    let hasChange = true;
+    
+    for (const key of path) {
+      if (current && typeof current === 'object' && key in current) {
+        current = current[key];
+      } else {
+        hasChange = false;
+        break;
+      }
+    }
+    
+    if (hasChange && current !== undefined) {
+      return current;
+    }
+    
+    // Fall back to original systemConfig
+    current = systemConfig;
+    for (const key of path) {
+      if (current && typeof current === 'object' && key in current) {
+        current = current[key];
+      } else {
+        return defaultValue;
+      }
+    }
+    
+    return current !== undefined ? current : defaultValue;
+  }, [systemConfig, configChanges]);
+
+  // Helper function to deep merge configuration objects
+  const deepMergeConfig = useCallback((target: any, source: any): any => {
+    if (!source || typeof source !== 'object') return target;
+    if (!target || typeof target !== 'object') return source;
+    
+    const result = { ...target };
+    
+    for (const key in source) {
+      if (source.hasOwnProperty(key)) {
+        if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
+          result[key] = deepMergeConfig(result[key] || {}, source[key]);
+        } else {
+          result[key] = source[key];
+        }
+      }
+    }
+    
+    return result;
   }, []);
 
   const handleSaveSystemConfig = useCallback(async () => {
@@ -317,6 +529,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
       setShowSystemConfigModal(false);
       return;
     }
+
+    // Debug log to see what changes are being saved
+    console.log('Saving configuration changes:', configChanges);
 
     // Show confirmation dialog for system-wide changes
     const confirmed = window.confirm(
@@ -327,26 +542,33 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
     setIsSavingConfig(true);
     try {
-      const updatedConfig = await updateSystemConfiguration(configChanges);
+      // Create the complete configuration by merging current config with changes
+      const completeConfig = systemConfig ? deepMergeConfig(systemConfig, configChanges) : configChanges;
+      console.log('Complete configuration to save:', completeConfig);
+      
+      const updatedConfig = await updateSystemConfiguration(completeConfig);
+      console.log('Configuration updated successfully:', updatedConfig);
+      
       setSystemConfig(updatedConfig);
       alert('System configuration saved successfully!');
       setShowSystemConfigModal(false);
       setConfigChanges({});
     } catch (error) {
       console.error('Error saving system configuration:', error);
-      alert('Error saving system configuration');
+      alert(`Error saving system configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSavingConfig(false);
     }
-  }, [configChanges]);
+  }, [configChanges, systemConfig, deepMergeConfig]);
 
   // User management handlers
-  const handleViewUser = useCallback((user: any) => {
+  const handleViewUser = useCallback((user: typeof selectedUser) => {
     setSelectedUser(user);
     setShowViewUserModal(true);
   }, []);
 
-  const handleEditUser = useCallback((user: any) => {
+  const handleEditUser = useCallback((user: typeof selectedUser) => {
+    if (!user) return;
     setSelectedUser(user);
     setEditFormData({
       firstName: user.profile?.firstName || '',
@@ -360,7 +582,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   }, []);
 
   const handleEditFormChange = useCallback((field: string, value: string) => {
-    setEditFormData((prev: any) => ({ ...prev, [field]: value }));
+    setEditFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const handleSaveEditUser = useCallback(async () => {
@@ -380,7 +602,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
       if (response.ok) {
         // Update local state
-        setUsers((prev: any) => prev.map((u: any) => 
+        setUsers((prev) => prev.map((u) => 
           u.userId === selectedUser.userId 
             ? { 
                 ...u, 
@@ -412,7 +634,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     }
   }, [selectedUser, editFormData]);
 
-  const handleDeleteUser = useCallback((user: any) => {
+  const handleDeleteUser = useCallback((user: typeof selectedUser) => {
     setSelectedUser(user);
     setShowDeleteUserModal(true);
   }, []);
@@ -432,7 +654,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   }, []);
 
   const handleAddFormChange = useCallback((field: string, value: string) => {
-    setAddFormData((prev: any) => ({ ...prev, [field]: value }));
+    setAddFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
   const handleSaveNewUser = useCallback(async () => {
@@ -465,7 +687,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             phone: result.user.phone
           }
         };
-        setUsers((prev: any) => [...prev, newUser]);
+        setUsers((prev) => [...prev, newUser]);
         setShowAddUserModal(false);
         console.log('User created successfully');
       } else {
@@ -496,7 +718,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
       if (response.ok) {
         // Remove from local state
-        setUsers((prev: any) => prev.filter((u: any) => u.userId !== selectedUser.userId));
+        setUsers((prev) => prev.filter((u) => u.userId !== selectedUser.userId));
         setShowDeleteUserModal(false);
         setSelectedUser(null);
         console.log('User deleted successfully');
@@ -511,141 +733,54 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   // Security and audit handlers
   const handleViewAuditLogs = useCallback(async () => {
     try {
-      // Mock audit logs for demonstration - in real implementation, this would fetch from audit service
-      const mockAuditLogs = [
-        {
-          logId: 'audit-001',
-          timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          deviceId: 'AQ-DEV-001',
-          wqi: 85.2,
-          anomalyType: 'normal',
-          verified: true,
-          dataHash: 'a1b2c3d4e5f6789012345678901234567890abcd'
-        },
-        {
-          logId: 'audit-002',
-          timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-          deviceId: 'AQ-DEV-002',
-          wqi: 45.8,
-          anomalyType: 'contamination',
-          verified: false,
-          dataHash: 'b2c3d4e5f6789012345678901234567890abcde1'
-        },
-        {
-          logId: 'audit-003',
-          timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-          deviceId: 'AQ-DEV-003',
-          wqi: 92.1,
-          anomalyType: 'sensor_fault',
-          verified: true,
-          dataHash: 'c3d4e5f6789012345678901234567890abcde12f'
-        },
-        {
-          logId: 'audit-004',
-          timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-          deviceId: 'AQ-DEV-001',
-          wqi: 78.9,
-          anomalyType: 'calibration_drift',
-          verified: true,
-          dataHash: 'd4e5f6789012345678901234567890abcde12f34'
-        },
-        {
-          logId: 'audit-005',
-          timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-          deviceId: 'AQ-DEV-004',
-          wqi: 88.7,
-          anomalyType: 'normal',
-          verified: true,
-          dataHash: 'e5f6789012345678901234567890abcde12f3456'
-        }
-      ];
+      setIsLoadingData(true);
+      // Fetch real audit logs from the audit service
+      const auditData = await getAuditTrail(
+        auditDateRange.startDate, 
+        auditDateRange.endDate
+      );
       
-      setAuditLogs(mockAuditLogs);
+      setAuditLogs(auditData);
       setShowAuditModal(true);
     } catch (error) {
       console.error('Error fetching audit logs:', error);
-      alert('Error fetching audit logs');
+      alert('Error fetching audit logs. Please try again.');
+    } finally {
+      setIsLoadingData(false);
     }
-  }, []);
+  }, [auditDateRange]);
 
   const handleGenerateComplianceReport = useCallback(async () => {
     try {
-      // Mock compliance report for demonstration - in real implementation, this would fetch from compliance service
-      const mockComplianceReport = {
-        reportId: 'COMP-' + Date.now(),
-        generatedAt: new Date().toISOString(),
-        dateRange: {
-          startDate: auditDateRange.startDate,
-          endDate: auditDateRange.endDate
-        },
-        summary: {
-          totalReadings: 45678,
-          devicesMonitored: 127,
-          alertsGenerated: 23,
-          complianceRate: 99.74
-        },
-        ledgerVerification: {
-          totalEntries: 45678,
-          verifiedEntries: 45654,
-          hashChainIntact: true,
-          lastVerificationTime: new Date(Date.now() - 30 * 60 * 1000).toISOString()
-        },
-        dataIntegrity: {
-          missingReadings: 12,
-          duplicateReadings: 3,
-          invalidReadings: 9,
-          integrityScore: 99.95
-        },
-        securityEvents: {
-          unauthorizedAccess: 0,
-          failedLogins: 3,
-          suspiciousActivity: 1,
-          securityScore: 98.2
-        },
-        regulatoryCompliance: {
-          gdprCompliance: true,
-          dataRetentionCompliance: true,
-          auditTrailCompleteness: 99.98,
-          encryptionCompliance: true
-        }
-      };
+      setIsLoadingData(true);
+      // Generate real compliance report from compliance service
+      const complianceData = await generateComplianceReport(
+        auditDateRange.startDate,
+        auditDateRange.endDate
+      );
       
-      setComplianceReport(mockComplianceReport);
+      setComplianceReport(complianceData);
       setShowComplianceModal(true);
     } catch (error) {
       console.error('Error generating compliance report:', error);
-      alert('Error generating compliance report');
+      alert('Error generating compliance report. Please try again.');
+    } finally {
+      setIsLoadingData(false);
     }
   }, [auditDateRange]);
 
   const handleViewIncidentReports = useCallback(async () => {
     try {
-      // Mock incident reports - in real implementation, this would fetch from incident service
-      const incidents = [
-        {
-          id: 'INC-001',
-          title: 'Unauthorized Access Attempt',
-          severity: 'high',
-          status: 'investigating',
-          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          assignedTo: 'security-team',
-          description: 'Multiple failed login attempts detected from suspicious IP address'
-        },
-        {
-          id: 'INC-002',
-          title: 'System Performance Degradation',
-          severity: 'medium',
-          status: 'resolved',
-          createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-          assignedTo: 'ops-team',
-          description: 'API response times exceeded threshold for 15 minutes'
-        }
-      ];
+      setIsLoadingData(true);
+      // Fetch real incident reports from incident service
+      const incidents = await getIncidentReports();
       setIncidentReports(incidents);
       setShowIncidentModal(true);
     } catch (error) {
       console.error('Error fetching incident reports:', error);
-      alert('Error fetching incident reports');
+      alert('Error fetching incident reports. Please try again.');
+    } finally {
+      setIsLoadingData(false);
     }
   }, []);
 
@@ -1226,14 +1361,31 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
           >
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900">System Configuration</h3>
-                <button
-                  onClick={handleOpenSystemConfig}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                >
-                  <Settings className="w-4 h-4" />
-                  Configure System
-                </button>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-lg font-semibold text-gray-900">System Configuration</h3>
+                  {Object.keys(configChanges).length > 0 && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                      Unsaved Changes
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleOpenSystemConfig}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    <Settings className="w-4 h-4" />
+                    Configure System
+                  </button>
+                  {Object.keys(configChanges).length > 0 && (
+                    <button
+                      onClick={() => setConfigChanges({})}
+                      className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                    >
+                      Reset Changes
+                    </button>
+                  )}
+                </div>
               </div>
               
               {systemConfig && (
@@ -1244,19 +1396,19 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
                           <span className="text-gray-600">pH Range:</span>
-                          <span className="ml-2 font-medium">{systemConfig.alertThresholds?.global?.pH?.min} - {systemConfig.alertThresholds?.global?.pH?.max}</span>
+                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'min'], 6.5)} - {getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'max'], 8.5)}</span>
                         </div>
                         <div>
                           <span className="text-gray-600">Turbidity Max:</span>
-                          <span className="ml-2 font-medium">{systemConfig.alertThresholds?.global?.turbidity?.max}</span>
+                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'turbidity', 'max'], 5.0)}</span>
                         </div>
                         <div>
                           <span className="text-gray-600">TDS Max:</span>
-                          <span className="ml-2 font-medium">{systemConfig.alertThresholds?.global?.tds?.max}</span>
+                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'tds', 'max'], 500)}</span>
                         </div>
                         <div>
                           <span className="text-gray-600">Temperature Range:</span>
-                          <span className="ml-2 font-medium">{systemConfig.alertThresholds?.global?.temperature?.min}° - {systemConfig.alertThresholds?.global?.temperature?.max}°C</span>
+                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'min'], 0)}° - {getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'max'], 40)}°C</span>
                         </div>
                       </div>
                     </div>
@@ -1268,15 +1420,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-gray-600">Max Devices per User:</span>
-                          <span className="font-medium">{systemConfig.systemLimits?.maxDevicesPerUser}</span>
+                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'maxDevicesPerUser'], 10)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Data Retention:</span>
-                          <span className="font-medium">{systemConfig.systemLimits?.dataRetentionDays} days</span>
+                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'dataRetentionDays'], 90)} days</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Audit Retention:</span>
-                          <span className="font-medium">{systemConfig.systemLimits?.auditRetentionYears} years</span>
+                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'auditRetentionYears'], 7)} years</span>
                         </div>
                       </div>
                     </div>
@@ -1413,7 +1565,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <Clock className="w-5 h-5 text-amber-600" />
                       <span className="text-sm font-medium text-gray-700">Failed Login Attempts</span>
                     </div>
-                    <span className="text-sm font-semibold text-amber-600">3 (Last 24h)</span>
+                    <span className="text-sm font-semibold text-amber-600">
+                      {systemMetrics?.failedLogins || 0} (Last 24h)
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1425,17 +1579,31 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <AlertTriangle className="w-5 h-5 text-red-600" />
-                      <span className="text-sm font-medium text-gray-700">Active Incidents</span>
+                      <span className="text-sm font-medium text-gray-700">Open Incidents</span>
                     </div>
-                    <span className="text-sm font-semibold text-red-600">1 High Priority</span>
+                    <span className="text-sm font-semibold text-red-600">
+                      {incidentStats.openIncidents} Active
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Clock className="w-5 h-5 text-amber-600" />
+                      <span className="text-sm font-medium text-gray-700">Critical Incidents</span>
+                    </div>
+                    <span className="text-sm font-semibold text-amber-600">
+                      {incidentStats.criticalIncidents} High Priority
+                    </span>
                   </div>
                   
                   <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <Clock className="w-5 h-5 text-blue-600" />
+                      <Activity className="w-5 h-5 text-blue-600" />
                       <span className="text-sm font-medium text-gray-700">Avg Resolution Time</span>
                     </div>
-                    <span className="text-sm font-semibold text-blue-600">2.3 hours</span>
+                    <span className="text-sm font-semibold text-blue-600">
+                      {incidentStats.avgResolutionTime > 0 ? `${incidentStats.avgResolutionTime.toFixed(1)} hours` : 'N/A'}
+                    </span>
                   </div>
                   
                   <button
@@ -1447,7 +1615,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   </button>
                   
                   <div className="text-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600 mb-1">99.8%</div>
+                    <div className="text-2xl font-bold text-green-600 mb-1">
+                      {systemMetrics?.systemAvailability?.toFixed(1) || '99.8'}%
+                    </div>
                     <div className="text-sm font-medium text-gray-700">System Availability</div>
                     <div className="text-xs text-gray-600 mt-1">Last 30 days</div>
                   </div>
@@ -1495,7 +1665,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   </button>
                   
                   <div className="text-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600 mb-1">99.95%</div>
+                    <div className="text-2xl font-bold text-green-600 mb-1">
+                      {complianceReport?.summary?.complianceRate?.toFixed(2) || '99.95'}%
+                    </div>
                     <div className="text-sm font-medium text-gray-700">Compliance Rate</div>
                     <div className="text-xs text-gray-600 mt-1">Last 30 days</div>
                   </div>
@@ -1511,7 +1683,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <CheckCircle className="w-5 h-5 text-green-600" />
                       <span className="text-sm font-medium text-gray-700">Backup Status</span>
                     </div>
-                    <span className="text-sm font-semibold text-green-600">Current</span>
+                    <span className="text-sm font-semibold text-green-600">
+                      {systemMetrics?.backupStatus || 'Current'}
+                    </span>
                   </div>
                   
                   <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
@@ -1519,7 +1693,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <Database className="w-5 h-5 text-blue-600" />
                       <span className="text-sm font-medium text-gray-700">Last Backup</span>
                     </div>
-                    <span className="text-sm font-semibold text-blue-600">2 hours ago</span>
+                    <span className="text-sm font-semibold text-blue-600">
+                      {systemMetrics?.lastBackup ? formatRelativeTime(systemMetrics.lastBackup) : '2 hours ago'}
+                    </span>
                   </div>
                   
                   <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
@@ -1527,7 +1703,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <Activity className="w-5 h-5 text-purple-600" />
                       <span className="text-sm font-medium text-gray-700">RTO Target</span>
                     </div>
-                    <span className="text-sm font-semibold text-purple-600">&lt; 4 hours</span>
+                    <span className="text-sm font-semibold text-purple-600">
+                      {systemMetrics?.rtoTarget || '< 4 hours'}
+                    </span>
                   </div>
                   
                   <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-lg">
@@ -1535,7 +1713,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <Server className="w-5 h-5 text-indigo-600" />
                       <span className="text-sm font-medium text-gray-700">RPO Target</span>
                     </div>
-                    <span className="text-sm font-semibold text-indigo-600">&lt; 1 hour</span>
+                    <span className="text-sm font-semibold text-indigo-600">
+                      {systemMetrics?.rpoTarget || '< 1 hour'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1585,7 +1765,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <input
                           type="number"
                           step="0.1"
-                          value={systemConfig.alertThresholds?.global?.pH?.min || 6.5}
+                          value={getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'min'], 6.5)}
                           onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'pH', 'min'], parseFloat(e.target.value))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                           disabled={isSavingConfig}
@@ -1596,7 +1776,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <input
                           type="number"
                           step="0.1"
-                          value={systemConfig.alertThresholds?.global?.pH?.max || 8.5}
+                          value={getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'max'], 8.5)}
                           onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'pH', 'max'], parseFloat(e.target.value))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                           disabled={isSavingConfig}
@@ -1607,7 +1787,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <input
                           type="number"
                           step="0.1"
-                          value={systemConfig.alertThresholds?.global?.turbidity?.max || 5.0}
+                          value={getCurrentConfigValue(['alertThresholds', 'global', 'turbidity', 'max'], 5.0)}
                           onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'turbidity', 'max'], parseFloat(e.target.value))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                           disabled={isSavingConfig}
@@ -1618,8 +1798,30 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <input
                           type="number"
                           step="1"
-                          value={systemConfig.alertThresholds?.global?.tds?.max || 500}
+                          value={getCurrentConfigValue(['alertThresholds', 'global', 'tds', 'max'], 500)}
                           onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'tds', 'max'], parseInt(e.target.value))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          disabled={isSavingConfig}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Temperature Min (°C)</label>
+                        <input
+                          type="number"
+                          step="1"
+                          value={getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'min'], 0)}
+                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'temperature', 'min'], parseInt(e.target.value))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          disabled={isSavingConfig}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Temperature Max (°C)</label>
+                        <input
+                          type="number"
+                          step="1"
+                          value={getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'max'], 40)}
+                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'temperature', 'max'], parseInt(e.target.value))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                           disabled={isSavingConfig}
                         />
@@ -1635,7 +1837,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <label className="block text-sm font-medium text-gray-700 mb-1">Max Devices per User</label>
                         <input
                           type="number"
-                          value={systemConfig.systemLimits?.maxDevicesPerUser || 10}
+                          value={getCurrentConfigValue(['systemLimits', 'maxDevicesPerUser'], 10)}
                           onChange={(e) => handleConfigChange(['systemLimits', 'maxDevicesPerUser'], parseInt(e.target.value))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                           disabled={isSavingConfig}
@@ -1645,7 +1847,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <label className="block text-sm font-medium text-gray-700 mb-1">Data Retention (days)</label>
                         <input
                           type="number"
-                          value={systemConfig.systemLimits?.dataRetentionDays || 90}
+                          value={getCurrentConfigValue(['systemLimits', 'dataRetentionDays'], 90)}
                           onChange={(e) => handleConfigChange(['systemLimits', 'dataRetentionDays'], parseInt(e.target.value))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                           disabled={isSavingConfig}
@@ -1992,7 +2194,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         </div>
                         <div className="flex justify-between">
                           <span>Last Verification:</span>
-                          <span className="font-medium">{formatRelativeTime(complianceReport.ledgerVerification.lastVerificationTime)}</span>
+                          <span className="font-medium">{formatRelativeTime(complianceReport.ledgerVerification.lastVerificationDate)}</span>
                         </div>
                       </div>
                     </div>
@@ -2012,59 +2214,41 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                           <span>Invalid Readings:</span>
                           <span className="font-medium">{complianceReport.dataIntegrity.invalidReadings}</span>
                         </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">System Uptime</h4>
+                      <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span>Integrity Score:</span>
-                          <span className="font-medium text-green-600">{complianceReport.dataIntegrity.integrityScore.toFixed(2)}%</span>
+                          <span>Critical Path:</span>
+                          <span className="font-medium text-green-600">{complianceReport.uptimeMetrics.criticalPathUptime.toFixed(2)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>API Uptime:</span>
+                          <span className="font-medium text-green-600">{complianceReport.uptimeMetrics.apiUptime.toFixed(2)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Notifications:</span>
+                          <span className="font-medium text-green-600">{complianceReport.uptimeMetrics.notificationUptime.toFixed(2)}%</span>
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Security Events</h4>
+                      <h4 className="font-semibold text-gray-900 mb-3">Report Information</h4>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span>Unauthorized Access:</span>
-                          <span className="font-medium">{complianceReport.securityEvents.unauthorizedAccess}</span>
+                          <span>Report ID:</span>
+                          <span className="font-medium font-mono text-xs">{complianceReport.reportId}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Failed Logins:</span>
-                          <span className="font-medium">{complianceReport.securityEvents.failedLogins}</span>
+                          <span>Generated:</span>
+                          <span className="font-medium">{new Date(complianceReport.generatedAt).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Suspicious Activity:</span>
-                          <span className="font-medium">{complianceReport.securityEvents.suspiciousActivity}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Security Score:</span>
-                          <span className="font-medium text-green-600">{complianceReport.securityEvents.securityScore.toFixed(1)}%</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="font-semibold text-gray-900 mb-3">Regulatory Compliance</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>GDPR Compliance:</span>
-                          <span className={`font-medium ${complianceReport.regulatoryCompliance.gdprCompliance ? 'text-green-600' : 'text-red-600'}`}>
-                            {complianceReport.regulatoryCompliance.gdprCompliance ? 'Compliant' : 'Non-Compliant'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Data Retention:</span>
-                          <span className={`font-medium ${complianceReport.regulatoryCompliance.dataRetentionCompliance ? 'text-green-600' : 'text-red-600'}`}>
-                            {complianceReport.regulatoryCompliance.dataRetentionCompliance ? 'Compliant' : 'Non-Compliant'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Audit Trail:</span>
-                          <span className="font-medium text-green-600">{complianceReport.regulatoryCompliance.auditTrailCompleteness.toFixed(2)}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Encryption:</span>
-                          <span className={`font-medium ${complianceReport.regulatoryCompliance.encryptionCompliance ? 'text-green-600' : 'text-red-600'}`}>
-                            {complianceReport.regulatoryCompliance.encryptionCompliance ? 'Enabled' : 'Disabled'}
-                          </span>
+                          <span>Period:</span>
+                          <span className="font-medium">{complianceReport.period.startDate} to {complianceReport.period.endDate}</span>
                         </div>
                       </div>
                     </div>
@@ -2084,12 +2268,11 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       const reportData = {
                         reportId: complianceReport.reportId,
                         generatedAt: complianceReport.generatedAt,
-                        dateRange: complianceReport.dateRange,
+                        period: complianceReport.period,
                         summary: complianceReport.summary,
                         ledgerVerification: complianceReport.ledgerVerification,
                         dataIntegrity: complianceReport.dataIntegrity,
-                        securityEvents: complianceReport.securityEvents,
-                        regulatoryCompliance: complianceReport.regulatoryCompliance
+                        uptimeMetrics: complianceReport.uptimeMetrics
                       };
                       
                       // Create comprehensive CSV content
@@ -2097,7 +2280,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         ['AquaChain Compliance Report'],
                         ['Report ID', complianceReport.reportId],
                         ['Generated At', new Date(complianceReport.generatedAt).toLocaleString()],
-                        ['Date Range', `${complianceReport.dateRange.startDate} to ${complianceReport.dateRange.endDate}`],
+                        ['Date Range', `${complianceReport.period.startDate} to ${complianceReport.period.endDate}`],
                         [''],
                         ['SUMMARY'],
                         ['Total Readings', complianceReport.summary.totalReadings],
@@ -2109,25 +2292,17 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         ['Total Entries', complianceReport.ledgerVerification.totalEntries],
                         ['Verified Entries', complianceReport.ledgerVerification.verifiedEntries],
                         ['Hash Chain Intact', complianceReport.ledgerVerification.hashChainIntact ? 'Yes' : 'No'],
-                        ['Last Verification', new Date(complianceReport.ledgerVerification.lastVerificationTime).toLocaleString()],
+                        ['Last Verification', new Date(complianceReport.ledgerVerification.lastVerificationDate).toLocaleString()],
                         [''],
                         ['DATA INTEGRITY'],
                         ['Missing Readings', complianceReport.dataIntegrity.missingReadings],
                         ['Duplicate Readings', complianceReport.dataIntegrity.duplicateReadings],
                         ['Invalid Readings', complianceReport.dataIntegrity.invalidReadings],
-                        ['Integrity Score (%)', complianceReport.dataIntegrity.integrityScore],
                         [''],
-                        ['SECURITY EVENTS'],
-                        ['Unauthorized Access', complianceReport.securityEvents.unauthorizedAccess],
-                        ['Failed Logins', complianceReport.securityEvents.failedLogins],
-                        ['Suspicious Activity', complianceReport.securityEvents.suspiciousActivity],
-                        ['Security Score (%)', complianceReport.securityEvents.securityScore],
-                        [''],
-                        ['REGULATORY COMPLIANCE'],
-                        ['GDPR Compliance', complianceReport.regulatoryCompliance.gdprCompliance ? 'Compliant' : 'Non-Compliant'],
-                        ['Data Retention Compliance', complianceReport.regulatoryCompliance.dataRetentionCompliance ? 'Compliant' : 'Non-Compliant'],
-                        ['Audit Trail Completeness (%)', complianceReport.regulatoryCompliance.auditTrailCompleteness],
-                        ['Encryption Compliance', complianceReport.regulatoryCompliance.encryptionCompliance ? 'Enabled' : 'Disabled']
+                        ['UPTIME METRICS'],
+                        ['Critical Path Uptime (%)', complianceReport.uptimeMetrics.criticalPathUptime],
+                        ['API Uptime (%)', complianceReport.uptimeMetrics.apiUptime],
+                        ['Notification Uptime (%)', complianceReport.uptimeMetrics.notificationUptime]
                       ].map(row => Array.isArray(row) ? row.join(',') : row).join('\n');
 
                       // Download CSV
@@ -2144,6 +2319,395 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                     className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                   >
                     Export Report
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* User Management Modals */}
+      
+      {/* View User Modal */}
+      <AnimatePresence>
+        {showViewUserModal && selectedUser && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowViewUserModal(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">User Details</h3>
+                  <button 
+                    onClick={() => setShowViewUserModal(false)} 
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <XMarkIcon className="w-6 h-6" />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                      <p className="text-gray-900">{selectedUser.profile?.firstName || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                      <p className="text-gray-900">{selectedUser.profile?.lastName || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <p className="text-gray-900">{selectedUser.email}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <p className="text-gray-900">{selectedUser.profile?.phone || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRoleColor(selectedUser.role)}`}>
+                        {selectedUser.role}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(selectedUser.status)}`}>
+                        {selectedUser.status}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Created</label>
+                      <p className="text-gray-900">{new Date(selectedUser.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Login</label>
+                      <p className="text-gray-900">{selectedUser.lastLogin ? formatRelativeTime(selectedUser.lastLogin) : 'Never'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
+                  <button
+                    onClick={() => setShowViewUserModal(false)}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowViewUserModal(false);
+                      handleEditUser(selectedUser);
+                    }}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    Edit User
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Edit User Modal */}
+      <AnimatePresence>
+        {showEditUserModal && selectedUser && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => !isSubmittingEdit && setShowEditUserModal(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">Edit User</h3>
+                  <button 
+                    onClick={() => !isSubmittingEdit && setShowEditUserModal(false)} 
+                    className="text-gray-400 hover:text-gray-600"
+                    disabled={isSubmittingEdit}
+                  >
+                    <XMarkIcon className="w-6 h-6" />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                      <input
+                        type="text"
+                        value={editFormData.firstName}
+                        onChange={(e) => handleEditFormChange('firstName', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingEdit}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                      <input
+                        type="text"
+                        value={editFormData.lastName}
+                        onChange={(e) => handleEditFormChange('lastName', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingEdit}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={editFormData.email}
+                        onChange={(e) => handleEditFormChange('email', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingEdit}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={editFormData.phone}
+                        onChange={(e) => handleEditFormChange('phone', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingEdit}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                      <select
+                        value={editFormData.role}
+                        onChange={(e) => handleEditFormChange('role', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingEdit}
+                      >
+                        <option value="consumer">Consumer</option>
+                        <option value="technician">Technician</option>
+                        <option value="admin">Admin</option>
+                        <option value="administrator">Administrator</option>
+                        <option value="inventory_manager">Inventory Manager</option>
+                        <option value="warehouse_manager">Warehouse Manager</option>
+                        <option value="supplier_coordinator">Supplier Coordinator</option>
+                        <option value="procurement_controller">Procurement Controller</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                      <select
+                        value={editFormData.status}
+                        onChange={(e) => handleEditFormChange('status', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingEdit}
+                      >
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
+                  <button
+                    onClick={() => setShowEditUserModal(false)}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    disabled={isSubmittingEdit}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEditUser}
+                    disabled={isSubmittingEdit}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isSubmittingEdit ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Add User Modal */}
+      <AnimatePresence>
+        {showAddUserModal && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => !isSubmittingAdd && setShowAddUserModal(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">Add New User</h3>
+                  <button 
+                    onClick={() => !isSubmittingAdd && setShowAddUserModal(false)} 
+                    className="text-gray-400 hover:text-gray-600"
+                    disabled={isSubmittingAdd}
+                  >
+                    <XMarkIcon className="w-6 h-6" />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                      <input
+                        type="text"
+                        value={addFormData.firstName}
+                        onChange={(e) => handleAddFormChange('firstName', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingAdd}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                      <input
+                        type="text"
+                        value={addFormData.lastName}
+                        onChange={(e) => handleAddFormChange('lastName', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingAdd}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                      <input
+                        type="email"
+                        value={addFormData.email}
+                        onChange={(e) => handleAddFormChange('email', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingAdd}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={addFormData.phone}
+                        onChange={(e) => handleAddFormChange('phone', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingAdd}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                      <input
+                        type="password"
+                        value={addFormData.password}
+                        onChange={(e) => handleAddFormChange('password', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingAdd}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                      <select
+                        value={addFormData.role}
+                        onChange={(e) => handleAddFormChange('role', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        disabled={isSubmittingAdd}
+                      >
+                        <option value="consumer">Consumer</option>
+                        <option value="technician">Technician</option>
+                        <option value="admin">Admin</option>
+                        <option value="administrator">Administrator</option>
+                        <option value="inventory_manager">Inventory Manager</option>
+                        <option value="warehouse_manager">Warehouse Manager</option>
+                        <option value="supplier_coordinator">Supplier Coordinator</option>
+                        <option value="procurement_controller">Procurement Controller</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
+                  <button
+                    onClick={() => setShowAddUserModal(false)}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    disabled={isSubmittingAdd}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveNewUser}
+                    disabled={isSubmittingAdd || !addFormData.firstName || !addFormData.lastName || !addFormData.email || !addFormData.password}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isSubmittingAdd ? 'Creating...' : 'Create User'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Delete User Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteUserModal && selectedUser && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowDeleteUserModal(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-900">Delete User</h3>
+                  <button 
+                    onClick={() => setShowDeleteUserModal(false)} 
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <XMarkIcon className="w-6 h-6" />
+                  </button>
+                </div>
+                
+                <div className="mb-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                      <AlertTriangle className="w-6 h-6 text-red-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-900">Are you sure?</h4>
+                      <p className="text-sm text-gray-600">This action cannot be undone.</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-700">
+                    You are about to delete the user <strong>{selectedUser.profile?.firstName} {selectedUser.profile?.lastName}</strong> ({selectedUser.email}). 
+                    This will permanently remove their account and all associated data.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowDeleteUserModal(false)}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeleteUser}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Delete User
                   </button>
                 </div>
               </div>

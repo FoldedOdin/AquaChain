@@ -266,6 +266,58 @@ class AquaChainComputeStack(Stack):
             **common_lambda_config
         )
         
+        # Admin Service Lambda
+        self.admin_service_function = lambda_python.PythonFunction(
+            self, "AdminServiceFunction",
+            function_name=get_resource_name(self.config, "function", "admin-service"),
+            entry="../../lambda/admin_service",
+            index="handler.py",
+            handler="lambda_handler",
+            role=self.security_resources["data_processing_role"],
+            layers=layers,
+            memory_size=1024,  # Higher memory for admin operations
+            timeout=Duration.seconds(60),  # Longer timeout for complex operations
+            environment={
+                **common_lambda_config["environment"],
+                "COGNITO_USER_POOL_ID": os.environ.get("COGNITO_USER_POOL_ID", ""),
+                "COGNITO_CLIENT_ID": os.environ.get("COGNITO_CLIENT_ID", ""),
+                "CONFIG_TABLE": get_resource_name(self.config, "table", "system-config"),
+                "AUDIT_TABLE": get_resource_name(self.config, "table", "audit-logs"),
+                "DEVICES_TABLE": get_resource_name(self.config, "table", "devices")
+            },
+            **{k: v for k, v in common_lambda_config.items() if k not in ["memory_size", "timeout", "environment"]}
+        )
+        
+        # Grant admin service comprehensive permissions
+        self.admin_service_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    # Cognito permissions for user management
+                    "cognito-idp:ListUsers",
+                    "cognito-idp:AdminCreateUser",
+                    "cognito-idp:AdminUpdateUserAttributes",
+                    "cognito-idp:AdminDeleteUser",
+                    "cognito-idp:AdminEnableUser",
+                    "cognito-idp:AdminDisableUser",
+                    "cognito-idp:AdminListGroupsForUser",
+                    "cognito-idp:AdminAddUserToGroup",
+                    "cognito-idp:AdminRemoveUserFromGroup",
+                    # CloudWatch permissions for system health
+                    "cloudwatch:GetMetricStatistics",
+                    "cloudwatch:ListMetrics",
+                    # DynamoDB permissions for all admin operations
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=["*"]  # Admin needs broad access
+            )
+        )
+        
         self.lambda_functions.update({
             "data_processing": self.data_processing_function,
             "ml_inference": self.ml_inference_function,
@@ -274,7 +326,8 @@ class AquaChainComputeStack(Stack):
             "service_request": self.service_request_function,
             "audit_processor": self.audit_processor_function,
             "websocket": self.websocket_function,
-            "notification": self.notification_function
+            "notification": self.notification_function,
+            "admin_service": self.admin_service_function
         })
         
         # Also add to compute_resources for API stack compatibility
