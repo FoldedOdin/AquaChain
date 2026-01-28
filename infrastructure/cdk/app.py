@@ -31,6 +31,7 @@ from stacks.gdpr_compliance_stack import GDPRComplianceStack
 from stacks.dashboard_overhaul_stack import DashboardOverhaulStack
 from stacks.deployment_pipeline_stack import DeploymentPipelineStack
 from stacks.production_monitoring_stack import ProductionMonitoringStack
+from stacks.enhanced_consumer_ordering_stack import EnhancedConsumerOrderingStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -327,6 +328,17 @@ def main():
         description=f"AquaChain Dashboard Production Monitoring - {env_name}"
     )
     # Production monitoring is independent but benefits from other stacks being deployed
+    
+    # 25. Enhanced Consumer Ordering Stack (New ordering system with dual payments)
+    enhanced_ordering_stack = EnhancedConsumerOrderingStack(
+        app,
+        f"AquaChain-EnhancedOrdering-{env_name}",
+        config=config,
+        kms_key=security_stack.data_key,
+        env=aws_env,
+        description=f"AquaChain Enhanced Consumer Ordering System - {env_name}"
+    )
+    enhanced_ordering_stack.add_dependency(security_stack)
     
     # Synthesize the app
     app.synth()
