@@ -335,10 +335,12 @@ def main():
         f"AquaChain-EnhancedOrdering-{env_name}",
         config=config,
         kms_key=security_stack.data_key,
+        common_layer=lambda_layers_stack.get_common_layer(),
         env=aws_env,
         description=f"AquaChain Enhanced Consumer Ordering System - {env_name}"
     )
     enhanced_ordering_stack.add_dependency(security_stack)
+    enhanced_ordering_stack.add_dependency(lambda_layers_stack)
     
     # Synthesize the app
     app.synth()

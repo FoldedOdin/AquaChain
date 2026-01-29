@@ -1,6 +1,6 @@
 """
 Enhanced Consumer Ordering System Stack
-DynamoDB tables, EventBridge rules, and WebSocket API for the ordering system
+DynamoDB tables, Lambda functions, EventBridge rules, and WebSocket API for the ordering system
 """
 
 from aws_cdk import (
@@ -10,13 +10,17 @@ from aws_cdk import (
     aws_events as events,
     aws_events_targets as targets,
     aws_apigatewayv2 as apigatewayv2,
+    aws_lambda as lambda_,
+    aws_lambda_python_alpha as lambda_python,
+    aws_iam as iam,
+    aws_secretsmanager as secretsmanager,
     aws_kms as kms,
     RemovalPolicy,
     Duration,
     CfnOutput
 )
 from constructs import Construct
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from config.environment_config import get_resource_name
 
 class EnhancedConsumerOrderingStack(Stack):
@@ -26,15 +30,23 @@ class EnhancedConsumerOrderingStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str, config: Dict[str, Any], 
-                 kms_key: kms.Key, **kwargs) -> None:
+                 kms_key: kms.Key, common_layer: Optional[lambda_.ILayerVersion] = None, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.config = config
         self.kms_key = kms_key
+        self.common_layer = common_layer
         self.ordering_resources = {}
+        self.lambda_functions = {}
         
         # Create DynamoDB tables
         self._create_dynamodb_tables()
+        
+        # Create Secrets Manager secrets
+        self._create_secrets()
+        
+        # Create Lambda functions
+        self._create_lambda_functions()
         
         # Create EventBridge resources
         self._create_eventbridge_resources()
@@ -202,6 +214,231 @@ class EnhancedConsumerOrderingStack(Stack):
             Tags.of(table).add("BackupEnabled", "true")
             Tags.of(table).add("Feature", "enhanced-consumer-ordering-system")
     
+    def _create_secrets(self) -> None:
+        """
+        Create Secrets Manager secrets for external service credentials
+        """
+        
+        # Razorpay API credentials secret
+        self.razorpay_secret = secretsmanager.Secret(
+            self, "RazorpaySecret",
+            secret_name=get_resource_name(self.config, "secret", "razorpay-credentials"),
+            description="Razorpay API credentials for payment processing",
+            encryption_key=self.kms_key,
+            generate_secret_string=secretsmanager.SecretStringGenerator(
+                secret_string_template='{"key_id": ""}',
+                generate_string_key="key_secret",
+                exclude_characters=' "%@\\\'',
+                password_length=32
+            )
+        )
+        
+        self.ordering_resources["razorpay_secret"] = self.razorpay_secret
+    
+    def _create_lambda_functions(self) -> None:
+        """
+        Create Lambda functions for the enhanced consumer ordering system
+        """
+        
+        # Common Lambda configuration
+        common_lambda_config = {
+            "runtime": lambda_.Runtime.PYTHON_3_11,
+            "timeout": Duration.seconds(30),
+            "memory_size": 512,
+            "environment": {
+                "ENVIRONMENT": self.config["environment"],
+                "REGION": self.region,
+                "ORDERS_TABLE_NAME": self.orders_table.table_name,
+                "PAYMENTS_TABLE_NAME": self.payments_table.table_name,
+                "TECHNICIANS_TABLE_NAME": self.technicians_table.table_name,
+                "ORDER_SIMULATIONS_TABLE_NAME": self.order_simulations_table.table_name,
+                "WEBSOCKET_CONNECTIONS_TABLE_NAME": "",  # Will be set after WebSocket table creation
+                "RAZORPAY_SECRET_ARN": "",  # Will be set after secret creation
+                "ORDERING_EVENT_BUS_NAME": "",  # Will be set after EventBridge creation
+                "DATA_KEY_ID": self.kms_key.key_id
+            },
+            "tracing": lambda_.Tracing.ACTIVE if self.config.get("enable_xray_tracing", True) else lambda_.Tracing.DISABLED,
+            "reserved_concurrent_executions": self.config.get("lambda_reserved_concurrency")
+        }
+        
+        # Prepare layers list
+        layers = [self.common_layer] if self.common_layer else []
+        
+        # Order Management Service Lambda
+        self.order_management_function = lambda_python.PythonFunction(
+            self, "OrderManagementFunction",
+            function_name=get_resource_name(self.config, "function", "order-management"),
+            entry="../../lambda/orders",
+            index="enhanced_order_management.py",
+            handler="lambda_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # Payment Service Lambda
+        self.payment_service_function = lambda_python.PythonFunction(
+            self, "PaymentServiceFunction",
+            function_name=get_resource_name(self.config, "function", "payment-service"),
+            entry="../../lambda/payment_service",
+            index="payment_service.py",
+            handler="lambda_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # Technician Assignment Service Lambda
+        self.technician_assignment_function = lambda_python.PythonFunction(
+            self, "TechnicianAssignmentFunction",
+            function_name=get_resource_name(self.config, "function", "technician-assignment"),
+            entry="../../lambda/technician_assignment",
+            index="technician_assignment_service.py",
+            handler="lambda_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # Status Simulator Service Lambda
+        self.status_simulator_function = lambda_python.PythonFunction(
+            self, "StatusSimulatorFunction",
+            function_name=get_resource_name(self.config, "function", "status-simulator"),
+            entry="../../lambda/status_simulator",
+            index="status_simulator_service.py",
+            handler="lambda_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # WebSocket Connection Handler Lambda
+        self.websocket_connect_function = lambda_python.PythonFunction(
+            self, "WebSocketConnectFunction",
+            function_name=get_resource_name(self.config, "function", "websocket-connect"),
+            entry="../../lambda/websocket_ordering",
+            index="handler.py",
+            handler="connect_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # WebSocket Disconnect Handler Lambda
+        self.websocket_disconnect_function = lambda_python.PythonFunction(
+            self, "WebSocketDisconnectFunction",
+            function_name=get_resource_name(self.config, "function", "websocket-disconnect"),
+            entry="../../lambda/websocket_ordering",
+            index="handler.py",
+            handler="disconnect_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # WebSocket Broadcast Handler Lambda
+        self.websocket_broadcast_function = lambda_python.PythonFunction(
+            self, "WebSocketBroadcastFunction",
+            function_name=get_resource_name(self.config, "function", "websocket-broadcast"),
+            entry="../../lambda/websocket_ordering",
+            index="broadcast_handler.py",
+            handler="lambda_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
+        # Store Lambda functions
+        self.lambda_functions.update({
+            "order_management": self.order_management_function,
+            "payment_service": self.payment_service_function,
+            "technician_assignment": self.technician_assignment_function,
+            "status_simulator": self.status_simulator_function,
+            "websocket_connect": self.websocket_connect_function,
+            "websocket_disconnect": self.websocket_disconnect_function,
+            "websocket_broadcast": self.websocket_broadcast_function
+        })
+        
+        # Grant DynamoDB permissions to all Lambda functions
+        self._grant_dynamodb_permissions()
+        
+        # Grant Secrets Manager permissions
+        self._grant_secrets_permissions()
+        
+        # Grant EventBridge permissions
+        self._grant_eventbridge_permissions()
+    
+    def _grant_dynamodb_permissions(self) -> None:
+        """
+        Grant DynamoDB permissions to Lambda functions
+        """
+        
+        # Define table ARNs
+        table_arns = [
+            self.orders_table.table_arn,
+            self.payments_table.table_arn,
+            self.technicians_table.table_arn,
+            self.order_simulations_table.table_arn,
+            f"{self.orders_table.table_arn}/index/*",
+            f"{self.payments_table.table_arn}/index/*",
+            f"{self.technicians_table.table_arn}/index/*"
+        ]
+        
+        # Grant permissions to all Lambda functions
+        for function in self.lambda_functions.values():
+            function.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "dynamodb:PutItem",
+                        "dynamodb:GetItem",
+                        "dynamodb:UpdateItem",
+                        "dynamodb:DeleteItem",
+                        "dynamodb:Query",
+                        "dynamodb:Scan",
+                        "dynamodb:BatchGetItem",
+                        "dynamodb:BatchWriteItem"
+                    ],
+                    resources=table_arns
+                )
+            )
+            
+            # Grant KMS permissions for DynamoDB encryption
+            function.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "kms:Decrypt",
+                        "kms:DescribeKey"
+                    ],
+                    resources=[self.kms_key.key_arn]
+                )
+            )
+    
+    def _grant_secrets_permissions(self) -> None:
+        """
+        Grant Secrets Manager permissions to payment service
+        """
+        
+        self.payment_service_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[self.razorpay_secret.secret_arn]
+            )
+        )
+    
+    def _grant_eventbridge_permissions(self) -> None:
+        """
+        Grant EventBridge permissions to Lambda functions
+        """
+        
+        # Status simulator needs to put events
+        self.status_simulator_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "events:PutEvents"
+                ],
+                resources=[f"arn:aws:events:{self.region}:{self.account}:event-bus/*"]
+            )
+        )
+    
     def _create_eventbridge_resources(self) -> None:
         """
         Create EventBridge resources for order status simulation
@@ -230,33 +467,52 @@ class EnhancedConsumerOrderingStack(Stack):
             enabled=True
         )
         
-        # Note: Lambda targets will be added when Lambda functions are created
+        # Add Lambda target to the rule
+        self.status_simulation_rule.add_target(
+            targets.LambdaFunction(
+                handler=self.status_simulator_function,
+                retry_attempts=3
+            )
+        )
+        
+        # EventBridge rule for order status updates (triggers WebSocket broadcasts)
+        self.order_status_update_rule = events.Rule(
+            self, "OrderStatusUpdateRule",
+            rule_name=get_resource_name(self.config, "rule", "order-status-update"),
+            description="Rule for broadcasting order status updates via WebSocket",
+            event_bus=self.ordering_event_bus,
+            event_pattern=events.EventPattern(
+                source=["aquachain.ordering"],
+                detail_type=["Order Status Update"],
+                detail={
+                    "action": ["status_changed"]
+                }
+            ),
+            enabled=True
+        )
+        
+        # Add WebSocket broadcast Lambda target
+        self.order_status_update_rule.add_target(
+            targets.LambdaFunction(
+                handler=self.websocket_broadcast_function,
+                retry_attempts=3
+            )
+        )
+        
+        # Update Lambda environment variables with EventBridge details
+        for function in self.lambda_functions.values():
+            function.add_environment("ORDERING_EVENT_BUS_NAME", self.ordering_event_bus.event_bus_name)
         
         self.ordering_resources.update({
             "ordering_event_bus": self.ordering_event_bus,
-            "status_simulation_rule": self.status_simulation_rule
+            "status_simulation_rule": self.status_simulation_rule,
+            "order_status_update_rule": self.order_status_update_rule
         })
     
     def _create_websocket_api(self) -> None:
         """
         Create WebSocket API for real-time order updates
         """
-        
-        # WebSocket API for real-time updates
-        self.websocket_api = apigatewayv2.WebSocketApi(
-            self, "OrderingWebSocketApi",
-            api_name=get_resource_name(self.config, "websocket-api", "ordering"),
-            description="WebSocket API for real-time order status updates",
-            # Routes will be added when Lambda functions are created
-        )
-        
-        # WebSocket API stage
-        self.websocket_stage = apigatewayv2.WebSocketStage(
-            self, "OrderingWebSocketStage",
-            web_socket_api=self.websocket_api,
-            stage_name=self.config["environment"],
-            auto_deploy=True
-        )
         
         # WebSocket connections table (reuse existing from data stack if available)
         # This table stores active WebSocket connections for broadcasting updates
@@ -288,6 +544,77 @@ class EnhancedConsumerOrderingStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL
         )
         
+        # Update Lambda environment variables with WebSocket connections table
+        for function in self.lambda_functions.values():
+            function.add_environment("WEBSOCKET_CONNECTIONS_TABLE_NAME", self.websocket_connections_table.table_name)
+        
+        # Grant WebSocket connections table permissions
+        websocket_table_arns = [
+            self.websocket_connections_table.table_arn,
+            f"{self.websocket_connections_table.table_arn}/index/*"
+        ]
+        
+        for function in [self.websocket_connect_function, self.websocket_disconnect_function, self.websocket_broadcast_function]:
+            function.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "dynamodb:PutItem",
+                        "dynamodb:GetItem",
+                        "dynamodb:UpdateItem",
+                        "dynamodb:DeleteItem",
+                        "dynamodb:Query",
+                        "dynamodb:Scan"
+                    ],
+                    resources=websocket_table_arns
+                )
+            )
+        
+        # WebSocket API for real-time updates
+        self.websocket_api = apigatewayv2.WebSocketApi(
+            self, "OrderingWebSocketApi",
+            api_name=get_resource_name(self.config, "websocket-api", "ordering"),
+            description="WebSocket API for real-time order status updates",
+            connect_route_options=apigatewayv2.WebSocketRouteOptions(
+                integration=apigatewayv2.WebSocketLambdaIntegration(
+                    "ConnectIntegration",
+                    handler=self.websocket_connect_function
+                )
+            ),
+            disconnect_route_options=apigatewayv2.WebSocketRouteOptions(
+                integration=apigatewayv2.WebSocketLambdaIntegration(
+                    "DisconnectIntegration", 
+                    handler=self.websocket_disconnect_function
+                )
+            )
+        )
+        
+        # WebSocket API stage
+        self.websocket_stage = apigatewayv2.WebSocketStage(
+            self, "OrderingWebSocketStage",
+            web_socket_api=self.websocket_api,
+            stage_name=self.config["environment"],
+            auto_deploy=True
+        )
+        
+        # Grant WebSocket API management permissions to broadcast function
+        self.websocket_broadcast_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "execute-api:ManageConnections"
+                ],
+                resources=[
+                    f"arn:aws:execute-api:{self.region}:{self.account}:{self.websocket_api.api_id}/*"
+                ]
+            )
+        )
+        
+        # Update Lambda environment variables with WebSocket API details
+        websocket_endpoint = f"https://{self.websocket_api.api_id}.execute-api.{self.region}.amazonaws.com/{self.config['environment']}"
+        for function in [self.websocket_connect_function, self.websocket_disconnect_function, self.websocket_broadcast_function]:
+            function.add_environment("WEBSOCKET_API_ENDPOINT", websocket_endpoint)
+        
         self.ordering_resources.update({
             "websocket_api": self.websocket_api,
             "websocket_stage": self.websocket_stage,
@@ -305,7 +632,16 @@ class EnhancedConsumerOrderingStack(Stack):
         """
         Get all ordering system resources for use in other stacks
         """
-        return self.ordering_resources
+        return {
+            **self.ordering_resources,
+            "lambda_functions": self.lambda_functions
+        }
+    
+    def get_lambda_functions(self) -> Dict[str, lambda_.Function]:
+        """
+        Get Lambda functions for API Gateway integration
+        """
+        return self.lambda_functions
     
     def get_table_arns(self) -> Dict[str, str]:
         """
@@ -329,4 +665,32 @@ class EnhancedConsumerOrderingStack(Stack):
             "TECHNICIANS_TABLE_NAME": self.technicians_table.table_name,
             "ORDER_SIMULATIONS_TABLE_NAME": self.order_simulations_table.table_name,
             "WEBSOCKET_CONNECTIONS_TABLE_NAME": self.websocket_connections_table.table_name
+        }
+    
+    def get_secret_arns(self) -> Dict[str, str]:
+        """
+        Get secret ARNs for Lambda environment variables
+        """
+        return {
+            "RAZORPAY_SECRET_ARN": self.razorpay_secret.secret_arn
+        }
+    
+    def get_eventbridge_resources(self) -> Dict[str, Any]:
+        """
+        Get EventBridge resources for external integrations
+        """
+        return {
+            "ordering_event_bus": self.ordering_event_bus,
+            "status_simulation_rule": self.status_simulation_rule,
+            "order_status_update_rule": self.order_status_update_rule
+        }
+    
+    def get_websocket_resources(self) -> Dict[str, Any]:
+        """
+        Get WebSocket API resources for frontend integration
+        """
+        return {
+            "websocket_api": self.websocket_api,
+            "websocket_stage": self.websocket_stage,
+            "websocket_endpoint": f"wss://{self.websocket_api.api_id}.execute-api.{self.region}.amazonaws.com/{self.config['environment']}"
         }

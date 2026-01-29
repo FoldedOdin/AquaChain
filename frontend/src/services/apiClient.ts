@@ -3,6 +3,18 @@
  * Centralized HTTP client for making API requests with authentication
  */
 
+import { 
+  CreateOrderRequest, 
+  Order, 
+  Payment, 
+  PaymentStatus, 
+  Technician, 
+  TechnicianAssignment, 
+  SimulationStatus,
+  Location,
+  RazorpayOrder
+} from '../types/ordering';
+
 export interface ApiResponse<T = any> {
   data: T;
   status: number;
@@ -201,6 +213,190 @@ class ApiClient {
   }
 }
 
+}
+
+/**
+ * Enhanced API Client with Order Management
+ * Extends the base ApiClient with order-specific endpoints
+ */
+class EnhancedApiClient extends ApiClient {
+  /**
+   * Order Management API calls
+   */
+  
+  // Create a new order
+  async createOrder(orderData: CreateOrderRequest): Promise<ApiResponse<Order>> {
+    return this.post('/api/orders', orderData);
+  }
+
+  // Get order by ID
+  async getOrder(orderId: string): Promise<ApiResponse<Order>> {
+    return this.get(`/api/orders/${orderId}`);
+  }
+
+  // Get orders by consumer ID
+  async getOrdersByConsumer(consumerId: string): Promise<ApiResponse<Order[]>> {
+    return this.get(`/api/orders/consumer/${consumerId}`);
+  }
+
+  // Update order status
+  async updateOrderStatus(orderId: string, status: string, metadata?: any): Promise<ApiResponse<Order>> {
+    return this.patch(`/api/orders/${orderId}/status`, { status, metadata });
+  }
+
+  // Cancel order
+  async cancelOrder(orderId: string, reason: string): Promise<ApiResponse<Order>> {
+    return this.post(`/api/orders/${orderId}/cancel`, { reason });
+  }
+
+  /**
+   * Payment Processing API calls
+   */
+  
+  // Create Razorpay order
+  async createRazorpayOrder(amount: number, orderId: string): Promise<ApiResponse<RazorpayOrder>> {
+    return this.post('/api/payments/razorpay/create', { amount, orderId });
+  }
+
+  // Verify Razorpay payment
+  async verifyRazorpayPayment(paymentId: string, orderId: string, signature: string): Promise<ApiResponse<boolean>> {
+    return this.post('/api/payments/razorpay/verify', { paymentId, orderId, signature });
+  }
+
+  // Create COD payment
+  async createCODPayment(orderId: string, amount: number): Promise<ApiResponse<Payment>> {
+    return this.post('/api/payments/cod/create', { orderId, amount });
+  }
+
+  // Get payment status
+  async getPaymentStatus(orderId: string): Promise<ApiResponse<PaymentStatus>> {
+    return this.get(`/api/payments/status/${orderId}`);
+  }
+
+  /**
+   * Technician Assignment API calls
+   */
+  
+  // Assign technician to order
+  async assignTechnician(orderId: string, serviceLocation: Location): Promise<ApiResponse<TechnicianAssignment>> {
+    return this.post(`/api/technicians/assign`, { orderId, serviceLocation });
+  }
+
+  // Get available technicians
+  async getAvailableTechnicians(location: Location, radius: number = 50): Promise<ApiResponse<Technician[]>> {
+    return this.post('/api/technicians/available', { location, radius });
+  }
+
+  // Update technician availability
+  async updateTechnicianAvailability(technicianId: string, available: boolean): Promise<ApiResponse<void>> {
+    return this.patch(`/api/technicians/${technicianId}/availability`, { available });
+  }
+
+  /**
+   * Status Simulator API calls
+   */
+  
+  // Start order status simulation
+  async startStatusSimulation(orderId: string): Promise<ApiResponse<void>> {
+    return this.post(`/api/simulator/start`, { orderId });
+  }
+
+  // Stop order status simulation
+  async stopStatusSimulation(orderId: string): Promise<ApiResponse<void>> {
+    return this.post(`/api/simulator/stop`, { orderId });
+  }
+
+  // Get simulation status
+  async getSimulationStatus(orderId: string): Promise<ApiResponse<SimulationStatus>> {
+    return this.get(`/api/simulator/status/${orderId}`);
+  }
+
+  /**
+   * WebSocket Connection Management
+   */
+  
+  // Get WebSocket connection URL
+  getWebSocketUrl(): string {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = process.env.REACT_APP_WEBSOCKET_ENDPOINT || 
+                   `${wsProtocol}//${window.location.host}/ws`;
+    return wsHost;
+  }
+
+  // Connect to order updates WebSocket
+  connectToOrderUpdates(orderId: string, onMessage: (data: any) => void): void {
+    const websocketService = require('./websocketService').websocketService;
+    websocketService.connect(`order-${orderId}`, onMessage);
+  }
+
+  // Disconnect from order updates WebSocket
+  disconnectFromOrderUpdates(orderId: string, onMessage?: (data: any) => void): void {
+    const websocketService = require('./websocketService').websocketService;
+    websocketService.disconnect(`order-${orderId}`, onMessage);
+  }
+
+  // Connect to general order notifications
+  connectToOrderNotifications(consumerId: string, onMessage: (data: any) => void): void {
+    const websocketService = require('./websocketService').websocketService;
+    websocketService.connect(`consumer-${consumerId}-orders`, onMessage);
+  }
+
+  // Disconnect from general order notifications
+  disconnectFromOrderNotifications(consumerId: string, onMessage?: (data: any) => void): void {
+    const websocketService = require('./websocketService').websocketService;
+    websocketService.disconnect(`consumer-${consumerId}-orders`, onMessage);
+  }
+
+  /**
+   * Error Handling and Retry Logic
+   */
+  
+  // Retry API call with exponential backoff
+  async retryApiCall<T>(
+    apiCall: () => Promise<ApiResponse<T>>,
+    maxRetries: number = 3,
+    baseDelay: number = 1000
+  ): Promise<ApiResponse<T>> {
+    let lastError: ApiError;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await apiCall();
+      } catch (error) {
+        lastError = error as ApiError;
+        
+        // Don't retry on client errors (4xx)
+        if (lastError.status && lastError.status >= 400 && lastError.status < 500) {
+          throw lastError;
+        }
+        
+        // Don't retry on the last attempt
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+        
+        // Calculate delay with exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        console.log(`Retrying API call (attempt ${attempt + 2}/${maxRetries + 1}) after ${delay}ms`);
+      }
+    }
+    
+    throw lastError!;
+  }
+
+  // Check API health
+  async checkApiHealth(): Promise<ApiResponse<{ status: string; timestamp: string }>> {
+    return this.get('/api/health');
+  }
+
+  // Get API version info
+  async getApiVersion(): Promise<ApiResponse<{ version: string; build: string }>> {
+    return this.get('/api/version');
+  }
+}
+
 // Export singleton instance
-export const apiClient = new ApiClient();
+export const apiClient = new EnhancedApiClient();
 export default apiClient;
