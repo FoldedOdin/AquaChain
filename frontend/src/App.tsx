@@ -4,6 +4,7 @@ import LandingPageWithAnalytics from './components/LandingPage/LandingPageWithAn
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { OrderingProvider } from './contexts/OrderingContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import performanceMonitor from './services/performanceMonitor';
 import GoogleCallbackHandler from './components/Auth/GoogleCallbackHandler';
@@ -53,7 +54,8 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <NotificationProvider>
-          <Router>
+          <OrderingProvider>
+            <Router>
             <div className="App">
               <Routes>
             <Route
@@ -196,6 +198,7 @@ function App() {
               </Routes>
             </div>
           </Router>
+          </OrderingProvider>
         </NotificationProvider>
       </AuthProvider>
     </ErrorBoundary>

@@ -32,6 +32,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useAuth } from '../../contexts/AuthContext';
 import { useDashboardData } from '../../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
+import { OrderingProvider } from '../../contexts/OrderingContext';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -40,6 +41,7 @@ import EditProfileModal from './EditProfileModal';
 import DataExportModal from './DataExportModal';
 import RequestDeviceModal from './RequestDeviceModal';
 import MyOrdersPage from './MyOrdersPage';
+import OrderingFlow from './OrderingFlow';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -61,6 +63,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showRequestDevice, setShowRequestDevice] = useState(false);
   const [showMyOrders, setShowMyOrders] = useState(false);
+  const [showOrderingFlow, setShowOrderingFlow] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [selectedTimeRange, setSelectedTimeRange] = useState('7days');
@@ -224,6 +227,16 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const toggleMyOrders = useCallback(() => {
     setShowMyOrders(prev => !prev);
   }, []);
+
+  const toggleOrderingFlow = useCallback(() => {
+    setShowOrderingFlow(prev => !prev);
+  }, []);
+
+  const handleOrderComplete = useCallback((orderId: string) => {
+    console.log('Order completed:', orderId);
+    // Refresh dashboard data after order completion
+    refetch();
+  }, [refetch]);
 
   const toggleEditProfile = useCallback(() => {
     console.log('Toggle Edit Profile clicked, current state:', showEditProfile);
@@ -682,6 +695,16 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Order Device Button */}
+            <button
+              onClick={toggleOrderingFlow}
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200"
+              title="Order New Device"
+            >
+              <Package className="w-5 h-5" />
+              <span className="text-sm font-medium">Order Device</span>
+            </button>
+
             {/* My Orders Button */}
             <button
               onClick={toggleMyOrders}
@@ -1163,7 +1186,17 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <button 
+              onClick={toggleOrderingFlow}
+              className="flex items-center space-x-3 p-4 border-2 border-green-200 bg-green-50 rounded-lg hover:border-green-400 hover:bg-green-100 transition"
+            >
+              <Package className="w-6 h-6 text-green-600" />
+              <div className="flex flex-col items-start">
+                <span className="font-medium text-gray-700">Order Device</span>
+                <span className="text-xs text-green-600">New water monitor</span>
+              </div>
+            </button>
             <button 
               onClick={toggleRequestDevice}
               className={`relative flex items-center space-x-3 p-4 border-2 rounded-lg transition ${
@@ -1672,6 +1705,14 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               </div>
             </motion.div>
           </div>
+        )}
+
+        {/* Ordering Flow Modal */}
+        {showOrderingFlow && (
+          <OrderingFlow
+            onClose={toggleOrderingFlow}
+            onOrderComplete={handleOrderComplete}
+          />
         )}
 
         {/* Add Device Modal */}

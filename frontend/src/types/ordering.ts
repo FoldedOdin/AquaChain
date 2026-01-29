@@ -69,6 +69,8 @@ export interface CreateOrderRequest {
   deliveryAddress: Address;
   contactInfo: ContactInfo;
   specialInstructions?: string;
+  amount?: number;
+  paymentId?: string;
 }
 
 export interface Order {
