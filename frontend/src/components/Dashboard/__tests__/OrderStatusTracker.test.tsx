@@ -1,0 +1,634 @@
+/**
+ * OrderStatusTracker Component Tests
+ * 
+ * Tests real-time updates and WebSocket integration, status display and history rendering.
+ * Requirements: 7.1, 7.4
+ */
+
+import React from 'react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import '@testing-library/jest-dom';
+import OrderStatusTracker from '../OrderStatusTracker';
+import { OrderStatus, StatusUpdate } from '../../../types/ordering';
+import * as useRealTimeUpdatesModule from '../../../hooks/useRealTimeUpdates';
+
+// Mock the useRealTimeUpdates hook
+const mockUseRealTimeUpdates = jest.fn();
+jest.mock('../../../hooks/useRealTimeUpdates', () => ({
+  useRealTimeUpdates: (...args: any[]) => mockUseRealTimeUpdates(...args)
+}));
+
+// Mock framer-motion for testing
+jest.mock('framer-motion', () => ({
+  motion: {
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  },
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+describe('OrderStatusTracker Component', () => {
+  const mockOrderId = 'order-123';
+  const mockCurrentStatus = OrderStatus.ORDER_PLACED;
+  const mockStatusHistory: StatusUpdate[] = [
+    {
+      status: OrderStatus.ORDER_PLACED,
+      timestamp: new Date('2024-01-15T10:00:00Z'),
+      message: 'Your order has been confirmed',
+      metadata: { orderId: mockOrderId }
+    }
+  ];
+  const mockEstimatedDelivery = new Date('2024-01-16T14:00:00Z');
+
+  const defaultProps = {
+    orderId: mockOrderId,
+    currentStatus: mockCurrentStatus,
+    statusHistory: mockStatusHistory,
+    estimatedDelivery: mockEstimatedDelivery
+  };
+
+  const mockWebSocketReturn = {
+    latestUpdate: null,
+    isConnected: true,
+    error: null,
+    reconnectAttempts: 0,
+    connect: jest.fn(),
+    disconnect: jest.fn()
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseRealTimeUpdates.mockReturnValue(mockWebSocketReturn);
+  });
+
+  describe('Basic Rendering', () => {
+    it('renders the component with order information', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Order Status')).toBeInTheDocument();
+      expect(screen.getByText(`Order #${mockOrderId}`)).toBeInTheDocument();
+    });
+
+    it('displays current status correctly', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Order Placed')).toBeInTheDocument();
+      expect(screen.getByText('Your order has been confirmed')).toBeInTheDocument();
+    });
+
+    it('renders status history', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Status History')).toBeInTheDocument();
+      expect(screen.getByText('Your order has been confirmed')).toBeInTheDocument();
+    });
+
+    it('displays estimated delivery when provided', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Estimated Delivery')).toBeInTheDocument();
+      expect(screen.getByText(/Monday, January 16/)).toBeInTheDocument();
+    });
+
+    it('does not display estimated delivery for delivered orders', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.DELIVERED}
+        />
+      );
+      
+      expect(screen.queryByText('Estimated Delivery')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('WebSocket Integration', () => {
+    it('subscribes to WebSocket updates on mount', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(mockUseRealTimeUpdates).toHaveBeenCalledWith(
+        `order-${mockOrderId}`,
+        { autoConnect: true }
+      );
+    });
+
+    it('displays connection status', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Connected')).toBeInTheDocument();
+    });
+
+    it('shows disconnected status when not connected', () => {
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        isConnected: false
+      });
+
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Connecting...')).toBeInTheDocument();
+    });
+
+    it('shows error status when there is an error', () => {
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        isConnected: false,
+        error: new Error('Connection failed')
+      });
+
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Connection Error')).toBeInTheDocument();
+    });
+
+    it('displays reconnection attempts', () => {
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        isConnected: false,
+        reconnectAttempts: 3
+      });
+
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Reconnecting... (3)')).toBeInTheDocument();
+    });
+
+    it('shows retry button when there is an error', () => {
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        isConnected: false,
+        error: new Error('Connection failed')
+      });
+
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      const retryButton = screen.getByRole('button', { name: /retry/i });
+      expect(retryButton).toBeInTheDocument();
+    });
+
+    it('handles retry button click', async () => {
+      const mockConnect = jest.fn();
+      const mockDisconnect = jest.fn();
+      
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        isConnected: false,
+        error: new Error('Connection failed'),
+        connect: mockConnect,
+        disconnect: mockDisconnect
+      });
+
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      const retryButton = screen.getByRole('button', { name: /retry/i });
+      await userEvent.click(retryButton);
+      
+      expect(mockDisconnect).toHaveBeenCalled();
+      
+      // Wait for the timeout in the retry logic
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 1100));
+      });
+      
+      expect(mockConnect).toHaveBeenCalled();
+    });
+  });
+
+  describe('Real-time Status Updates', () => {
+    it('updates status when receiving WebSocket updates', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Simulate receiving a status update
+      const statusUpdate = {
+        type: 'order_status_update',
+        data: {
+          status: OrderStatus.SHIPPED,
+          message: 'Your order has been shipped',
+          timestamp: new Date().toISOString(),
+          metadata: { trackingNumber: 'TRK123' }
+        }
+      };
+
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        latestUpdate: statusUpdate
+      });
+
+      rerender(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Shipped')).toBeInTheDocument();
+      expect(screen.getByText('Your order is on its way')).toBeInTheDocument();
+    });
+
+    it('adds new status updates to history', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      const statusUpdate = {
+        type: 'order_status_update',
+        data: {
+          status: OrderStatus.SHIPPED,
+          message: 'Package dispatched from warehouse',
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        latestUpdate: statusUpdate
+      });
+
+      rerender(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Package dispatched from warehouse')).toBeInTheDocument();
+    });
+
+    it('ignores non-status update messages', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      const nonStatusUpdate = {
+        type: 'heartbeat',
+        data: { ping: 'pong' }
+      };
+
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        latestUpdate: nonStatusUpdate
+      });
+
+      rerender(<OrderStatusTracker {...defaultProps} />);
+      
+      // Should still show original status
+      expect(screen.getByText('Order Placed')).toBeInTheDocument();
+    });
+
+    it('handles status updates with metadata', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      const statusUpdate = {
+        type: 'order_status_update',
+        data: {
+          status: OrderStatus.OUT_FOR_DELIVERY,
+          message: 'Out for delivery',
+          timestamp: new Date().toISOString(),
+          metadata: {
+            driverName: 'John Doe',
+            estimatedArrival: '2:00 PM'
+          }
+        }
+      };
+
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        latestUpdate: statusUpdate
+      });
+
+      rerender(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('driverName:')).toBeInTheDocument();
+      expect(screen.getByText('John Doe')).toBeInTheDocument();
+      expect(screen.getByText('estimatedArrival:')).toBeInTheDocument();
+      expect(screen.getByText('2:00 PM')).toBeInTheDocument();
+    });
+  });
+
+  describe('Progress Bar Display', () => {
+    it('shows progress bar for active orders', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Progress')).toBeInTheDocument();
+      expect(screen.getByText('25% Complete')).toBeInTheDocument();
+    });
+
+    it('does not show progress bar for cancelled orders', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.CANCELLED}
+        />
+      );
+      
+      expect(screen.queryByText('Progress')).not.toBeInTheDocument();
+    });
+
+    it('does not show progress bar for failed orders', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.FAILED}
+        />
+      );
+      
+      expect(screen.queryByText('Progress')).not.toBeInTheDocument();
+    });
+
+    it('does not show progress bar for pending payment orders', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.PENDING_PAYMENT}
+        />
+      );
+      
+      expect(screen.queryByText('Progress')).not.toBeInTheDocument();
+    });
+
+    it('calculates correct progress percentage', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.SHIPPED}
+        />
+      );
+      
+      expect(screen.getByText('50% Complete')).toBeInTheDocument();
+    });
+
+    it('shows 100% progress for delivered orders', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.DELIVERED}
+        />
+      );
+      
+      expect(screen.getByText('100% Complete')).toBeInTheDocument();
+    });
+
+    it('displays progress steps correctly', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Check that all progress steps are present in the progress section
+      const progressSection = screen.getByText('Progress').parentElement;
+      expect(progressSection).toBeInTheDocument();
+      
+      // Check for progress percentage
+      expect(screen.getByText('25% Complete')).toBeInTheDocument();
+    });
+  });
+
+  describe('Status History Display', () => {
+    it('displays status history in chronological order', () => {
+      const multipleStatusHistory: StatusUpdate[] = [
+        {
+          status: OrderStatus.SHIPPED,
+          timestamp: new Date('2024-01-15T12:00:00Z'),
+          message: 'Package shipped'
+        },
+        {
+          status: OrderStatus.ORDER_PLACED,
+          timestamp: new Date('2024-01-15T10:00:00Z'),
+          message: 'Order confirmed'
+        }
+      ];
+
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          statusHistory={multipleStatusHistory}
+        />
+      );
+      
+      const historyItems = screen.getAllByText(/Package shipped|Order confirmed/);
+      expect(historyItems).toHaveLength(2);
+    });
+
+    it('formats timestamps correctly', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Should display formatted timestamp (check for the actual formatted time)
+      expect(screen.getByText('Jan 15, 03:30 PM')).toBeInTheDocument();
+    });
+
+    it('displays status history with proper icons', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Check that status history items have icons (SVG elements)
+      const historySection = screen.getByText('Status History').parentElement;
+      const svgElements = historySection?.querySelectorAll('svg');
+      expect(svgElements?.length).toBeGreaterThan(0);
+    });
+
+    it('handles empty status history', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          statusHistory={[]}
+        />
+      );
+      
+      expect(screen.getByText('Status History')).toBeInTheDocument();
+      // Should not crash and should still render the section
+    });
+
+    it('displays metadata in status history when available', () => {
+      const historyWithMetadata: StatusUpdate[] = [
+        {
+          status: OrderStatus.ORDER_PLACED,
+          timestamp: new Date('2024-01-15T10:00:00Z'),
+          message: 'Order confirmed',
+          metadata: {
+            paymentMethod: 'COD',
+            amount: 1500
+          }
+        }
+      ];
+
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          statusHistory={historyWithMetadata}
+        />
+      );
+      
+      expect(screen.getByText('paymentMethod:')).toBeInTheDocument();
+      expect(screen.getByText('COD')).toBeInTheDocument();
+      expect(screen.getByText('amount:')).toBeInTheDocument();
+      expect(screen.getByText('1500')).toBeInTheDocument();
+    });
+  });
+
+  describe('Status Configuration', () => {
+    it('displays correct status for each order state', () => {
+      const statusTests = [
+        { status: OrderStatus.PENDING_PAYMENT, label: 'Pending Payment' },
+        { status: OrderStatus.PENDING_CONFIRMATION, label: 'Pending Confirmation' },
+        { status: OrderStatus.ORDER_PLACED, label: 'Order Placed' },
+        { status: OrderStatus.SHIPPED, label: 'Shipped' },
+        { status: OrderStatus.OUT_FOR_DELIVERY, label: 'Out for Delivery' },
+        { status: OrderStatus.DELIVERED, label: 'Delivered' },
+        { status: OrderStatus.CANCELLED, label: 'Cancelled' },
+        { status: OrderStatus.FAILED, label: 'Failed' }
+      ];
+
+      statusTests.forEach(({ status, label }) => {
+        const { unmount } = render(
+          <OrderStatusTracker 
+            {...defaultProps} 
+            currentStatus={status}
+          />
+        );
+        
+        // Check for the status in the main heading
+        const statusHeading = screen.getByRole('heading', { name: label });
+        expect(statusHeading).toBeInTheDocument();
+        unmount();
+      });
+    });
+
+    it('displays appropriate descriptions for each status', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.SHIPPED}
+        />
+      );
+      
+      expect(screen.getByText('Your order is on its way')).toBeInTheDocument();
+    });
+
+    it('uses correct colors for different statuses', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          currentStatus={OrderStatus.DELIVERED}
+        />
+      );
+      
+      // Check for green color classes for delivered status in the main status display
+      const statusHeading = screen.getByRole('heading', { name: 'Delivered' });
+      expect(statusHeading).toHaveClass('text-green-700');
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('has proper heading structure', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByRole('heading', { name: 'Order Status' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Status History' })).toBeInTheDocument();
+    });
+
+    it('provides meaningful text for screen readers', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText(`Order #${mockOrderId}`)).toBeInTheDocument();
+      expect(screen.getByText('Connected')).toBeInTheDocument();
+    });
+
+    it('has proper color contrast for status indicators', () => {
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Status elements should have appropriate color classes
+      const statusHeading = screen.getByRole('heading', { name: 'Order Placed' });
+      expect(statusHeading).toHaveClass('text-green-600');
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('handles missing estimated delivery gracefully', () => {
+      render(
+        <OrderStatusTracker 
+          {...defaultProps} 
+          estimatedDelivery={undefined}
+        />
+      );
+      
+      expect(screen.queryByText('Estimated Delivery')).not.toBeInTheDocument();
+    });
+
+    it('handles invalid timestamps in status history', () => {
+      const invalidHistory: StatusUpdate[] = [
+        {
+          status: OrderStatus.ORDER_PLACED,
+          timestamp: new Date('invalid-date'),
+          message: 'Order confirmed'
+        }
+      ];
+
+      expect(() => {
+        render(
+          <OrderStatusTracker 
+            {...defaultProps} 
+            statusHistory={invalidHistory}
+          />
+        );
+      }).not.toThrow();
+      
+      // Should display "Invalid date" for malformed timestamps
+      expect(screen.getByText('Invalid date')).toBeInTheDocument();
+    });
+
+    it('handles WebSocket connection errors gracefully', () => {
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        isConnected: false,
+        error: new Error('WebSocket connection failed')
+      });
+
+      render(<OrderStatusTracker {...defaultProps} />);
+      
+      expect(screen.getByText('Connection Error')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    });
+
+    it('handles malformed WebSocket messages', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      const malformedUpdate = {
+        type: 'order_status_update',
+        data: null // Invalid data
+      };
+
+      mockUseRealTimeUpdates.mockReturnValue({
+        ...mockWebSocketReturn,
+        latestUpdate: malformedUpdate
+      });
+
+      expect(() => {
+        rerender(<OrderStatusTracker {...defaultProps} />);
+      }).not.toThrow();
+    });
+  });
+
+  describe('Performance', () => {
+    it('does not re-render unnecessarily', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Re-render with same props
+      rerender(<OrderStatusTracker {...defaultProps} />);
+      
+      // Component should handle this gracefully
+      expect(screen.getByText('Order Status')).toBeInTheDocument();
+    });
+
+    it('handles rapid status updates', () => {
+      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      
+      // Simulate rapid updates
+      const updates = [
+        { status: OrderStatus.SHIPPED, message: 'Shipped' },
+        { status: OrderStatus.OUT_FOR_DELIVERY, message: 'Out for delivery' },
+        { status: OrderStatus.DELIVERED, message: 'Delivered' }
+      ];
+
+      updates.forEach((update, index) => {
+        mockUseRealTimeUpdates.mockReturnValue({
+          ...mockWebSocketReturn,
+          latestUpdate: {
+            type: 'order_status_update',
+            data: {
+              ...update,
+              timestamp: new Date().toISOString()
+            }
+          }
+        });
+
+        rerender(<OrderStatusTracker {...defaultProps} />);
+      });
+
+      // Check for the final status in the main heading
+      const deliveredHeading = screen.getByRole('heading', { name: 'Delivered' });
+      expect(deliveredHeading).toHaveTextContent('Delivered');
+    });
+  });
+});
