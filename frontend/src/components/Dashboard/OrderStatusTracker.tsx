@@ -17,6 +17,12 @@ import {
 import { Package, MapPin, User, Calendar } from 'lucide-react';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 import { OrderStatus, StatusUpdate, OrderStatusTrackerProps } from '../../types/ordering';
+import { 
+  useErrorNotification, 
+  OrderingError, 
+  RetryButton,
+  InlineError
+} from '../ErrorHandling';
 
 /**
  * OrderStatusTracker Component
@@ -31,6 +37,10 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   const [localStatusHistory, setLocalStatusHistory] = useState<StatusUpdate[]>(statusHistory);
   const [localCurrentStatus, setLocalCurrentStatus] = useState<OrderStatus>(currentStatus);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+  const [connectionError, setConnectionError] = useState<Error | null>(null);
+
+  // Enhanced error notification
+  const { showErrorNotification } = useErrorNotification();
 
   // WebSocket subscription for real-time updates
   const {
@@ -42,7 +52,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     disconnect
   } = useRealTimeUpdates(`order-${orderId}`, { autoConnect: true });
 
-  // Handle real-time status updates
+  // Handle real-time status updates with enhanced error handling
   useEffect(() => {
     if (latestUpdate && latestUpdate.type === 'order_status_update' && latestUpdate.data) {
       try {
@@ -60,12 +70,61 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
           
           setLocalStatusHistory(prev => [newStatusUpdate, ...prev]);
           setLastUpdateTime(new Date());
+          
+          // Clear any previous connection errors on successful update
+          if (connectionError) {
+            setConnectionError(null);
+          }
         }
       } catch (error) {
+        const updateError = new OrderingError('Failed to process status update', {
+          code: 'STATUS_UPDATE_ERROR',
+          retryable: false,
+          context: {
+            component: 'OrderStatusTracker',
+            action: 'process_update',
+            orderId
+          },
+          cause: error as Error
+        });
+        
         console.error('Error processing status update:', error);
+        showErrorNotification(updateError, {
+          context: { orderId, component: 'OrderStatusTracker' }
+        });
       }
     }
-  }, [latestUpdate, localCurrentStatus]);
+  }, [latestUpdate, localCurrentStatus, connectionError, showErrorNotification, orderId]);
+
+  // Handle WebSocket connection errors
+  useEffect(() => {
+    if (error) {
+      const wsError = new OrderingError('Real-time connection failed', {
+        code: 'WEBSOCKET_ERROR',
+        retryable: true,
+        context: {
+          component: 'OrderStatusTracker',
+          action: 'websocket_connection',
+          orderId
+        },
+        userMessage: 'Unable to receive real-time updates. Status may not update automatically.',
+        cause: error
+      });
+      
+      setConnectionError(wsError);
+      
+      // Only show notification for persistent errors (after multiple reconnect attempts)
+      if (reconnectAttempts > 2) {
+        showErrorNotification(wsError, {
+          context: { orderId, component: 'OrderStatusTracker' },
+          showRetry: true,
+          onRetry: handleReconnect
+        });
+      }
+    } else {
+      setConnectionError(null);
+    }
+  }, [error, reconnectAttempts, showErrorNotification, orderId]);
 
   // Status configuration with icons and colors
   const statusConfig = useMemo(() => ({
@@ -165,36 +224,71 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     }
   }, []);
 
-  // Connection status indicator
+  // Enhanced connection status indicator
   const ConnectionStatus = () => (
-    <div className="flex items-center space-x-2 text-sm">
-      <div className={`flex items-center space-x-1 ${
-        isConnected ? 'text-green-600' : 'text-red-600'
-      }`}>
-        <WifiIcon className="h-4 w-4" />
-        <span>
-          {isConnected ? 'Connected' : error ? 'Connection Error' : 'Connecting...'}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className={`flex items-center space-x-1 ${
+          isConnected ? 'text-green-600' : 'text-red-600'
+        }`}>
+          <WifiIcon className="h-4 w-4" />
+          <span className="text-sm">
+            {isConnected ? 'Connected' : connectionError ? 'Connection Error' : 'Connecting...'}
+          </span>
+        </div>
+        
+        <span className="text-sm text-gray-500">
+          Last update: {formatTimestamp(lastUpdateTime)}
         </span>
       </div>
       
       {reconnectAttempts > 0 && (
         <div className="flex items-center space-x-1 text-orange-600">
           <ArrowPathIcon className="h-4 w-4 animate-spin" />
-          <span>Reconnecting... ({reconnectAttempts})</span>
+          <span className="text-sm">Reconnecting... (attempt {reconnectAttempts})</span>
         </div>
       )}
       
-      <span className="text-gray-500">
-        Last update: {formatTimestamp(lastUpdateTime)}
-      </span>
+      {/* Enhanced error display */}
+      {connectionError && (
+        <div className="space-y-2">
+          <InlineError error={connectionError} className="text-xs" />
+          <RetryButton 
+            onRetry={handleReconnect} 
+            error={connectionError}
+            className="text-xs px-2 py-1"
+          />
+        </div>
+      )}
     </div>
   );
 
-  // Manual reconnect handler
+  // Enhanced manual reconnect handler
   const handleReconnect = useCallback(() => {
-    disconnect();
-    setTimeout(() => connect(), 1000);
-  }, [connect, disconnect]);
+    try {
+      setConnectionError(null);
+      disconnect();
+      setTimeout(() => {
+        connect();
+      }, 1000);
+    } catch (error) {
+      const reconnectError = new OrderingError('Failed to reconnect', {
+        code: 'RECONNECT_FAILED',
+        retryable: true,
+        context: {
+          component: 'OrderStatusTracker',
+          action: 'manual_reconnect',
+          orderId
+        },
+        cause: error as Error
+      });
+      
+      setConnectionError(reconnectError);
+      showErrorNotification(reconnectError, {
+        context: { orderId, component: 'OrderStatusTracker' }
+      });
+    }
+  }, [connect, disconnect, orderId, showErrorNotification]);
 
   const currentConfig = statusConfig[localCurrentStatus];
   const StatusIcon = currentConfig.icon;
@@ -215,14 +309,12 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
           </div>
         </div>
         
-        {error && (
-          <button
-            onClick={handleReconnect}
-            className="flex items-center space-x-1 px-3 py-1 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
-          >
-            <ArrowPathIcon className="h-4 w-4" />
-            <span>Retry</span>
-          </button>
+        {connectionError && (
+          <RetryButton
+            onRetry={handleReconnect}
+            error={connectionError}
+            className="text-sm px-3 py-1"
+          />
         )}
       </div>
 

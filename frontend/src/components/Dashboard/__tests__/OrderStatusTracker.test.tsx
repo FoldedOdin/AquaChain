@@ -6,12 +6,12 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import OrderStatusTracker from '../OrderStatusTracker';
 import { OrderStatus, StatusUpdate } from '../../../types/ordering';
-import * as useRealTimeUpdatesModule from '../../../hooks/useRealTimeUpdates';
+import { NotificationProvider } from '../../../contexts/NotificationContext';
 
 // Mock the useRealTimeUpdates hook
 const mockUseRealTimeUpdates = jest.fn();
@@ -61,37 +61,56 @@ describe('OrderStatusTracker Component', () => {
     mockUseRealTimeUpdates.mockReturnValue(mockWebSocketReturn);
   });
 
+  // Test wrapper component
+  const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <NotificationProvider>
+      {children}
+    </NotificationProvider>
+  );
+
+  const renderWithWrapper = (component: React.ReactElement) => {
+    return render(
+      <TestWrapper>
+        {component}
+      </TestWrapper>
+    );
+  };
+
   describe('Basic Rendering', () => {
     it('renders the component with order information', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Order Status')).toBeInTheDocument();
       expect(screen.getByText(`Order #${mockOrderId}`)).toBeInTheDocument();
     });
 
     it('displays current status correctly', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
-      expect(screen.getByText('Order Placed')).toBeInTheDocument();
-      expect(screen.getByText('Your order has been confirmed')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Order Placed' })).toBeInTheDocument();
+      // Check for the main status description (in the colored box)
+      const statusBoxes = screen.getAllByText('Your order has been confirmed');
+      expect(statusBoxes.length).toBeGreaterThan(0);
     });
 
     it('renders status history', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Status History')).toBeInTheDocument();
-      expect(screen.getByText('Your order has been confirmed')).toBeInTheDocument();
+      // Check that status history contains the expected message
+      const statusMessages = screen.getAllByText('Your order has been confirmed');
+      expect(statusMessages.length).toBeGreaterThan(0);
     });
 
     it('displays estimated delivery when provided', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Estimated Delivery')).toBeInTheDocument();
-      expect(screen.getByText(/Monday, January 16/)).toBeInTheDocument();
+      expect(screen.getByText(/Tuesday, January 16/)).toBeInTheDocument();
     });
 
     it('does not display estimated delivery for delivered orders', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.DELIVERED}
@@ -104,7 +123,7 @@ describe('OrderStatusTracker Component', () => {
 
   describe('WebSocket Integration', () => {
     it('subscribes to WebSocket updates on mount', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(mockUseRealTimeUpdates).toHaveBeenCalledWith(
         `order-${mockOrderId}`,
@@ -113,7 +132,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('displays connection status', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Connected')).toBeInTheDocument();
     });
@@ -124,7 +143,7 @@ describe('OrderStatusTracker Component', () => {
         isConnected: false
       });
 
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Connecting...')).toBeInTheDocument();
     });
@@ -136,7 +155,7 @@ describe('OrderStatusTracker Component', () => {
         error: new Error('Connection failed')
       });
 
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Connection Error')).toBeInTheDocument();
     });
@@ -148,9 +167,10 @@ describe('OrderStatusTracker Component', () => {
         reconnectAttempts: 3
       });
 
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
-      expect(screen.getByText('Reconnecting... (3)')).toBeInTheDocument();
+      expect(screen.getByText(/Reconnecting/)).toBeInTheDocument();
+      expect(screen.getByText(/attempt 3/)).toBeInTheDocument();
     });
 
     it('shows retry button when there is an error', () => {
@@ -160,10 +180,11 @@ describe('OrderStatusTracker Component', () => {
         error: new Error('Connection failed')
       });
 
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
-      const retryButton = screen.getByRole('button', { name: /retry/i });
-      expect(retryButton).toBeInTheDocument();
+      // Look for retry buttons - there should be at least one
+      const retryButtons = screen.getAllByRole('button', { name: /try again/i });
+      expect(retryButtons.length).toBeGreaterThan(0);
     });
 
     it('handles retry button click', async () => {
@@ -178,10 +199,10 @@ describe('OrderStatusTracker Component', () => {
         disconnect: mockDisconnect
       });
 
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
-      const retryButton = screen.getByRole('button', { name: /retry/i });
-      await userEvent.click(retryButton);
+      const retryButtons = screen.getAllByRole('button', { name: /try again/i });
+      await userEvent.click(retryButtons[0]); // Click the first retry button
       
       expect(mockDisconnect).toHaveBeenCalled();
       
@@ -196,7 +217,7 @@ describe('OrderStatusTracker Component', () => {
 
   describe('Real-time Status Updates', () => {
     it('updates status when receiving WebSocket updates', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Simulate receiving a status update
       const statusUpdate = {
@@ -214,14 +235,19 @@ describe('OrderStatusTracker Component', () => {
         latestUpdate: statusUpdate
       });
 
-      rerender(<OrderStatusTracker {...defaultProps} />);
+      rerender(
+        <TestWrapper>
+          <OrderStatusTracker {...defaultProps} />
+        </TestWrapper>
+      );
       
-      expect(screen.getByText('Shipped')).toBeInTheDocument();
+      // Use more specific selector for the main status heading
+      expect(screen.getByRole('heading', { name: 'Shipped' })).toBeInTheDocument();
       expect(screen.getByText('Your order is on its way')).toBeInTheDocument();
     });
 
     it('adds new status updates to history', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       const statusUpdate = {
         type: 'order_status_update',
@@ -237,13 +263,17 @@ describe('OrderStatusTracker Component', () => {
         latestUpdate: statusUpdate
       });
 
-      rerender(<OrderStatusTracker {...defaultProps} />);
+      rerender(
+        <TestWrapper>
+          <OrderStatusTracker {...defaultProps} />
+        </TestWrapper>
+      );
       
       expect(screen.getByText('Package dispatched from warehouse')).toBeInTheDocument();
     });
 
     it('ignores non-status update messages', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       const nonStatusUpdate = {
         type: 'heartbeat',
@@ -255,14 +285,18 @@ describe('OrderStatusTracker Component', () => {
         latestUpdate: nonStatusUpdate
       });
 
-      rerender(<OrderStatusTracker {...defaultProps} />);
+      rerender(
+        <TestWrapper>
+          <OrderStatusTracker {...defaultProps} />
+        </TestWrapper>
+      );
       
-      // Should still show original status
-      expect(screen.getByText('Order Placed')).toBeInTheDocument();
+      // Should still show original status - use more specific selector
+      expect(screen.getByRole('heading', { name: 'Order Placed' })).toBeInTheDocument();
     });
 
     it('handles status updates with metadata', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       const statusUpdate = {
         type: 'order_status_update',
@@ -282,7 +316,11 @@ describe('OrderStatusTracker Component', () => {
         latestUpdate: statusUpdate
       });
 
-      rerender(<OrderStatusTracker {...defaultProps} />);
+      rerender(
+        <TestWrapper>
+          <OrderStatusTracker {...defaultProps} />
+        </TestWrapper>
+      );
       
       expect(screen.getByText('driverName:')).toBeInTheDocument();
       expect(screen.getByText('John Doe')).toBeInTheDocument();
@@ -293,14 +331,14 @@ describe('OrderStatusTracker Component', () => {
 
   describe('Progress Bar Display', () => {
     it('shows progress bar for active orders', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Progress')).toBeInTheDocument();
       expect(screen.getByText('25% Complete')).toBeInTheDocument();
     });
 
     it('does not show progress bar for cancelled orders', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.CANCELLED}
@@ -311,7 +349,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('does not show progress bar for failed orders', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.FAILED}
@@ -322,7 +360,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('does not show progress bar for pending payment orders', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.PENDING_PAYMENT}
@@ -333,7 +371,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('calculates correct progress percentage', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.SHIPPED}
@@ -344,7 +382,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('shows 100% progress for delivered orders', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.DELIVERED}
@@ -355,7 +393,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('displays progress steps correctly', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Check that all progress steps are present in the progress section
       const progressSection = screen.getByText('Progress').parentElement;
@@ -381,7 +419,7 @@ describe('OrderStatusTracker Component', () => {
         }
       ];
 
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           statusHistory={multipleStatusHistory}
@@ -393,14 +431,14 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('formats timestamps correctly', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Should display formatted timestamp (check for the actual formatted time)
       expect(screen.getByText('Jan 15, 03:30 PM')).toBeInTheDocument();
     });
 
     it('displays status history with proper icons', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Check that status history items have icons (SVG elements)
       const historySection = screen.getByText('Status History').parentElement;
@@ -409,7 +447,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('handles empty status history', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           statusHistory={[]}
@@ -433,7 +471,7 @@ describe('OrderStatusTracker Component', () => {
         }
       ];
 
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           statusHistory={historyWithMetadata}
@@ -461,7 +499,7 @@ describe('OrderStatusTracker Component', () => {
       ];
 
       statusTests.forEach(({ status, label }) => {
-        const { unmount } = render(
+        const { unmount } = renderWithWrapper(
           <OrderStatusTracker 
             {...defaultProps} 
             currentStatus={status}
@@ -476,7 +514,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('displays appropriate descriptions for each status', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.SHIPPED}
@@ -487,7 +525,7 @@ describe('OrderStatusTracker Component', () => {
     });
 
     it('uses correct colors for different statuses', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           currentStatus={OrderStatus.DELIVERED}
@@ -502,21 +540,21 @@ describe('OrderStatusTracker Component', () => {
 
   describe('Accessibility', () => {
     it('has proper heading structure', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByRole('heading', { name: 'Order Status' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Status History' })).toBeInTheDocument();
     });
 
     it('provides meaningful text for screen readers', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText(`Order #${mockOrderId}`)).toBeInTheDocument();
       expect(screen.getByText('Connected')).toBeInTheDocument();
     });
 
     it('has proper color contrast for status indicators', () => {
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Status elements should have appropriate color classes
       const statusHeading = screen.getByRole('heading', { name: 'Order Placed' });
@@ -526,7 +564,7 @@ describe('OrderStatusTracker Component', () => {
 
   describe('Error Handling', () => {
     it('handles missing estimated delivery gracefully', () => {
-      render(
+      renderWithWrapper(
         <OrderStatusTracker 
           {...defaultProps} 
           estimatedDelivery={undefined}
@@ -546,7 +584,7 @@ describe('OrderStatusTracker Component', () => {
       ];
 
       expect(() => {
-        render(
+        renderWithWrapper(
           <OrderStatusTracker 
             {...defaultProps} 
             statusHistory={invalidHistory}
@@ -565,14 +603,16 @@ describe('OrderStatusTracker Component', () => {
         error: new Error('WebSocket connection failed')
       });
 
-      render(<OrderStatusTracker {...defaultProps} />);
+      renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       expect(screen.getByText('Connection Error')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      // Check that at least one retry button exists
+      const retryButtons = screen.getAllByRole('button', { name: /try again/i });
+      expect(retryButtons.length).toBeGreaterThan(0);
     });
 
     it('handles malformed WebSocket messages', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       const malformedUpdate = {
         type: 'order_status_update',
@@ -585,24 +625,32 @@ describe('OrderStatusTracker Component', () => {
       });
 
       expect(() => {
-        rerender(<OrderStatusTracker {...defaultProps} />);
+        rerender(
+          <TestWrapper>
+            <OrderStatusTracker {...defaultProps} />
+          </TestWrapper>
+        );
       }).not.toThrow();
     });
   });
 
   describe('Performance', () => {
     it('does not re-render unnecessarily', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Re-render with same props
-      rerender(<OrderStatusTracker {...defaultProps} />);
+      rerender(
+        <TestWrapper>
+          <OrderStatusTracker {...defaultProps} />
+        </TestWrapper>
+      );
       
       // Component should handle this gracefully
       expect(screen.getByText('Order Status')).toBeInTheDocument();
     });
 
     it('handles rapid status updates', () => {
-      const { rerender } = render(<OrderStatusTracker {...defaultProps} />);
+      const { rerender } = renderWithWrapper(<OrderStatusTracker {...defaultProps} />);
       
       // Simulate rapid updates
       const updates = [
@@ -611,7 +659,7 @@ describe('OrderStatusTracker Component', () => {
         { status: OrderStatus.DELIVERED, message: 'Delivered' }
       ];
 
-      updates.forEach((update, index) => {
+      updates.forEach((update) => {
         mockUseRealTimeUpdates.mockReturnValue({
           ...mockWebSocketReturn,
           latestUpdate: {
@@ -623,7 +671,11 @@ describe('OrderStatusTracker Component', () => {
           }
         });
 
-        rerender(<OrderStatusTracker {...defaultProps} />);
+        rerender(
+          <TestWrapper>
+            <OrderStatusTracker {...defaultProps} />
+          </TestWrapper>
+        );
       });
 
       // Check for the final status in the main heading

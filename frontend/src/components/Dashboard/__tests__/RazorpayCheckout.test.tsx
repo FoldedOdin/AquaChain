@@ -5,6 +5,8 @@ import '@testing-library/jest-dom';
 import RazorpayCheckout from '../RazorpayCheckout';
 import { RazorpayCheckoutProps, RazorpayError, ContactInfo } from '../../../types/ordering';
 import { apiClient } from '../../../services/apiClient';
+import { NotificationProvider } from '../../../contexts/NotificationContext';
+import { NetworkErrorHandler } from '../../ErrorHandling/NetworkErrorHandler';
 
 // Mock the API client
 jest.mock('../../../services/apiClient', () => ({
@@ -54,6 +56,23 @@ describe('RazorpayCheckout Component', () => {
 
   const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
 
+  // Test wrapper component
+  const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <NotificationProvider>
+      <NetworkErrorHandler>
+        {children}
+      </NetworkErrorHandler>
+    </NotificationProvider>
+  );
+
+  const renderWithWrapper = (component: React.ReactElement) => {
+    return render(
+      <TestWrapper>
+        {component}
+      </TestWrapper>
+    );
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     
@@ -95,7 +114,7 @@ describe('RazorpayCheckout Component', () => {
 
   describe('Basic Rendering', () => {
     it('renders the component with header and payment information', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       // Wait for script to load
       await waitFor(() => {
@@ -106,7 +125,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('displays order summary correctly', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         expect(screen.getByText('Order Summary')).toBeInTheDocument();
@@ -120,7 +139,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('displays security notice', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         expect(screen.getByText('Secure Payment')).toBeInTheDocument();
@@ -133,7 +152,7 @@ describe('RazorpayCheckout Component', () => {
 
   describe('Payment Flow Initiation', () => {
     it('creates Razorpay order when payment button is clicked', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       // Wait for script to load and button to be enabled
       await waitFor(() => {
@@ -152,7 +171,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('opens Razorpay checkout with correct options', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -186,7 +205,7 @@ describe('RazorpayCheckout Component', () => {
 
   describe('Payment Success Handling', () => {
     it('verifies payment on backend when Razorpay returns success', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -225,7 +244,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('calls onSuccess when payment is verified', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -260,7 +279,7 @@ describe('RazorpayCheckout Component', () => {
     it('handles order creation failure', async () => {
       mockApiClient.post.mockRejectedValueOnce(new Error('Network error'));
       
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -285,7 +304,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('handles payment cancellation by user', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -321,7 +340,7 @@ describe('RazorpayCheckout Component', () => {
 
   describe('Loading States', () => {
     it('shows loading state while script is loading', () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       const payButton = screen.getByRole('button');
       expect(payButton).toHaveTextContent('Loading Payment Gateway...');
@@ -329,7 +348,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('enables payment button after script loads', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -347,7 +366,7 @@ describe('RazorpayCheckout Component', () => {
         }), 100))
       );
       
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -370,7 +389,7 @@ describe('RazorpayCheckout Component', () => {
     it('displays error messages to user', async () => {
       mockApiClient.post.mockRejectedValueOnce(new Error('Server error'));
       
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -389,7 +408,7 @@ describe('RazorpayCheckout Component', () => {
     it('allows dismissing error messages', async () => {
       mockApiClient.post.mockRejectedValueOnce(new Error('Test error'));
       
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -412,7 +431,7 @@ describe('RazorpayCheckout Component', () => {
 
   describe('Accessibility', () => {
     it('has proper button labeling', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');
@@ -421,7 +440,7 @@ describe('RazorpayCheckout Component', () => {
     });
 
     it('has proper focus management', async () => {
-      render(<RazorpayCheckout {...mockProps} />);
+      renderWithWrapper(<RazorpayCheckout {...mockProps} />);
       
       await waitFor(() => {
         const payButton = screen.getByRole('button');

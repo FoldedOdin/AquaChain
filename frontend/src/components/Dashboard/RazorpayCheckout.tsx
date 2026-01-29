@@ -29,23 +29,21 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   onFailure,
   customerInfo
 }) => {
-  const [isLoading, setIsLoading] = useState(false);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [razorpayOrderId, setRazorpayOrderId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
   // Load Razorpay script
   useEffect(() => {
     const loadRazorpayScript = () => {
       return new Promise<boolean>((resolve) => {
-        // Check if script is already loaded
         if (window.Razorpay) {
           setIsScriptLoaded(true);
           resolve(true);
           return;
         }
 
-        // Check if script tag already exists
         const existingScript = document.querySelector(`script[src="${RAZORPAY_SCRIPT_URL}"]`);
         if (existingScript) {
           existingScript.addEventListener('load', () => {
@@ -55,7 +53,6 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           return;
         }
 
-        // Create and load script
         const script = document.createElement('script');
         script.src = RAZORPAY_SCRIPT_URL;
         script.async = true;
@@ -66,7 +63,7 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
         };
         
         script.onerror = () => {
-          setError('Failed to load Razorpay payment gateway. Please check your internet connection.');
+          setError(new Error('Failed to load Razorpay payment gateway'));
           resolve(false);
         };
 
@@ -77,79 +74,92 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     loadRazorpayScript();
   }, []);
 
+  // Simple makeRequest implementation
+  const makeRequest = useCallback(async (fn: any, options: any = {}) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await fn();
+      setIsLoading(false);
+      return result;
+    } catch (err: any) {
+      setError(err);
+      setIsLoading(false);
+      if (options.onError) {
+        options.onError(err);
+      }
+      throw err;
+    }
+  }, []);
+
   // Create Razorpay order
   const createRazorpayOrder = useCallback(async () => {
-    try {
-      setError(null);
-      setIsLoading(true);
+    const result = await makeRequest(
+      async () => {
+        const response = await apiClient.post('/api/payments/create-razorpay-order', {
+          amount: amount * 100,
+          orderId,
+          currency: 'INR'
+        });
 
-      const response = await apiClient.post('/api/payments/create-razorpay-order', {
-        amount: amount * 100, // Convert to paise
-        orderId,
-        currency: 'INR'
-      });
-
-      if (response.data?.razorpayOrderId) {
-        setRazorpayOrderId(response.data.razorpayOrderId);
-        return response.data.razorpayOrderId;
-      } else {
-        throw new Error('Failed to create payment order');
+        if (response.data?.razorpayOrderId) {
+          setRazorpayOrderId(response.data.razorpayOrderId);
+          return response.data.razorpayOrderId;
+        } else {
+          throw new Error('Failed to create payment order');
+        }
+      },
+      {
+        onError: (error: any) => {
+          const razorpayError: RazorpayError = {
+            code: 'ORDER_CREATION_FAILED',
+            description: error.message,
+            source: 'api',
+            step: 'order_creation',
+            reason: 'unknown'
+          };
+          onFailure(razorpayError);
+        }
       }
-    } catch (err: any) {
-      const errorMessage = err.message || 'Failed to create payment order';
-      setError(errorMessage);
-      
-      const razorpayError: RazorpayError = {
-        code: 'ORDER_CREATION_FAILED',
-        description: errorMessage,
-        source: 'api',
-        step: 'order_creation',
-        reason: err.code || 'unknown'
-      };
-      
-      onFailure(razorpayError);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [amount, orderId, onFailure]);
+    );
+
+    return result;
+  }, [amount, orderId, onFailure, makeRequest]);
 
   // Handle payment success
   const handlePaymentSuccess = useCallback(async (response: any) => {
-    try {
-      setIsLoading(true);
-      setError(null);
+    const result = await makeRequest(
+      async () => {
+        const verificationResponse = await apiClient.post('/api/payments/verify-payment', {
+          razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_order_id: response.razorpay_order_id,
+          razorpay_signature: response.razorpay_signature,
+          orderId
+        });
 
-      // Verify payment on backend
-      const verificationResponse = await apiClient.post('/api/payments/verify-payment', {
-        razorpay_payment_id: response.razorpay_payment_id,
-        razorpay_order_id: response.razorpay_order_id,
-        razorpay_signature: response.razorpay_signature,
-        orderId
-      });
-
-      if (verificationResponse.data?.verified) {
-        onSuccess(response.razorpay_payment_id);
-      } else {
-        throw new Error('Payment verification failed');
+        if (verificationResponse.data?.verified) {
+          onSuccess(response.razorpay_payment_id);
+          return verificationResponse.data;
+        } else {
+          throw new Error('Payment verification failed');
+        }
+      },
+      {
+        onError: (error: any) => {
+          const razorpayError: RazorpayError = {
+            code: 'VERIFICATION_FAILED',
+            description: error.message,
+            source: 'verification',
+            step: 'payment_verification',
+            reason: 'verification_error'
+          };
+          onFailure(razorpayError);
+        }
       }
-    } catch (err: any) {
-      const errorMessage = err.message || 'Payment verification failed';
-      setError(errorMessage);
-      
-      const razorpayError: RazorpayError = {
-        code: 'VERIFICATION_FAILED',
-        description: errorMessage,
-        source: 'verification',
-        step: 'payment_verification',
-        reason: err.code || 'verification_error'
-      };
-      
-      onFailure(razorpayError);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orderId, onSuccess, onFailure]);
+    );
+
+    return result;
+  }, [orderId, onSuccess, onFailure, makeRequest]);
 
   // Handle payment failure
   const handlePaymentFailure = useCallback((response: any) => {
@@ -161,25 +171,26 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
       reason: response.error?.reason || 'user_cancelled'
     };
 
-    setError(razorpayError.description);
     onFailure(razorpayError);
   }, [onFailure]);
 
   // Initiate payment
   const initiatePayment = useCallback(async () => {
     if (!isScriptLoaded || !window.Razorpay) {
-      setError('Payment gateway not loaded. Please refresh and try again.');
+      setError(new Error('Payment gateway not loaded'));
       return;
     }
 
     try {
-      // Create Razorpay order first
       const razorpayOrderId = await createRazorpayOrder();
       
-      // Configure Razorpay options
+      if (!razorpayOrderId) {
+        return;
+      }
+      
       const options = {
         key: process.env.REACT_APP_RAZORPAY_KEY_ID,
-        amount: amount * 100, // Amount in paise
+        amount: amount * 100,
         currency: 'INR',
         name: 'AquaChain',
         description: `Water Quality Device Order #${orderId}`,
@@ -195,7 +206,7 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           customer_id: customerInfo.email
         },
         theme: {
-          color: '#0891b2' // Cyan-600 to match AquaChain theme
+          color: '#0891b2'
         },
         modal: {
           ondismiss: () => {
@@ -215,14 +226,11 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
         }
       };
 
-      // Create and open Razorpay checkout
       const razorpay = new window.Razorpay(options);
-      
       razorpay.on('payment.failed', handlePaymentFailure);
       razorpay.open();
 
     } catch (err: any) {
-      // Error already handled in createRazorpayOrder
       console.error('Payment initiation failed:', err);
     }
   }, [
@@ -234,11 +242,6 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     handlePaymentSuccess,
     handlePaymentFailure
   ]);
-
-  // Clear error
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
 
   return (
     <div className="space-y-6">
@@ -302,27 +305,21 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
 
       {/* Error Display */}
       {error && (
-        <motion.div
-          {...(process.env.NODE_ENV !== 'test' ? {
-            initial: { opacity: 0, y: -10 },
-            animate: { opacity: 1, y: 0 }
-          } : {})}
-          className="bg-red-50 border border-red-200 rounded-lg p-4"
-        >
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-start space-x-3">
             <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
             <div className="flex-1">
               <h5 className="font-medium text-red-800 mb-1">Payment Error</h5>
-              <p className="text-sm text-red-700">{error}</p>
+              <p className="text-sm text-red-700">{error.message}</p>
               <button
-                onClick={clearError}
+                onClick={() => setError(null)}
                 className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
               >
                 Dismiss
               </button>
             </div>
           </div>
-        </motion.div>
+        </div>
       )}
 
       {/* Payment Button */}
@@ -378,7 +375,7 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
         </div>
       </div>
 
-      {/* Success State (if needed for UI feedback) */}
+      {/* Success State */}
       {razorpayOrderId && !error && (
         <motion.div
           {...(process.env.NODE_ENV !== 'test' ? {

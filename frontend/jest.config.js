@@ -9,15 +9,19 @@ module.exports = {
   testEnvironment: 'jsdom',
   
   // Module name mapping for CSS and asset files
-  moduleNameMapping: {
+  moduleNameMapper: {
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
     '\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$': 'jest-transform-stub',
   },
   
   // Transform ignore patterns to handle ES modules
   transformIgnorePatterns: [
-    'node_modules/(?!(fast-check)/)'
+    'node_modules/(?!(fast-check|pure-rand)/)',
+    '^.+\\.module\\.(css|sass|scss)$'
   ],
+  
+  // Add extensionsToTreatAsEsm for fast-check
+  extensionsToTreatAsEsm: ['.ts', '.tsx'],
   
   // Coverage configuration
   collectCoverageFrom: [
