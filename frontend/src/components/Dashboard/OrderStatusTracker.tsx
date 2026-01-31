@@ -291,6 +291,20 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   }, [connect, disconnect, orderId, showErrorNotification]);
 
   const currentConfig = statusConfig[localCurrentStatus];
+  
+  // Add null check to prevent undefined access
+  if (!currentConfig) {
+    console.error(`No status configuration found for status: ${localCurrentStatus}`);
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="text-center text-red-600">
+          <ExclamationTriangleIcon className="h-8 w-8 mx-auto mb-2" />
+          <p>Invalid order status: {localCurrentStatus}</p>
+        </div>
+      </div>
+    );
+  }
+  
   const StatusIcon = currentConfig.icon;
 
   return (

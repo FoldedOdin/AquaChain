@@ -298,7 +298,12 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                         </div>
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <MapPin className="w-4 h-4" />
-                          <span className="truncate">{order.address.split(',')[0]}</span>
+                          <span className="truncate">
+                            {typeof order.address === 'string' && order.address 
+                              ? order.address.split(',')[0] 
+                              : 'Address not available'
+                            }
+                          </span>
                         </div>
                         {order.quoteAmount && (
                           <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -424,7 +429,12 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                        <p className="text-gray-900">{selectedOrder.address}</p>
+                        <p className="text-gray-900">
+                          {typeof selectedOrder.address === 'string' && selectedOrder.address 
+                            ? selectedOrder.address 
+                            : 'Address not available'
+                          }
+                        </p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Contact Phone</label>

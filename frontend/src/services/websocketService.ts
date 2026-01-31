@@ -98,7 +98,10 @@ class WebSocketService {
    */
   private getCurrentEndpoint(): string {
     if (!this.enableMultiRegion || this.regionEndpoints.length === 0) {
-      return process.env.REACT_APP_WEBSOCKET_ENDPOINT || 'ws://localhost:3001/ws';
+      // Use the same port as the API endpoint for development
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const wsEndpoint = apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://');
+      return `${wsEndpoint}/ws`;
     }
 
     // Find the first healthy endpoint

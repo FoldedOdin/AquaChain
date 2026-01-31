@@ -13,6 +13,22 @@ const fs = require('fs');
 const crypto = require('crypto');
 const EventEmitter = require('events');
 
+// ============================================================================
+// GLOBAL DATA STORES
+// ============================================================================
+
+// In-memory data stores for development
+let devUsers = new Map();
+let validTokens = new Map();
+let devDevices = new Map();
+let deviceOrders = [];
+let reportedIssues = [];
+let systemAlerts = [];
+let notifications = [];
+let inventory = new Map();
+
+// ============================================================================
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3002;
@@ -178,6 +194,161 @@ const serverMetrics = {
 
 // File path for persistent storage
 const DEV_DATA_FILE = path.join(__dirname, '../../.dev-data.json');
+
+// ============================================================================
+// DATA STORAGE AND INITIALIZATION
+// ============================================================================
+
+// Initialize inventory with default items
+function initializeInventory() {
+  const defaultItems = [
+    { sku: 'AC-HOME-V1', name: 'AquaChain Home Device V1', totalCount: 100, availableCount: 100, reservedCount: 0 },
+    { sku: 'AC-PRO-V1', name: 'AquaChain Pro Device V1', totalCount: 50, availableCount: 50, reservedCount: 0 },
+    { sku: 'AC-INDUSTRIAL-V1', name: 'AquaChain Industrial Device V1', totalCount: 25, availableCount: 25, reservedCount: 0 }
+  ];
+  
+  defaultItems.forEach(item => {
+    inventory.set(item.sku, {
+      sku: item.sku,
+      name: item.name,
+      totalCount: item.totalCount,
+      availableCount: item.availableCount,
+      reservedCount: item.reservedCount,
+      updatedAt: new Date().toISOString()
+    });
+  });
+  
+  console.log('✅ Inventory initialized with default items');
+}
+
+// Load data from file
+function loadDevData() {
+  try {
+    if (fs.existsSync(DEV_DATA_FILE)) {
+      const data = JSON.parse(fs.readFileSync(DEV_DATA_FILE, 'utf8'));
+      
+      // Load users
+      if (data.users) {
+        devUsers = new Map(Object.entries(data.users));
+      }
+      
+      // Load tokens
+      if (data.tokens) {
+        validTokens = new Map(Object.entries(data.tokens));
+      }
+      
+      // Load devices
+      if (data.devices) {
+        devDevices = new Map(Object.entries(data.devices));
+      }
+      
+      // Load orders
+      if (data.orders) {
+        deviceOrders = data.orders;
+      }
+      
+      // Load issues
+      if (data.issues) {
+        reportedIssues = data.issues;
+      }
+      
+      // Load alerts
+      if (data.alerts) {
+        systemAlerts = data.alerts;
+      }
+      
+      // Load notifications
+      if (data.notifications) {
+        notifications = data.notifications;
+      }
+      
+      // Load inventory
+      if (data.inventory) {
+        inventory = new Map(Object.entries(data.inventory));
+      }
+      
+      console.log('✅ Development data loaded from file');
+    } else {
+      console.log('📝 No existing data file found, starting fresh');
+    }
+  } catch (error) {
+    console.error('❌ Error loading development data:', error);
+  }
+  
+  // Ensure inventory is initialized
+  if (inventory.size === 0) {
+    initializeInventory();
+  }
+}
+
+// Save data to file
+function saveDevData() {
+  try {
+    const data = {
+      users: Object.fromEntries(devUsers),
+      tokens: Object.fromEntries(validTokens),
+      devices: Object.fromEntries(devDevices),
+      orders: deviceOrders,
+      issues: reportedIssues,
+      alerts: systemAlerts,
+      notifications: notifications,
+      inventory: Object.fromEntries(inventory)
+    };
+    
+    fs.writeFileSync(DEV_DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('❌ Error saving development data:', error);
+  }
+}
+
+// Initialize demo users
+function initializeDemoUsers() {
+  // Add demo admin user
+  const adminUser = {
+    email: 'admin@aquachain.com',
+    name: 'Admin User',
+    firstName: 'Admin',
+    lastName: 'User',
+    role: 'admin',
+    userId: 'admin_001',
+    emailVerified: true,
+    createdAt: new Date().toISOString()
+  };
+  
+  devUsers.set(adminUser.email, adminUser);
+  
+  // Add demo consumer user
+  const consumerUser = {
+    email: 'consumer@aquachain.com',
+    name: 'Consumer User',
+    firstName: 'Consumer',
+    lastName: 'User',
+    role: 'consumer',
+    userId: 'consumer_001',
+    emailVerified: true,
+    createdAt: new Date().toISOString()
+  };
+  
+  devUsers.set(consumerUser.email, consumerUser);
+  
+  // Add demo technician user
+  const technicianUser = {
+    email: 'technician@aquachain.com',
+    name: 'Technician User',
+    firstName: 'Technician',
+    lastName: 'User',
+    role: 'technician',
+    userId: 'technician_001',
+    emailVerified: true,
+    createdAt: new Date().toISOString()
+  };
+  
+  devUsers.set(technicianUser.email, technicianUser);
+  
+  console.log('✅ Demo users initialized');
+}
+
+// ============================================================================
 
 // Middleware
 app.use(cors());
@@ -837,6 +1008,9 @@ app.post('/api/orders', (req, res) => {
   
   const { deviceSKU, address, phone, preferredSlot } = req.body;
   
+  // Ensure deviceSKU has a default value
+  const orderDeviceSKU = deviceSKU || 'AC-HOME-V1';
+  
   const newOrder = {
     orderId: `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     userId: user.userId || tokenData.userId,
@@ -844,7 +1018,7 @@ app.post('/api/orders', (req, res) => {
     consumerEmail: user.email,
     phone: phone || user.phone || '',
     address: address || user.address || '',
-    deviceSKU: deviceSKU || 'AC-HOME-V1',
+    deviceSKU: orderDeviceSKU,
     status: 'pending',
     quoteAmount: null,
     paymentMethod: null,
@@ -868,14 +1042,16 @@ app.post('/api/orders', (req, res) => {
   try {
     // Use atomic transaction with inventory reservation
     // Initialize inventory if not exists
-    if (!inventory.has(deviceSKU)) {
-      inventory.set(deviceSKU, {
-        sku: deviceSKU,
+    if (!inventory.has(orderDeviceSKU)) {
+      inventory.set(orderDeviceSKU, {
+        sku: orderDeviceSKU,
+        name: `AquaChain Device ${orderDeviceSKU}`,
         totalCount: 100,
         availableCount: 100,
         reservedCount: 0,
         updatedAt: new Date().toISOString()
       });
+      console.log(`📦 Created inventory entry for ${orderDeviceSKU}`);
     }
     
     const result = orderAutomation.atomicCreateOrder(
@@ -2291,13 +2467,9 @@ app.delete('/api/devices/:deviceId', (req, res) => {
   });
 });
 
-// Persistent storage for development (survives server restarts)
-const devUsers = new Map();
-const validTokens = new Map();
-const devDevices = new Map(); // Map of userId -> array of devices
+// Additional storage for development
 const devNotifications = new Map(); // Map of userId -> array of notifications
 const contactSubmissions = []; // Array of contact form submissions
-const inventory = new Map(); // Map of SKU -> inventory data
 
 // System settings storage
 let systemSettings = {
@@ -2317,15 +2489,6 @@ let systemSettings = {
     dataRetentionDays: 90
   }
 };
-
-// System alerts storage
-const systemAlerts = [];
-
-// Reported issues storage
-const reportedIssues = [];
-
-// Device orders storage
-const deviceOrders = [];
 
 // Load existing users from file
 function loadDevData() {
@@ -5300,16 +5463,6 @@ app.delete('/api/admin/inventory/:partId', (req, res) => {
   res.json({ success: true, message: 'Item deleted successfully', partId });
 });
 
-// Catch-all for missing endpoints (MUST BE LAST!)
-app.use('*', (req, res) => {
-  console.log(`Missing endpoint: ${req.method} ${req.originalUrl}`);
-  res.status(404).json({ 
-    error: 'Endpoint not found', 
-    method: req.method, 
-    path: req.originalUrl,
-    message: 'This is a development server - endpoint not implemented'
-  });
-});
 
 // ============================================
 // REAL-TIME ALERT GENERATION SYSTEM
@@ -5582,6 +5735,251 @@ app.get('/api/admin/automation/audit', (req, res) => {
 });
 
 // ============================================================================
+// PAYMENT ENDPOINTS
+// ============================================================================
+
+// Create Razorpay order
+app.post('/api/payments/create-razorpay-order', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { amount, orderId, currency = 'INR' } = req.body;
+  
+  if (!amount || !orderId) {
+    return res.status(400).json({
+      success: false,
+      error: 'Amount and orderId are required'
+    });
+  }
+  
+  // Mock Razorpay order creation
+  const razorpayOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  console.log(`💳 [DEV] Creating Razorpay order: ${razorpayOrderId} for ₹${amount/100} (Order: ${orderId})`);
+  
+  res.json({
+    success: true,
+    razorpayOrderId: razorpayOrderId,
+    amount: amount,
+    currency: currency,
+    orderId: orderId,
+    key: 'rzp_test_mock_key_for_dev', // Mock key for development
+    notes: {
+      order_id: orderId
+    }
+  });
+});
+
+// Verify Razorpay payment
+app.post('/api/payments/verify-payment', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { razorpay_payment_id, razorpay_order_id, razorpay_signature, orderId } = req.body;
+  
+  if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature || !orderId) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required payment verification parameters'
+    });
+  }
+  
+  console.log(`✅ [DEV] Verifying payment: ${razorpay_payment_id} for order: ${orderId}`);
+  
+  // In development, always verify successfully
+  res.json({
+    success: true,
+    verified: true,
+    paymentId: razorpay_payment_id,
+    orderId: orderId,
+    status: 'captured'
+  });
+});
+
+// Create COD payment
+app.post('/api/payments/create-cod-payment', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { orderId, amount } = req.body;
+  
+  if (!orderId || !amount) {
+    return res.status(400).json({
+      success: false,
+      error: 'OrderId and amount are required'
+    });
+  }
+  
+  console.log(`💰 [DEV] Creating COD payment for order: ${orderId}, amount: ₹${amount}`);
+  
+  res.json({
+    success: true,
+    payment: {
+      id: `cod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      orderId: orderId,
+      amount: amount,
+      paymentMethod: 'COD',
+      status: 'PENDING',
+      createdAt: new Date().toISOString()
+    }
+  });
+});
+
+// Get payment status
+app.get('/api/payments/status/:orderId', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  
+  console.log(`📊 [DEV] Getting payment status for order: ${orderId}`);
+  
+  // Mock payment status
+  res.json({
+    success: true,
+    status: 'COMPLETED',
+    orderId: orderId,
+    paymentMethod: 'ONLINE',
+    amount: 15000,
+    paidAt: new Date().toISOString()
+  });
+});
+
+// Payment webhook (for testing)
+app.post('/api/payments/webhook', (req, res) => {
+  console.log(`🔔 [DEV] Payment webhook received:`, req.body);
+  
+  // In development, just acknowledge
+  res.json({
+    success: true,
+    message: 'Webhook received'
+  });
+});
+
+// ============================================================================
+// ALERT MONITORING SYSTEM
+// ============================================================================
+
+function createAlert(message, priority = 'medium', type = 'info', deviceId = null) {
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    message,
+    priority, // 'low', 'medium', 'high', 'critical'
+    type, // 'info', 'warning', 'error', 'success'
+    timestamp: new Date().toISOString(),
+    read: false,
+    createdBy: 'system',
+    deviceId: deviceId
+  };
+  
+  systemAlerts.push(alert);
+  console.log(`🚨 Alert created: [${priority.toUpperCase()}] ${message}`);
+  return alert;
+}
+
+function createNotification(userId, type, title, message, priority = 'medium') {
+  const notification = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    userId,
+    type,
+    title,
+    message,
+    priority,
+    read: false,
+    createdAt: new Date().toISOString()
+  };
+  
+  if (!notifications) notifications = [];
+  notifications.push(notification);
+  return notification;
+}
+
+function checkDeviceStatus() {
+  // Mock device status check - simplified for development
+}
+
+function checkInventoryLevels() {
+  // Check for low inventory - simplified for development
+}
+
+// Catch-all for missing endpoints (MUST BE LAST!)
+app.use('*', (req, res) => {
+  console.log(`Missing endpoint: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ 
+    error: 'Endpoint not found', 
+    method: req.method, 
+    path: req.originalUrl,
+    message: 'This is a development server - endpoint not implemented'
+  });
+});
+
+// ============================================================================
+// SERVER STARTUP
+// ============================================================================
 
 // Start server
 server.listen(PORT, () => {
@@ -5589,17 +5987,38 @@ server.listen(PORT, () => {
   console.log(`📊 RUM endpoint: http://localhost:${PORT}/api/rum`);
   console.log(`🔍 Health check: http://localhost:${PORT}/api/health`);
   console.log(`📈 Analytics: http://localhost:${PORT}/api/analytics`);
-  console.log(`🔌 WebSocket: ws://localhost:${PORT}/ws`);
+  console.log(`💳 Payment endpoints: http://localhost:${PORT}/api/payments/*`);
+  console.log(`� WebSocket: ws://localhost:${PORT}/ws`);
   console.log('');
   
-  // Initialize demo users
-  initializeDemoUsers();
+  // Load existing data
+  loadDevData();
+  
+  // Initialize demo users if none exist
+  if (devUsers.size === 0) {
+    initializeDemoUsers();
+  }
   
   // Start real-time alert monitoring
   startAlertMonitoring();
   
   // Save initial state
   saveDevData();
+  
+  console.log('✅ Development server ready!');
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n� Shutting down development server...');
+  saveDevData();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n� Shutting down development server...');
+  saveDevData();
+  process.exit(0);
 });
 
 module.exports = app;
