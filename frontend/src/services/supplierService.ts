@@ -1,12 +1,32 @@
-import { apiClient } from './apiClient';
+import { apiClient, ApiResponse } from './apiClient';
 import { Supplier, PurchaseOrder, CreateSupplierRequest, CreatePurchaseOrderRequest } from '../types/supplier';
+
+interface SuppliersResponse {
+  suppliers: Supplier[];
+  total: number;
+}
+
+interface PurchaseOrdersResponse {
+  purchase_orders: PurchaseOrder[];
+  total: number;
+}
+
+interface SupplierServiceResponse<T> {
+  success: true;
+  data: T;
+}
+
+interface SupplierServiceError {
+  success: false;
+  error: string;
+}
 
 export const supplierService = {
   // Get all suppliers with optional filters
-  async getSuppliers(filters?: Record<string, string>) {
+  async getSuppliers(filters?: Record<string, string>): Promise<SupplierServiceResponse<SuppliersResponse> | SupplierServiceError> {
     try {
       const params = new URLSearchParams(filters || {});
-      const response = await apiClient.get(`/api/suppliers?${params}`);
+      const response: ApiResponse<SuppliersResponse> = await apiClient.get(`/api/suppliers?${params}`);
       return {
         success: true,
         data: response.data
@@ -89,10 +109,10 @@ export const supplierService = {
   },
 
   // Get all purchase orders with optional filters
-  async getPurchaseOrders(filters?: Record<string, string>) {
+  async getPurchaseOrders(filters?: Record<string, string>): Promise<SupplierServiceResponse<PurchaseOrdersResponse> | SupplierServiceError> {
     try {
       const params = new URLSearchParams(filters || {});
-      const response = await apiClient.get(`/api/purchase-orders?${params}`);
+      const response: ApiResponse<PurchaseOrdersResponse> = await apiClient.get(`/api/purchase-orders?${params}`);
       return {
         success: true,
         data: response.data
@@ -222,8 +242,11 @@ export const supplierService = {
         expectBlob: true
       });
       
+      // Type assertion for blob data
+      const blobData = response.data as Blob;
+      
       // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([blobData]));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `suppliers-${new Date().toISOString().split('T')[0]}.${format}`);

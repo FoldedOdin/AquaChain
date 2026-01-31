@@ -96,7 +96,13 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   const createRazorpayOrder = useCallback(async () => {
     const result = await makeRequest(
       async () => {
-        const response = await apiClient.post('/api/payments/create-razorpay-order', {
+        interface CreateRazorpayOrderResponse {
+          razorpayOrderId: string;
+          amount: number;
+          currency: string;
+        }
+
+        const response = await apiClient.post<CreateRazorpayOrderResponse>('/api/payments/create-razorpay-order', {
           amount: amount * 100,
           orderId,
           currency: 'INR'
@@ -130,7 +136,13 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   const handlePaymentSuccess = useCallback(async (response: any) => {
     const result = await makeRequest(
       async () => {
-        const verificationResponse = await apiClient.post('/api/payments/verify-payment', {
+        interface VerifyPaymentResponse {
+          verified: boolean;
+          paymentId?: string;
+          orderId?: string;
+        }
+
+        const verificationResponse = await apiClient.post<VerifyPaymentResponse>('/api/payments/verify-payment', {
           razorpay_payment_id: response.razorpay_payment_id,
           razorpay_order_id: response.razorpay_order_id,
           razorpay_signature: response.razorpay_signature,

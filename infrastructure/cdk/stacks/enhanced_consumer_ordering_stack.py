@@ -233,7 +233,9 @@ class EnhancedConsumerOrderingStack(Stack):
             )
         )
         
-        self.ordering_resources["razorpay_secret"] = self.razorpay_secret
+        # Update Lambda environment variables with secret ARN
+        for function in self.lambda_functions.values():
+            function.add_environment("RAZORPAY_SECRET_ARN", self.razorpay_secret.secret_arn)
     
     def _create_lambda_functions(self) -> None:
         """

@@ -36,7 +36,7 @@ const WarehouseManagement: React.FC<WarehouseManagementProps> = ({ userRole }) =
       setLoading(true);
       const response = await warehouseService.getWarehouseOverview();
       
-      if (response.success) {
+      if (response.success && response.data) {
         setOverview(response.data);
       }
     } catch (error) {

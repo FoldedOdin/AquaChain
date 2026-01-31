@@ -1,11 +1,21 @@
-import { apiClient } from './apiClient';
+import { apiClient, ApiResponse } from './apiClient';
 import { WarehouseOverview, PickList, QualityCheck, WarehouseLocation } from '../types/warehouse';
+
+interface WarehouseServiceResponse<T> {
+  success: true;
+  data: T;
+}
+
+interface WarehouseServiceError {
+  success: false;
+  error: string;
+}
 
 export const warehouseService = {
   // Get warehouse overview
-  async getWarehouseOverview() {
+  async getWarehouseOverview(): Promise<WarehouseServiceResponse<WarehouseOverview> | WarehouseServiceError> {
     try {
-      const response = await apiClient.get('/api/warehouse/overview');
+      const response: ApiResponse<WarehouseOverview> = await apiClient.get('/api/warehouse/overview');
       return {
         success: true,
         data: response.data
@@ -259,8 +269,11 @@ export const warehouseService = {
         expectBlob: true
       });
       
+      // Type assertion for blob data
+      const blobData = response.data as Blob;
+      
       // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([blobData]));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `warehouse-${type}-${new Date().toISOString().split('T')[0]}.${format}`);

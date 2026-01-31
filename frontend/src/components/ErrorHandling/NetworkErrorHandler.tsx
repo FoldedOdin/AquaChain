@@ -153,7 +153,7 @@ export const useRetryableRequest = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const makeRequest = useCallback(async <T>(
+  const makeRequest = useCallback(async <T,>(
     requestFn: () => Promise<T>,
     options: {
       retryConfig?: Parameters<typeof retryWithBackoff>[1];

@@ -10,7 +10,7 @@ interface WebSocketConnection {
   isConnected: boolean;
   reconnectAttempts: number;
   lastConnectedAt: Date | null;
-  subscribers: Set<(data: any) => void>;
+  subscribers: Set<(data: unknown) => void>;
 }
 
 interface WebSocketServiceOptions {
@@ -37,7 +37,7 @@ class WebSocketService {
   private heartbeatInterval: number;
   private enableMultiRegion: boolean;
   private regionEndpoints: RegionEndpoint[] = [];
-  private currentRegionIndex: number = 0;
+  private currentRegionIndex = 0;
 
   constructor(options: WebSocketServiceOptions = {}) {
     this.maxReconnectAttempts = options.maxReconnectAttempts || 5;
@@ -133,7 +133,7 @@ class WebSocketService {
    * Connect to a WebSocket topic
    * Reuses existing connection if available
    */
-  connect(topic: string, onMessage: (data: any) => void): void {
+  connect(topic: string, onMessage: (data: unknown) => void): void {
     // Check if connection already exists
     const existingConnection = this.connections.get(topic);
     
@@ -156,7 +156,7 @@ class WebSocketService {
   /**
    * Create a new WebSocket connection
    */
-  private createConnection(topic: string, onMessage: (data: any) => void): void {
+  private createConnection(topic: string, onMessage: (data: unknown) => void): void {
     try {
       const endpoint = this.getCurrentEndpoint();
       const wsUrl = `${endpoint}?topic=${encodeURIComponent(topic)}`;
@@ -331,7 +331,7 @@ class WebSocketService {
   /**
    * Disconnect from a topic for a specific subscriber
    */
-  disconnect(topic: string, onMessage?: (data: any) => void): void {
+  disconnect(topic: string, onMessage?: (data: unknown) => void): void {
     const connection = this.connections.get(topic);
     if (!connection) return;
 

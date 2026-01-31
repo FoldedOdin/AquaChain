@@ -42,11 +42,11 @@ const SupplierManagement: React.FC<SupplierManagementProps> = ({ userRole }) => 
         supplierService.getPurchaseOrders()
       ]);
 
-      if (suppliersResponse.success) {
+      if (suppliersResponse.success && suppliersResponse.data) {
         setSuppliers(suppliersResponse.data.suppliers);
       }
 
-      if (ordersResponse.success) {
+      if (ordersResponse.success && ordersResponse.data) {
         setPurchaseOrders(ordersResponse.data.purchase_orders);
       }
     } catch (error) {

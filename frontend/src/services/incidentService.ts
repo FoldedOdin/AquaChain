@@ -142,7 +142,11 @@ export const getIncidentStats = async (days: number = 30): Promise<IncidentStats
 
 export const createIncident = async (incident: Omit<IncidentReport, 'id' | 'createdAt' | 'updatedAt'>): Promise<IncidentReport> => {
   try {
-    const response = await apiClient.post('/api/admin/incidents', incident);
+    interface CreateIncidentResponse {
+      incident: IncidentReport;
+    }
+    
+    const response = await apiClient.post<CreateIncidentResponse>('/api/admin/incidents', incident);
     return response.data.incident;
   } catch (error) {
     console.error('Error creating incident:', error);
@@ -152,7 +156,11 @@ export const createIncident = async (incident: Omit<IncidentReport, 'id' | 'crea
 
 export const updateIncident = async (id: string, updates: Partial<IncidentReport>): Promise<IncidentReport> => {
   try {
-    const response = await apiClient.put(`/api/admin/incidents/${id}`, updates);
+    interface UpdateIncidentResponse {
+      incident: IncidentReport;
+    }
+    
+    const response = await apiClient.put<UpdateIncidentResponse>(`/api/admin/incidents/${id}`, updates);
     return response.data.incident;
   } catch (error) {
     console.error('Error updating incident:', error);
@@ -162,7 +170,11 @@ export const updateIncident = async (id: string, updates: Partial<IncidentReport
 
 export const resolveIncident = async (id: string, resolution: string): Promise<IncidentReport> => {
   try {
-    const response = await apiClient.post(`/api/admin/incidents/${id}/resolve`, { resolution });
+    interface ResolveIncidentResponse {
+      incident: IncidentReport;
+    }
+    
+    const response = await apiClient.post<ResolveIncidentResponse>(`/api/admin/incidents/${id}/resolve`, { resolution });
     return response.data.incident;
   } catch (error) {
     console.error('Error resolving incident:', error);

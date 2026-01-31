@@ -54,13 +54,13 @@ const SupplierCoordinatorView: React.FC = () => {
         supplierService.getSupplierAnalytics()
       ]);
 
-      if (suppliersResult.success) {
-        setSuppliers(suppliersResult.data);
+      if (suppliersResult.success && suppliersResult.data) {
+        setSuppliers(suppliersResult.data.suppliers);
         
         // Calculate stats from suppliers data
-        const activeSuppliers = suppliersResult.data.filter((s: Supplier) => s.status === 'active').length;
-        const avgPerformance = suppliersResult.data.reduce((sum: number, s: Supplier) => sum + s.performance_score, 0) / suppliersResult.data.length;
-        const riskAlerts = suppliersResult.data.filter((s: Supplier) => s.performance_score < 70).length;
+        const activeSuppliers = suppliersResult.data.suppliers.filter((s: Supplier) => s.status === 'active').length;
+        const avgPerformance = suppliersResult.data.suppliers.reduce((sum: number, s: Supplier) => sum + s.performance_score, 0) / suppliersResult.data.suppliers.length;
+        const riskAlerts = suppliersResult.data.suppliers.filter((s: Supplier) => s.performance_score < 70).length;
         
         setStats({
           activeSuppliers,

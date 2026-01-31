@@ -135,9 +135,9 @@ audit_logger = AuditLogger()
 error_handler = ErrorHandler('payment_service')
 
 # Environment variables
-PAYMENTS_TABLE = os.environ.get('ENHANCED_PAYMENTS_TABLE', 'aquachain-payments')
-ORDERS_TABLE = os.environ.get('ENHANCED_ORDERS_TABLE', 'aquachain-orders')
-RAZORPAY_SECRET_NAME = os.environ.get('RAZORPAY_SECRET_NAME', 'aquachain/razorpay/credentials')
+PAYMENTS_TABLE = os.environ.get('PAYMENTS_TABLE_NAME', 'aquachain-table-payments-dev')
+ORDERS_TABLE = os.environ.get('ORDERS_TABLE_NAME', 'aquachain-table-orders-dev')
+RAZORPAY_SECRET_ARN = os.environ.get('RAZORPAY_SECRET_ARN', 'aquachain-secret-razorpay-credentials-dev')
 
 # Initialize DynamoDB tables
 payments_table = dynamodb.Table(PAYMENTS_TABLE)
@@ -231,7 +231,7 @@ class PaymentService:
             return self._razorpay_credentials
             
         try:
-            response = secrets_client.get_secret_value(SecretId=RAZORPAY_SECRET_NAME)
+            response = secrets_client.get_secret_value(SecretId=RAZORPAY_SECRET_ARN)
             credentials = json.loads(response['SecretString'])
             
             required_keys = ['key_id', 'key_secret']

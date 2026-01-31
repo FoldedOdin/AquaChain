@@ -39,19 +39,19 @@ const InventoryManagement: React.FC<InventoryManagementProps> = ({ userRole }) =
         inventoryService.getLowStockAlerts()
       ]);
 
-      if (itemsResponse.success) {
+      if (itemsResponse.success && itemsResponse.data) {
         setInventoryItems(itemsResponse.data.items);
         setMetrics({
           totalItems: itemsResponse.data.count,
           lowStockCount: itemsResponse.data.low_stock_count,
           outOfStockCount: itemsResponse.data.out_of_stock_count,
-          totalValue: itemsResponse.data.items.reduce((sum: number, item: any) => 
-            sum + (item.current_stock * item.unit_cost || 0), 0
+          totalValue: itemsResponse.data.items.reduce((sum: number, item) => 
+            sum + (item.current_stock * (item.unit_cost || 0)), 0
           )
         });
       }
 
-      if (alertsResponse.success) {
+      if (alertsResponse.success && alertsResponse.data) {
         setAlerts(alertsResponse.data.low_stock_items);
       }
     } catch (error) {

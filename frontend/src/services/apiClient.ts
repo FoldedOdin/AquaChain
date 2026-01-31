@@ -14,8 +14,9 @@ import {
   Location,
   RazorpayOrder
 } from '../types/ordering';
+import { websocketService } from './websocketService';
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   data: T;
   status: number;
   statusText: string;
@@ -55,7 +56,7 @@ class ApiClient {
   /**
    * Handle API response
    */
-  private async handleResponse<T>(response: Response, expectBlob: boolean = false): Promise<ApiResponse<T>> {
+  private async handleResponse<T>(response: Response, expectBlob = false): Promise<ApiResponse<T>> {
     if (!response.ok) {
       // For error responses, try to get JSON error message first
       let errorMessage = response.statusText;
@@ -99,7 +100,7 @@ class ApiClient {
   /**
    * Make GET request
    */
-  async get<T = any>(url: string, options?: RequestInit & { expectBlob?: boolean }): Promise<ApiResponse<T>> {
+  async get<T = unknown>(url: string, options?: RequestInit & { expectBlob?: boolean }): Promise<ApiResponse<T>> {
     const { expectBlob, ...fetchOptions } = options || {};
     
     const response = await fetch(`${this.baseUrl}${url}`, {
@@ -114,7 +115,7 @@ class ApiClient {
   /**
    * Make POST request
    */
-  async post<T = any>(url: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
+  async post<T = unknown>(url: string, data?: unknown, options?: RequestInit): Promise<ApiResponse<T>> {
     const response = await fetch(`${this.baseUrl}${url}`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
@@ -128,7 +129,7 @@ class ApiClient {
   /**
    * Make PUT request
    */
-  async put<T = any>(url: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
+  async put<T = unknown>(url: string, data?: unknown, options?: RequestInit): Promise<ApiResponse<T>> {
     const response = await fetch(`${this.baseUrl}${url}`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
@@ -142,7 +143,7 @@ class ApiClient {
   /**
    * Make PATCH request
    */
-  async patch<T = any>(url: string, data?: any, options?: RequestInit): Promise<ApiResponse<T>> {
+  async patch<T = unknown>(url: string, data?: unknown, options?: RequestInit): Promise<ApiResponse<T>> {
     const response = await fetch(`${this.baseUrl}${url}`, {
       method: 'PATCH',
       headers: this.getAuthHeaders(),
@@ -156,7 +157,7 @@ class ApiClient {
   /**
    * Make DELETE request
    */
-  async delete<T = any>(url: string, options?: RequestInit): Promise<ApiResponse<T>> {
+  async delete<T = unknown>(url: string, options?: RequestInit): Promise<ApiResponse<T>> {
     const response = await fetch(`${this.baseUrl}${url}`, {
       method: 'DELETE',
       headers: this.getAuthHeaders(),
@@ -169,7 +170,7 @@ class ApiClient {
   /**
    * Upload file
    */
-  async upload<T = any>(url: string, file: File, options?: RequestInit): Promise<ApiResponse<T>> {
+  async upload<T = unknown>(url: string, file: File, options?: RequestInit): Promise<ApiResponse<T>> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -213,8 +214,6 @@ class ApiClient {
   }
 }
 
-}
-
 /**
  * Enhanced API Client with Order Management
  * Extends the base ApiClient with order-specific endpoints
@@ -240,8 +239,8 @@ class EnhancedApiClient extends ApiClient {
   }
 
   // Update order status
-  async updateOrderStatus(orderId: string, status: string, metadata?: any): Promise<ApiResponse<Order>> {
-    return this.patch(`/api/orders/${orderId}/status`, { status, metadata });
+  async updateOrderStatus(orderId: string, status: string, metadata?: Record<string, unknown>): Promise<ApiResponse<Order>> {
+    return this.post(`/api/orders/${orderId}/status`, { status, metadata });
   }
 
   // Cancel order
@@ -283,7 +282,7 @@ class EnhancedApiClient extends ApiClient {
   }
 
   // Get available technicians
-  async getAvailableTechnicians(location: Location, radius: number = 50): Promise<ApiResponse<Technician[]>> {
+  async getAvailableTechnicians(location: Location, radius = 50): Promise<ApiResponse<Technician[]>> {
     return this.post('/api/technicians/available', { location, radius });
   }
 
@@ -324,26 +323,22 @@ class EnhancedApiClient extends ApiClient {
   }
 
   // Connect to order updates WebSocket
-  connectToOrderUpdates(orderId: string, onMessage: (data: any) => void): void {
-    const websocketService = require('./websocketService').websocketService;
+  connectToOrderUpdates(orderId: string, onMessage: (data: unknown) => void): void {
     websocketService.connect(`order-${orderId}`, onMessage);
   }
 
   // Disconnect from order updates WebSocket
-  disconnectFromOrderUpdates(orderId: string, onMessage?: (data: any) => void): void {
-    const websocketService = require('./websocketService').websocketService;
+  disconnectFromOrderUpdates(orderId: string, onMessage?: (data: unknown) => void): void {
     websocketService.disconnect(`order-${orderId}`, onMessage);
   }
 
   // Connect to general order notifications
-  connectToOrderNotifications(consumerId: string, onMessage: (data: any) => void): void {
-    const websocketService = require('./websocketService').websocketService;
+  connectToOrderNotifications(consumerId: string, onMessage: (data: unknown) => void): void {
     websocketService.connect(`consumer-${consumerId}-orders`, onMessage);
   }
 
   // Disconnect from general order notifications
-  disconnectFromOrderNotifications(consumerId: string, onMessage?: (data: any) => void): void {
-    const websocketService = require('./websocketService').websocketService;
+  disconnectFromOrderNotifications(consumerId: string, onMessage?: (data: unknown) => void): void {
     websocketService.disconnect(`consumer-${consumerId}-orders`, onMessage);
   }
 
@@ -354,10 +349,10 @@ class EnhancedApiClient extends ApiClient {
   // Retry API call with exponential backoff
   async retryApiCall<T>(
     apiCall: () => Promise<ApiResponse<T>>,
-    maxRetries: number = 3,
-    baseDelay: number = 1000
+    maxRetries = 3,
+    baseDelay = 1000
   ): Promise<ApiResponse<T>> {
-    let lastError: ApiError;
+    let lastError: ApiError | undefined;
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -383,7 +378,7 @@ class EnhancedApiClient extends ApiClient {
       }
     }
     
-    throw lastError!;
+    throw new Error(lastError?.message || 'API call failed after retries');
   }
 
   // Check API health

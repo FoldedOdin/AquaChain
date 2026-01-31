@@ -1,12 +1,33 @@
-import { apiClient } from './apiClient';
+import { apiClient, ApiResponse } from './apiClient';
 import { InventoryItem, InventoryAlert, CreateInventoryItemRequest, UpdateInventoryItemRequest } from '../types/inventory';
+
+interface InventoryItemsResponse {
+  items: InventoryItem[];
+  count: number;
+  low_stock_count: number;
+  out_of_stock_count: number;
+}
+
+interface LowStockAlertsResponse {
+  low_stock_items: InventoryAlert[];
+}
+
+interface InventoryServiceResponse<T> {
+  success: true;
+  data: T;
+}
+
+interface InventoryServiceError {
+  success: false;
+  error: string;
+}
 
 export const inventoryService = {
   // Get all inventory items with optional filters
-  async getInventoryItems(filters?: Record<string, string>) {
+  async getInventoryItems(filters?: Record<string, string>): Promise<InventoryServiceResponse<InventoryItemsResponse> | InventoryServiceError> {
     try {
       const params = new URLSearchParams(filters || {});
-      const response = await apiClient.get(`/api/inventory/items?${params}`);
+      const response: ApiResponse<InventoryItemsResponse> = await apiClient.get(`/api/inventory/items?${params}`);
       return {
         success: true,
         data: response.data
@@ -55,9 +76,9 @@ export const inventoryService = {
   },
 
   // Get low stock alerts
-  async getLowStockAlerts() {
+  async getLowStockAlerts(): Promise<InventoryServiceResponse<LowStockAlertsResponse> | InventoryServiceError> {
     try {
-      const response = await apiClient.get('/api/inventory/alerts');
+      const response: ApiResponse<LowStockAlertsResponse> = await apiClient.get('/api/inventory/alerts');
       return {
         success: true,
         data: response.data
@@ -134,8 +155,11 @@ export const inventoryService = {
         expectBlob: true
       });
       
+      // Type assertion for blob data
+      const blobData = response.data as Blob;
+      
       // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([blobData]));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `inventory-${new Date().toISOString().split('T')[0]}.${format}`);

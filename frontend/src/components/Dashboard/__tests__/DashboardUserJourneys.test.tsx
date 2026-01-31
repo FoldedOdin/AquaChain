@@ -63,4 +63,146 @@ jest.mock('../Procurement/ApprovalQueue', () => {
       <div data-testid="approval-queue">
         <h2>Purchase Order Approvals</h2>
         <div data-testid="pending-orders">8 orders pending approval</div>
-        <button data-testid="approve-order
+        <button data-testid="approve-order">Approve Order</button>
+      </div>
+    );
+  };
+});
+
+// Mock other components
+jest.mock('../Procurement/BudgetTracker', () => {
+  return function MockBudgetTracker() {
+    return (
+      <div data-testid="budget-tracker">
+        <h2>Budget Tracking</h2>
+        <div data-testid="budget-status">Budget: 75% utilized</div>
+      </div>
+    );
+  };
+});
+
+jest.mock('../Admin/SystemOverview', () => {
+  return function MockSystemOverview() {
+    return (
+      <div data-testid="system-overview">
+        <h2>System Overview</h2>
+        <div data-testid="system-health">System Health: Good</div>
+      </div>
+    );
+  };
+});
+
+// Mock user profiles
+const mockOperationsUser: UserProfile = {
+  id: 'ops-user-1',
+  email: 'ops@aquachain.com',
+  name: 'Operations Manager',
+  role: 'operations_manager',
+  permissions: ['inventory:read', 'inventory:write', 'warehouse:manage'],
+  preferences: {},
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z'
+};
+
+const mockProcurementUser: UserProfile = {
+  id: 'proc-user-1',
+  email: 'procurement@aquachain.com',
+  name: 'Procurement Manager',
+  role: 'procurement_manager',
+  permissions: ['procurement:read', 'procurement:write', 'budget:manage'],
+  preferences: {},
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z'
+};
+
+const mockAdminUser: UserProfile = {
+  id: 'admin-user-1',
+  email: 'admin@aquachain.com',
+  name: 'System Administrator',
+  role: 'admin',
+  permissions: ['admin:all'],
+  preferences: {},
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z'
+};
+
+describe('Dashboard User Journeys', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('Operations Dashboard Journey', () => {
+    test('operations manager can complete inventory management workflow', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <BrowserRouter>
+          <OperationsDashboard user={mockOperationsUser} />
+        </BrowserRouter>
+      );
+
+      // Verify dashboard loads
+      expect(screen.getByText('Operations Dashboard')).toBeInTheDocument();
+      
+      // Navigate to inventory management
+      const inventorySection = screen.getByTestId('inventory-manager-view');
+      expect(inventorySection).toBeInTheDocument();
+      
+      // Interact with inventory controls
+      const updateButton = screen.getByTestId('update-reorder-point');
+      await user.click(updateButton);
+      
+      // Verify forecast view
+      const forecastButton = screen.getByTestId('view-forecast');
+      await user.click(forecastButton);
+      
+      expect(screen.getByText('Current Stock: 150 units')).toBeInTheDocument();
+    });
+  });
+
+  describe('Procurement Dashboard Journey', () => {
+    test('procurement manager can complete approval workflow', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <BrowserRouter>
+          <ProcurementDashboard user={mockProcurementUser} />
+        </BrowserRouter>
+      );
+
+      // Verify dashboard loads
+      expect(screen.getByText('Procurement Dashboard')).toBeInTheDocument();
+      
+      // Navigate to approval queue
+      const approvalQueue = screen.getByTestId('approval-queue');
+      expect(approvalQueue).toBeInTheDocument();
+      
+      // Process approval
+      const approveButton = screen.getByTestId('approve-order');
+      await user.click(approveButton);
+      
+      expect(screen.getByText('8 orders pending approval')).toBeInTheDocument();
+    });
+  });
+
+  describe('Admin Dashboard Journey', () => {
+    test('admin can access system overview and management tools', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <BrowserRouter>
+          <AdminDashboardRestructured user={mockAdminUser} />
+        </BrowserRouter>
+      );
+
+      // Verify dashboard loads
+      expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+      
+      // Check system overview
+      const systemOverview = screen.getByTestId('system-overview');
+      expect(systemOverview).toBeInTheDocument();
+      
+      expect(screen.getByText('System Health: Good')).toBeInTheDocument();
+    });
+  });
+});
