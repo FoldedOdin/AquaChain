@@ -135,8 +135,14 @@ export class PerformanceMonitor {
   }
 
   private setupPerformanceObservers(): void {
-    // Largest Contentful Paint Observer
-    if ('PerformanceObserver' in window) {
+    // Check if PerformanceObserver is supported
+    if (!('PerformanceObserver' in window)) {
+      console.warn('PerformanceObserver not supported in this browser');
+      return;
+    }
+
+    try {
+      // Largest Contentful Paint Observer
       const lcpObserver = new PerformanceObserver((list) => {
         const entries = list.getEntries();
         const lastEntry = entries[entries.length - 1] as PerformanceEntry & { startTime: number };
@@ -174,19 +180,33 @@ export class PerformanceMonitor {
       });
 
       this.observers = [lcpObserver, fcpObserver, clsObserver, fidObserver];
+    } catch (error) {
+      console.warn('Failed to setup performance observers:', error);
     }
   }
 
   private startObservers(): void {
-    if (!('PerformanceObserver' in window)) return;
+    if (!('PerformanceObserver' in window) || this.observers.length === 0) {
+      console.warn('PerformanceObserver not available or no observers configured');
+      return;
+    }
 
     try {
-      this.observers[0]?.observe({ entryTypes: ['largest-contentful-paint'] });
-      this.observers[1]?.observe({ entryTypes: ['paint'] });
-      this.observers[2]?.observe({ entryTypes: ['layout-shift'] });
-      this.observers[3]?.observe({ entryTypes: ['first-input'] });
+      // Only observe supported entry types
+      const supportedEntryTypes = ['largest-contentful-paint', 'paint', 'layout-shift', 'first-input'];
+      
+      this.observers.forEach((observer, index) => {
+        try {
+          const entryType = supportedEntryTypes[index];
+          if (entryType) {
+            observer.observe({ entryTypes: [entryType] });
+          }
+        } catch (error) {
+          console.warn(`Failed to start observer for ${supportedEntryTypes[index]}:`, error);
+        }
+      });
     } catch (error) {
-      console.warn('Performance Observer not supported:', error);
+      console.warn('Error starting performance observers:', error);
     }
   }
 
@@ -201,16 +221,33 @@ export class PerformanceMonitor {
   }
 
   private collectInitialMetrics(): void {
-    // Navigation timing
-    if ('performance' in window && window.performance.timing) {
-      const timing = window.performance.timing;
-      this.metrics.pageLoadTime = timing.loadEventEnd - timing.navigationStart;
-    }
+    // Navigation timing with proper feature detection
+    if (typeof window !== 'undefined' && 'performance' in window) {
+      try {
+        // Use the newer Navigation Timing API Level 2 if available
+        if ('getEntriesByType' in performance) {
+          const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+          if (navigationEntries.length > 0) {
+            const navigation = navigationEntries[0];
+            this.metrics.pageLoadTime = navigation.loadEventEnd - navigation.fetchStart;
+          }
+        }
+        // Fallback to older Navigation Timing API
+        else if ('timing' in performance && (performance as any).timing) {
+          const timing = (performance as any).timing;
+          this.metrics.pageLoadTime = timing.loadEventEnd - timing.navigationStart;
+        }
 
-    // Memory usage (if available)
-    if ('memory' in performance) {
-      const memory = (performance as any).memory;
-      this.metrics.memoryUsage = memory.usedJSHeapSize;
+        // Memory usage (Chrome-specific, with proper feature detection)
+        if ('memory' in performance) {
+          const memory = (performance as any).memory;
+          if (memory && typeof memory.usedJSHeapSize === 'number') {
+            this.metrics.memoryUsage = memory.usedJSHeapSize;
+          }
+        }
+      } catch (error) {
+        console.warn('Error collecting initial performance metrics:', error);
+      }
     }
   }
 

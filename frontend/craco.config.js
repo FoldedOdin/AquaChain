@@ -133,6 +133,21 @@ module.exports = {
       return webpackConfig;
     },
   },
+  // DevServer configuration to fix deprecation warnings
+  devServer: {
+    setupMiddlewares: (middlewares, devServer) => {
+      // This replaces the deprecated onBeforeSetupMiddleware and onAfterSetupMiddleware
+      if (!devServer) {
+        throw new Error('webpack-dev-server is not defined');
+      }
+
+      // Custom middleware can be added here
+      // middlewares.unshift(...);
+      // middlewares.push(...);
+
+      return middlewares;
+    },
+  },
   // Babel configuration for optimal transpilation
   babel: {
     plugins: [

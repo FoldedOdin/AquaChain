@@ -1011,8 +1011,12 @@ app.post('/api/orders', (req, res) => {
   // Ensure deviceSKU has a default value
   const orderDeviceSKU = deviceSKU || 'AC-HOME-V1';
   
+  // Generate a single order ID for consistency
+  const orderIdValue = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
   const newOrder = {
-    orderId: `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    orderId: orderIdValue,
+    id: orderIdValue, // Add id field for frontend compatibility
     userId: user.userId || tokenData.userId,
     consumerName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name || user.email,
     consumerEmail: user.email,
@@ -1036,7 +1040,14 @@ app.post('/api/orders', (req, res) => {
     paidAt: null,
     shippedAt: null,
     installedAt: null,
-    auditTrail: []
+    auditTrail: [],
+    // Add frontend-expected fields
+    statusHistory: [{
+      status: 'pending',
+      timestamp: new Date(),
+      message: 'Order placed successfully',
+      metadata: { deviceSKU: orderDeviceSKU }
+    }]
   };
   
   try {
@@ -4970,34 +4981,121 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 // Toggle to suppress WebSocket connection logs (useful in development with React StrictMode)
 const SUPPRESS_WS_LOGS = true; // Set to false to see all WebSocket logs
 
-wss.on('connection', (ws) => {
+// Store WebSocket connections by topic
+const wsConnections = new Map();
+
+wss.on('connection', (ws, req) => {
+  // Parse topic from query parameters
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const topic = url.searchParams.get('topic') || 'default';
+  
   if (!SUPPRESS_WS_LOGS) {
-    console.log('WebSocket client connected');
+    console.log(`WebSocket client connected to topic: ${topic}`);
   }
   
-  // Send welcome message
+  // Store connection by topic
+  if (!wsConnections.has(topic)) {
+    wsConnections.set(topic, new Set());
+  }
+  wsConnections.get(topic).add(ws);
+  
+  // Send welcome message with topic confirmation
   ws.send(JSON.stringify({ 
     type: 'welcome', 
-    message: 'Connected to AquaChain Development WebSocket Server' 
+    message: `Connected to AquaChain Development WebSocket Server`,
+    topic: topic,
+    timestamp: new Date().toISOString()
   }));
   
+  // Handle different message types
   ws.on('message', (message) => {
-    if (!SUPPRESS_WS_LOGS) {
-      console.log('WebSocket message received:', message.toString());
+    try {
+      const data = JSON.parse(message.toString());
+      
+      if (!SUPPRESS_WS_LOGS) {
+        console.log(`WebSocket message received on topic ${topic}:`, data);
+      }
+      
+      // Handle different message types
+      switch (data.type) {
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+          break;
+          
+        case 'subscribe':
+          // Client is subscribing to a topic
+          ws.send(JSON.stringify({ 
+            type: 'subscribed', 
+            topic: data.topic || topic,
+            timestamp: new Date().toISOString()
+          }));
+          break;
+          
+        case 'auth':
+          // Handle authentication
+          ws.send(JSON.stringify({ 
+            type: 'auth_success', 
+            message: 'Authentication successful',
+            timestamp: new Date().toISOString()
+          }));
+          break;
+          
+        default:
+          // Echo back for testing
+          ws.send(JSON.stringify({ 
+            type: 'echo', 
+            data: data,
+            topic: topic,
+            timestamp: new Date().toISOString()
+          }));
+      }
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: 'Invalid message format',
+        timestamp: new Date().toISOString()
+      }));
     }
-    // Echo back for testing
-    ws.send(JSON.stringify({ 
-      type: 'echo', 
-      data: message.toString() 
-    }));
   });
   
   ws.on('close', () => {
     if (!SUPPRESS_WS_LOGS) {
-      console.log('WebSocket client disconnected');
+      console.log(`WebSocket client disconnected from topic: ${topic}`);
+    }
+    
+    // Remove connection from topic
+    const connections = wsConnections.get(topic);
+    if (connections) {
+      connections.delete(ws);
+      if (connections.size === 0) {
+        wsConnections.delete(topic);
+      }
     }
   });
+  
+  ws.on('error', (error) => {
+    console.error(`WebSocket error on topic ${topic}:`, error);
+  });
 });
+
+// Function to broadcast message to all connections on a topic
+function broadcastToTopic(topic, message) {
+  const connections = wsConnections.get(topic);
+  if (connections) {
+    const messageStr = JSON.stringify({
+      ...message,
+      topic: topic,
+      timestamp: new Date().toISOString()
+    });
+    
+    connections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(messageStr);
+      }
+    });
+  }
+}
 
 // Initialize demo users if they don't exist
 function initializeDemoUsers() {
@@ -5759,12 +5857,24 @@ app.post('/api/payments/create-razorpay-order', (req, res) => {
     });
   }
   
-  const { amount, orderId, currency = 'INR' } = req.body;
+  let { amount, orderId, currency = 'INR' } = req.body;
   
-  if (!amount || !orderId) {
+  // Provide default values if missing (for development)
+  if (!amount) {
+    amount = 349900; // Default ₹3,499 in paise
+    console.log(`⚠️  [DEV] No amount provided, using default: ₹${amount/100}`);
+  }
+  
+  if (!orderId) {
+    orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log(`⚠️  [DEV] No orderId provided, generated: ${orderId}`);
+  }
+  
+  // Validate amount is positive
+  if (amount <= 0) {
     return res.status(400).json({
       success: false,
-      error: 'Amount and orderId are required'
+      error: 'Amount must be positive'
     });
   }
   
@@ -5849,12 +5959,24 @@ app.post('/api/payments/create-cod-payment', (req, res) => {
     });
   }
   
-  const { orderId, amount } = req.body;
+  let { orderId, amount } = req.body;
   
-  if (!orderId || !amount) {
+  // Provide default values if missing (for development)
+  if (!amount) {
+    amount = 3499; // Default ₹3,499
+    console.log(`⚠️  [DEV] No amount provided for COD, using default: ₹${amount}`);
+  }
+  
+  if (!orderId) {
+    orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log(`⚠️  [DEV] No orderId provided for COD, generated: ${orderId}`);
+  }
+  
+  // Validate amount is positive
+  if (amount <= 0) {
     return res.status(400).json({
       success: false,
-      error: 'OrderId and amount are required'
+      error: 'Amount must be positive'
     });
   }
   

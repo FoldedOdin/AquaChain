@@ -178,38 +178,56 @@ export const conditionalImports = {
  * Bundle size monitoring
  */
 export const bundleMonitor = {
-  // Track component render performance
+  // Track component render performance with proper feature detection
   trackComponentSize: (componentName: string) => {
-    if (process.env.NODE_ENV === 'development') {
-      const startTime = performance.now();
-      
-      return () => {
-        const endTime = performance.now();
-        const renderTime = endTime - startTime;
+    if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && 'performance' in window) {
+      try {
+        const startTime = performance.now();
         
-        if (renderTime > 16) { // > 1 frame at 60fps
-          console.warn(`${componentName} render took ${renderTime.toFixed(2)}ms`);
-        }
-      };
+        return () => {
+          try {
+            const endTime = performance.now();
+            const renderTime = endTime - startTime;
+            
+            if (renderTime > 16) { // > 1 frame at 60fps
+              console.warn(`${componentName} render took ${renderTime.toFixed(2)}ms`);
+            }
+          } catch (error) {
+            console.warn('Error measuring component render time:', error);
+          }
+        };
+      } catch (error) {
+        console.warn('Performance.now() not available:', error);
+        return () => {}; // Return no-op function
+      }
     }
     
-    return () => {}; // No-op in production
+    return () => {}; // No-op in production or unsupported browsers
   },
   
-  // Monitor bundle loading
+  // Monitor bundle loading with proper feature detection
   trackBundleLoad: (bundleName: string) => {
-    if (process.env.NODE_ENV === 'development') {
-      const startTime = performance.now();
-      
-      return () => {
-        const endTime = performance.now();
-        const loadTime = endTime - startTime;
+    if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined' && 'performance' in window) {
+      try {
+        const startTime = performance.now();
         
-        console.log(`${bundleName} bundle loaded in ${loadTime.toFixed(2)}ms`);
-      };
+        return () => {
+          try {
+            const endTime = performance.now();
+            const loadTime = endTime - startTime;
+            
+            console.log(`${bundleName} bundle loaded in ${loadTime.toFixed(2)}ms`);
+          } catch (error) {
+            console.warn('Error measuring bundle load time:', error);
+          }
+        };
+      } catch (error) {
+        console.warn('Performance.now() not available:', error);
+        return () => {}; // Return no-op function
+      }
     }
     
-    return () => {}; // No-op in production
+    return () => {}; // No-op in production or unsupported browsers
   }
 };
 

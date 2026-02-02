@@ -38,6 +38,12 @@ class WebSocketService {
   private enableMultiRegion: boolean;
   private regionEndpoints: RegionEndpoint[] = [];
   private currentRegionIndex = 0;
+  
+  // Logging control to prevent spam in development
+  private loggedTopics: Set<string> = new Set();
+  private loggedDisconnections: Set<string> = new Set();
+  private loggedErrors: Set<string> = new Set();
+  private loggedMaxAttempts: Set<string> = new Set();
 
   constructor(options: WebSocketServiceOptions = {}) {
     this.maxReconnectAttempts = options.maxReconnectAttempts || 5;
@@ -98,7 +104,23 @@ class WebSocketService {
    */
   private getCurrentEndpoint(): string {
     if (!this.enableMultiRegion || this.regionEndpoints.length === 0) {
-      // Use the same port as the API endpoint for development
+      // Check if we're in development mode
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      
+      if (isDevelopment) {
+        // In development, check if WebSocket server is available
+        const wsEndpoint = process.env.REACT_APP_WEBSOCKET_ENDPOINT;
+        if (wsEndpoint) {
+          return wsEndpoint;
+        }
+        
+        // Fallback to API endpoint with WebSocket path
+        const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+        const wsEndpoint2 = apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://');
+        return `${wsEndpoint2}/ws`;
+      }
+      
+      // Production endpoint
       const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
       const wsEndpoint = apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://');
       return `${wsEndpoint}/ws`;
@@ -163,6 +185,19 @@ class WebSocketService {
     try {
       const endpoint = this.getCurrentEndpoint();
       const wsUrl = `${endpoint}?topic=${encodeURIComponent(topic)}`;
+      
+      // Check if we're in development and WebSocket server might not be available
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      
+      if (isDevelopment) {
+        // Only log once per topic to avoid spam
+        if (!this.loggedTopics) this.loggedTopics = new Set();
+        if (!this.loggedTopics.has(topic)) {
+          console.log(`🔌 WebSocket development mode: ${topic} - server may not be running`);
+          this.loggedTopics.add(topic);
+        }
+      }
+      
       const ws = new WebSocket(wsUrl);
 
       const connection: WebSocketConnection = {
@@ -177,13 +212,16 @@ class WebSocketService {
       this.connections.set(topic, connection);
 
       ws.onopen = () => {
-        console.log(`Connected to topic: ${topic}`);
+        // Only log successful connections to avoid spam
+        if (isDevelopment) {
+          console.log(`✅ WebSocket connected: ${topic}`);
+        }
         connection.isConnected = true;
         connection.reconnectAttempts = 0;
         connection.lastConnectedAt = new Date();
 
         // Send authentication if token is available
-        const authToken = localStorage.getItem('authToken');
+        const authToken = localStorage.getItem('authToken') || localStorage.getItem('aquachain_token');
         if (authToken) {
           ws.send(JSON.stringify({ type: 'auth', token: authToken }));
         }
@@ -218,21 +256,60 @@ class WebSocketService {
       };
 
       ws.onerror = (error) => {
-        console.error(`WebSocket error on topic ${topic}:`, error);
         connection.isConnected = false;
+        // Suppress error logging in development to avoid spam
+        if (!isDevelopment) {
+          console.error(`❌ WebSocket error on topic ${topic}:`, error);
+        }
       };
 
       ws.onclose = (event) => {
-        console.log(`Disconnected from topic: ${topic} (code: ${event.code})`);
         connection.isConnected = false;
         this.stopHeartbeat(topic);
+        
+        // Only log disconnections in production or first time in development
+        if (!isDevelopment || !this.loggedDisconnections) {
+          if (!this.loggedDisconnections) this.loggedDisconnections = new Set();
+          if (!isDevelopment || !this.loggedDisconnections.has(topic)) {
+            console.log(`🔌 WebSocket disconnected: ${topic} (code: ${event.code})`);
+            if (isDevelopment) this.loggedDisconnections.add(topic);
+          }
+        }
 
-        // Handle reconnection
+        // Handle reconnection with development mode considerations
         this.handleReconnect(topic, endpoint);
       };
 
     } catch (error) {
-      console.error(`Failed to create WebSocket connection for topic ${topic}:`, error);
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        // Only log once per topic to avoid spam
+        if (!this.loggedErrors) this.loggedErrors = new Set();
+        if (!this.loggedErrors.has(topic)) {
+          console.warn(`⚠️ WebSocket unavailable in development: ${topic}`);
+          this.loggedErrors.add(topic);
+        }
+        
+        // In development, notify subscribers about connection unavailability
+        const mockConnection: WebSocketConnection = {
+          ws: null as any,
+          topic,
+          isConnected: false,
+          reconnectAttempts: 0,
+          lastConnectedAt: null,
+          subscribers: new Set([onMessage])
+        };
+        this.connections.set(topic, mockConnection);
+        
+        // Notify subscriber that WebSocket is unavailable in development
+        onMessage({
+          type: 'development_mode',
+          message: 'WebSocket server not available in development mode',
+          topic
+        });
+      } else {
+        console.error(`❌ Failed to create WebSocket connection for topic ${topic}:`, error);
+      }
     }
   }
 
@@ -243,40 +320,67 @@ class WebSocketService {
     const connection = this.connections.get(topic);
     if (!connection) return;
 
-    // Check if we've exceeded max reconnect attempts
-    if (connection.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`Max reconnect attempts (${this.maxReconnectAttempts}) reached for topic: ${topic}`);
-      
-      // Mark region as unhealthy if multi-region is enabled
-      if (this.enableMultiRegion) {
-        this.markRegionUnhealthy(failedEndpoint);
-      }
+    const isDevelopment = process.env.NODE_ENV === 'development';
 
-      // Notify subscribers about connection failure
-      connection.subscribers.forEach(callback => {
-        callback({
-          type: 'connection_error',
-          message: `Failed to reconnect after ${this.maxReconnectAttempts} attempts`,
-          topic
+    // In development mode, be less aggressive with reconnection attempts
+    const maxAttempts = isDevelopment ? 3 : this.maxReconnectAttempts;
+
+    // Check if we've exceeded max reconnect attempts
+    if (connection.reconnectAttempts >= maxAttempts) {
+      if (isDevelopment) {
+        // Only log once to avoid spam
+        if (!this.loggedMaxAttempts) this.loggedMaxAttempts = new Set();
+        if (!this.loggedMaxAttempts.has(topic)) {
+          console.log(`🔌 WebSocket reconnection stopped for: ${topic} (development mode)`);
+          this.loggedMaxAttempts.add(topic);
+        }
+        
+        // Notify subscribers about development mode
+        connection.subscribers.forEach(callback => {
+          callback({
+            type: 'development_offline',
+            message: `WebSocket unavailable in development mode`,
+            topic
+          });
         });
-      });
+      } else {
+        console.error(`❌ Max reconnect attempts (${maxAttempts}) reached for topic: ${topic}`);
+        
+        // Mark region as unhealthy if multi-region is enabled
+        if (this.enableMultiRegion) {
+          this.markRegionUnhealthy(failedEndpoint);
+        }
+
+        // Notify subscribers about connection failure
+        connection.subscribers.forEach(callback => {
+          callback({
+            type: 'connection_error',
+            message: `Failed to reconnect after ${maxAttempts} attempts`,
+            topic
+          });
+        });
+      }
 
       // Clean up the connection
       this.cleanupConnection(topic);
       return;
     }
 
-    // Calculate delay with exponential backoff
+    // Calculate delay with exponential backoff (shorter delays in development)
+    const baseDelay = isDevelopment ? 2000 : this.reconnectDelay; // 2s in dev, 1s in prod
     const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, connection.reconnectAttempts),
-      30000 // Max 30 seconds
+      baseDelay * Math.pow(2, connection.reconnectAttempts),
+      isDevelopment ? 10000 : 30000 // Max 10s in dev, 30s in prod
     );
 
     connection.reconnectAttempts++;
 
-    console.log(
-      `Reconnecting to topic ${topic} (attempt ${connection.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`
-    );
+    // Suppress reconnection logging in development to avoid spam
+    if (!isDevelopment) {
+      console.log(
+        `🔄 Reconnecting to topic ${topic} (attempt ${connection.reconnectAttempts}/${maxAttempts}) in ${delay}ms`
+      );
+    }
 
     // Schedule reconnection
     const timeoutId = setTimeout(() => {
@@ -377,7 +481,11 @@ class WebSocketService {
 
     // Remove connection
     this.connections.delete(topic);
-    console.log(`Cleaned up connection for topic: ${topic}`);
+    
+    // Only log cleanup in production to avoid spam
+    if (process.env.NODE_ENV !== 'development') {
+      console.log(`Cleaned up connection for topic: ${topic}`);
+    }
   }
 
   /**

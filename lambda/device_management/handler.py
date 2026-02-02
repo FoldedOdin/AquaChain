@@ -10,6 +10,8 @@ import sys
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import base64
+import uuid
+from decimal import Decimal
 
 # Add shared utilities to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
@@ -191,6 +193,62 @@ class DeviceManagementService:
             })
 
 
+def create_demo_device(user_id: str, request_data: Dict) -> Dict:
+    """Create demo device data structure"""
+    now = datetime.utcnow()
+    device_id = request_data.get('device_id') or f"demo_{int(now.timestamp())}_{uuid.uuid4().hex[:8]}"
+    
+    return {
+        'device_id': device_id,
+        'user_id': user_id,
+        'name': request_data.get('name', 'Demo Water Monitor'),
+        'location': request_data.get('location', 'Kitchen Sink - Demo Location'),
+        'status': 'active',
+        'type': 'ESP32-WQ-Monitor-Demo',
+        'installation_date': now.isoformat(),
+        'last_reading': now.isoformat(),
+        'created_at': now.isoformat(),
+        'updated_at': now.isoformat(),
+        'last_seen': now.isoformat(),
+        'metadata': {
+            'isDemo': True,
+            'description': 'Demonstration device with simulated water quality data',
+            'firmware_version': 'demo-v1.0.0',
+            'hardware_version': 'demo-hw-v1.0'
+        },
+        'settings': {
+            'reading_interval': 300,  # 5 minutes
+            'alert_thresholds': {
+                'pH_min': Decimal('6.5'),
+                'pH_max': Decimal('8.5'),
+                'turbidity_max': Decimal('5.0'),
+                'tds_max': Decimal('500'),
+                'temperature_min': Decimal('15'),
+                'temperature_max': Decimal('25')
+            }
+        },
+        'current_reading': {
+            'pH': Decimal(str(request_data.get('readings', {}).get('pH', 7.2))),
+            'turbidity': Decimal(str(request_data.get('readings', {}).get('turbidity', 2.1))),
+            'tds': Decimal(str(request_data.get('readings', {}).get('tds', 145))),
+            'temperature': Decimal(str(request_data.get('readings', {}).get('temperature', 22.5))),
+            'timestamp': now.isoformat()
+        }
+    }
+
+
+def save_demo_device(device: Dict) -> None:
+    """Save demo device to DynamoDB"""
+    try:
+        dynamodb = boto3.resource('dynamodb')
+        devices_table = dynamodb.Table('aquachain-devices')
+        devices_table.put_item(Item=device)
+        logger.info(f"Demo device saved: {device['device_id']}")
+    except Exception as e:
+        logger.error(f"Error saving demo device: {str(e)}")
+        raise DatabaseError("Failed to save demo device", details={'device_id': device['device_id']})
+
+
 def _get_request_context(event: Dict) -> Dict:
     """Extract request context for audit logging"""
     return {
@@ -356,6 +414,45 @@ def lambda_handler(event, context):
                 'Access-Control-Allow-Origin': '*'
             },
             'body': json.dumps(updated_device)
+        }
+    
+    elif http_method == 'POST' and '/devices/demo' in path:
+        # Add demo device
+        user_id = event.get('requestContext', {}).get('authorizer', {}).get('claims', {}).get('sub')
+        if not user_id:
+            raise ValidationError('User ID not found in request context')
+        
+        # Create demo device
+        demo_device = create_demo_device(user_id, body)
+        
+        # Save to DynamoDB
+        save_demo_device(demo_device)
+        
+        # Log device creation
+        audit_logger.log_data_modification(
+            user_id=user_id,
+            resource_type='DEVICE',
+            resource_id=demo_device['device_id'],
+            modification_type='CREATE',
+            previous_values={},
+            new_values=demo_device,
+            request_context=request_context
+        )
+        
+        logger.info(f"Demo device created: {demo_device['device_id']}", 
+                   device_id=demo_device['device_id'], user_id=user_id)
+        
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({
+                'success': True,
+                'device': demo_device,
+                'message': 'Demo device added successfully'
+            })
         }
     
     else:

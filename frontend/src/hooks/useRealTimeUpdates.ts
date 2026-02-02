@@ -1,186 +1,235 @@
 /**
- * Real-Time Updates Hook
- * Manages WebSocket subscriptions for real-time data updates
- * Uses WebSocketService for connection pooling and automatic reconnection
+ * Real-time Updates Hook with Development Mode Support
+ * Handles WebSocket connections gracefully in development environments
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { websocketService } from '../services/websocketService';
-import { useNotifications } from '../contexts/NotificationContext';
-
-interface RealTimeUpdate {
-  type: string;
-  data: any;
-  timestamp: string;
-}
+import websocketService from '../services/websocketService';
 
 interface UseRealTimeUpdatesOptions {
   autoConnect?: boolean;
+  enableInDevelopment?: boolean;
+  fallbackPollingInterval?: number;
 }
 
-interface UseRealTimeUpdatesReturn {
-  updates: RealTimeUpdate[];
-  latestUpdate: RealTimeUpdate | null;
-  isConnected: boolean;
-  error: Error | null;
-  reconnectAttempts: number;
-  connect: () => void;
-  disconnect: () => void;
-  clearUpdates: () => void;
+interface RealTimeUpdate {
+  type: string;
+  data?: any;
+  timestamp?: string;
+  topic?: string;
 }
 
-/**
- * Custom hook for managing WebSocket subscriptions to real-time updates
- * @param subscriptionTopic - The topic to subscribe to (e.g., 'admin-alerts', 'device-updates')
- * @param options - Configuration options for the WebSocket connection
- * @returns Real-time updates, connection state, and control functions
- */
 export function useRealTimeUpdates(
-  subscriptionTopic: string,
+  topic: string,
   options: UseRealTimeUpdatesOptions = {}
-): UseRealTimeUpdatesReturn {
+) {
   const {
-    autoConnect = true
+    autoConnect = true,
+    enableInDevelopment = true,
+    fallbackPollingInterval = 30000 // 30 seconds
   } = options;
 
-  const [updates, setUpdates] = useState<RealTimeUpdate[]>([]);
-  const [latestUpdate, setLatestUpdate] = useState<RealTimeUpdate | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [latestUpdate, setLatestUpdate] = useState<RealTimeUpdate | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error' | 'development_mode'>('disconnected');
+  const [error, setError] = useState<string | null>(null);
+  
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isDevelopment = process.env.NODE_ENV === 'development';
 
-  const statusCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const messageHandlerRef = useRef<((data: any) => void) | null>(null);
-  const { addNotification } = useNotifications();
-
-  // Use ref to store the latest callback without causing re-renders
-  const handleUpdateRef = useRef((update: any) => {
-    // Handle connection error messages
-    if (update.type === 'connection_error') {
-      setError(new Error(update.message));
-      setIsConnected(false);
-      
-      // Show user notification
-      addNotification({
-        type: 'error',
-        title: 'Connection Lost',
-        message: `Unable to maintain connection to ${update.topic}. ${update.message}`,
-        duration: 0 // Don't auto-dismiss
-      });
-      
-      return;
-    }
-
-    const realTimeUpdate: RealTimeUpdate = {
-      type: update.type || 'unknown',
-      data: update.data,
-      timestamp: update.timestamp || new Date().toISOString()
-    };
-
-    setLatestUpdate(realTimeUpdate);
-    setUpdates(prev => [realTimeUpdate, ...prev.slice(0, 99)]); // Keep last 100 updates
-    setError(null); // Clear any previous errors on successful message
-  });
-
-  // Update the ref when dependencies change
-  useEffect(() => {
-    handleUpdateRef.current = (update: any) => {
-      if (update.type === 'connection_error') {
-        setError(new Error(update.message));
+  // Message handler for WebSocket updates
+  const handleMessage = useCallback((data: any) => {
+    try {
+      // Handle different message types
+      if (data.type === 'development_mode' || data.type === 'development_offline') {
+        setConnectionStatus('development_mode');
         setIsConnected(false);
+        setError('WebSocket server not available in development mode');
         
-        addNotification({
-          type: 'error',
-          title: 'Connection Lost',
-          message: `Unable to maintain connection to ${update.topic}. ${update.message}`,
-          duration: 0
-        });
-        
+        if (isDevelopment) {
+          // Only log once per session to avoid spam
+          if (!sessionStorage.getItem(`websocket-dev-logged-${topic}`)) {
+            console.log('🔧 Development Mode: WebSocket unavailable, using mock data');
+            sessionStorage.setItem(`websocket-dev-logged-${topic}`, 'true');
+          }
+        }
         return;
       }
 
-      const realTimeUpdate: RealTimeUpdate = {
-        type: update.type || 'unknown',
-        data: update.data,
-        timestamp: update.timestamp || new Date().toISOString()
-      };
-
-      setLatestUpdate(realTimeUpdate);
-      setUpdates(prev => [realTimeUpdate, ...prev.slice(0, 99)]);
-      setError(null);
-    };
-  }, [addNotification]);
-
-  // Stable callback that uses the ref
-  const handleUpdate = useCallback((update: any) => {
-    handleUpdateRef.current(update);
-  }, []);
-
-  // Store the handler reference so we can disconnect properly
-  useEffect(() => {
-    messageHandlerRef.current = handleUpdate;
-  }, [handleUpdate]);
-
-  const connect = useCallback(() => {
-    setError(null);
-    websocketService.connect(subscriptionTopic, handleUpdate);
-
-    // Start polling connection status
-    if (statusCheckIntervalRef.current) {
-      clearInterval(statusCheckIntervalRef.current);
-    }
-
-    statusCheckIntervalRef.current = setInterval(() => {
-      const status = websocketService.getConnectionStatus(subscriptionTopic);
-      if (status) {
-        setIsConnected(status.isConnected);
-        setReconnectAttempts(status.reconnectAttempts);
-      } else {
+      if (data.type === 'connection_error') {
+        setConnectionStatus('error');
         setIsConnected(false);
-        setReconnectAttempts(0);
+        setError(data.message || 'Connection failed');
+        return;
       }
-    }, 1000);
-  }, [subscriptionTopic, handleUpdate]);
 
+      // Handle successful connection
+      if (data.type === 'connected' || data.type === 'subscribed') {
+        setConnectionStatus('connected');
+        setIsConnected(true);
+        setError(null);
+        return;
+      }
+
+      // Handle real-time updates
+      if (data.type && data.type !== 'pong') {
+        const update: RealTimeUpdate = {
+          type: data.type,
+          data: data.data || data,
+          timestamp: data.timestamp || new Date().toISOString(),
+          topic: data.topic || topic
+        };
+        
+        setLatestUpdate(update);
+        
+        if (isDevelopment) {
+          console.log('📡 Real-time update received:', update);
+        }
+      }
+    } catch (error) {
+      console.error('Error handling WebSocket message:', error);
+      setError('Failed to process real-time update');
+    }
+  }, [topic, isDevelopment]);
+
+  // Connect to WebSocket
+  const connect = useCallback(() => {
+    if (!enableInDevelopment && isDevelopment) {
+      setConnectionStatus('development_mode');
+      setIsConnected(false);
+      console.log('🔧 Real-time updates disabled in development mode');
+      return;
+    }
+
+    try {
+      setConnectionStatus('connecting');
+      setError(null);
+      
+      websocketService.connect(topic, handleMessage);
+      
+      // Check connection status after a delay
+      setTimeout(() => {
+        const status = websocketService.getConnectionStatus(topic);
+        if (status) {
+          setIsConnected(status.isConnected);
+          setConnectionStatus(status.isConnected ? 'connected' : 'disconnected');
+        } else {
+          setConnectionStatus('development_mode');
+          setIsConnected(false);
+        }
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Failed to connect to WebSocket:', error);
+      setConnectionStatus('error');
+      setError('Failed to establish real-time connection');
+    }
+  }, [topic, handleMessage, enableInDevelopment, isDevelopment]);
+
+  // Disconnect from WebSocket
   const disconnect = useCallback(() => {
-    if (statusCheckIntervalRef.current) {
-      clearInterval(statusCheckIntervalRef.current);
-      statusCheckIntervalRef.current = null;
+    try {
+      websocketService.disconnect(topic, handleMessage);
+      setIsConnected(false);
+      setConnectionStatus('disconnected');
+      setError(null);
+      
+      // Clear any pending reconnection attempts
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    } catch (error) {
+      console.error('Failed to disconnect from WebSocket:', error);
     }
+  }, [topic, handleMessage]);
 
-    if (messageHandlerRef.current) {
-      websocketService.disconnect(subscriptionTopic, messageHandlerRef.current);
-    }
-
-    setIsConnected(false);
-    setReconnectAttempts(0);
-  }, [subscriptionTopic]);
-
-  const clearUpdates = useCallback(() => {
-    setUpdates([]);
-    setLatestUpdate(null);
-  }, []);
-
-  // Only connect/disconnect when topic or autoConnect changes
+  // Auto-connect on mount
   useEffect(() => {
     if (autoConnect) {
       connect();
     }
 
+    // Cleanup on unmount
     return () => {
       disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoConnect, subscriptionTopic]); // Only reconnect when these change, not when callbacks change
+  }, [autoConnect, connect, disconnect]);
+
+  // Development mode fallback - simulate updates
+  useEffect(() => {
+    if (isDevelopment && connectionStatus === 'development_mode' && enableInDevelopment) {
+      console.log('🔧 Starting development mode simulation for topic:', topic);
+      
+      // Simulate periodic updates in development
+      const interval = setInterval(() => {
+        const mockUpdate: RealTimeUpdate = {
+          type: 'mock_update',
+          data: {
+            message: 'Development mode simulation',
+            timestamp: new Date().toISOString(),
+            mockData: true
+          },
+          timestamp: new Date().toISOString(),
+          topic
+        };
+        
+        setLatestUpdate(mockUpdate);
+        console.log('🎭 Mock real-time update:', mockUpdate);
+      }, fallbackPollingInterval);
+
+      return () => clearInterval(interval);
+    }
+  }, [isDevelopment, connectionStatus, enableInDevelopment, topic, fallbackPollingInterval]);
+
+  // Provide connection retry functionality
+  const retry = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+    
+    reconnectTimeoutRef.current = setTimeout(() => {
+      connect();
+    }, 1000);
+  }, [connect]);
+
+  // Get detailed connection info
+  const getConnectionInfo = useCallback(() => {
+    const status = websocketService.getConnectionStatus(topic);
+    return {
+      topic,
+      isConnected,
+      connectionStatus,
+      error,
+      reconnectAttempts: status?.reconnectAttempts || 0,
+      subscriberCount: status?.subscriberCount || 0,
+      lastConnectedAt: status?.lastConnectedAt,
+      isDevelopmentMode: isDevelopment && connectionStatus === 'development_mode'
+    };
+  }, [topic, isConnected, connectionStatus, error, isDevelopment]);
 
   return {
-    updates,
-    latestUpdate,
+    // Connection state
     isConnected,
+    connectionStatus,
     error,
-    reconnectAttempts,
+    
+    // Latest update
+    latestUpdate,
+    
+    // Connection controls
     connect,
     disconnect,
-    clearUpdates
+    retry,
+    
+    // Utilities
+    getConnectionInfo,
+    
+    // Development helpers
+    isDevelopmentMode: isDevelopment && connectionStatus === 'development_mode',
+    isSimulating: isDevelopment && connectionStatus === 'development_mode' && enableInDevelopment,
+    
+    // Additional properties for backward compatibility
+    reconnectAttempts: getConnectionInfo().reconnectAttempts
   };
 }

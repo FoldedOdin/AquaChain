@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Button Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-button { 
+            padding: 10px 20px; 
+            margin: 10px; 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer;
+        }
+        .test-button:hover { background: #0056b3; }
+        .log { 
+            background: #f8f9fa; 
+            border: 1px solid #dee2e6; 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 5px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>Button Click Test</h1>
+    <p>This tests basic button functionality to isolate the issue.</p>
+    
+    <button class="test-button" onclick="testClick('Add Device')">Add Device Test</button>
+    <button class="test-button" onclick="testClick('Order Device')">Order Device Test</button>
+    
+    <div id="log" class="log">
+        Click events will appear here...
+    </div>
+
+    <script>
+        function testClick(buttonName) {
+            const log = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += `[${timestamp}] ${buttonName} button clicked successfully<br>`;
+            console.log(`${buttonName} button clicked at ${timestamp}`);
+        }
+        
+        // Test if JavaScript is working
+        console.log('Button test page loaded successfully');
+        document.getElementById('log').innerHTML = 'JavaScript is working. Ready for testing.<br>';
+    </script>
+</body>
+</html>

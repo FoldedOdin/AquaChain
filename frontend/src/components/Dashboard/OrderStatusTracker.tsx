@@ -12,7 +12,9 @@ import {
   TruckIcon,
   ExclamationTriangleIcon,
   WifiIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  UserIcon,
+  WrenchScrewdriverIcon
 } from '@heroicons/react/24/outline';
 import { Package, MapPin, User, Calendar } from 'lucide-react';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
@@ -34,8 +36,31 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   statusHistory,
   estimatedDelivery
 }) => {
+  // Safety check for orderId to prevent WebSocket connection issues
+  if (!orderId) {
+    console.warn('OrderStatusTracker: orderId is required but not provided');
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="text-center">
+          <div className="mb-4">
+            <ClockIcon className="h-12 w-12 text-gray-400 mx-auto" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Order Processing</h3>
+          <p className="text-gray-500">Your order is being processed. Order details will appear shortly.</p>
+          <div className="mt-4">
+            <div className="animate-pulse flex space-x-1 justify-center">
+              <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce"></div>
+              <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const [localStatusHistory, setLocalStatusHistory] = useState<StatusUpdate[]>(statusHistory);
-  const [localCurrentStatus, setLocalCurrentStatus] = useState<OrderStatus>(currentStatus);
+  const [localCurrentStatus, setLocalCurrentStatus] = useState<OrderStatus | string>(currentStatus);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [connectionError, setConnectionError] = useState<Error | null>(null);
 
@@ -108,7 +133,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
           orderId
         },
         userMessage: 'Unable to receive real-time updates. Status may not update automatically.',
-        cause: error
+        cause: error ? new Error(error) : undefined
       });
       
       setConnectionError(wsError);
@@ -127,7 +152,72 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   }, [error, reconnectAttempts, showErrorNotification, orderId]);
 
   // Status configuration with icons and colors
-  const statusConfig = useMemo(() => ({
+  const statusConfig = useMemo((): Record<string, any> => ({
+    // Backend status mappings (for compatibility)
+    'pending': {
+      icon: ClockIcon,
+      color: 'text-yellow-600',
+      bgColor: 'bg-yellow-100',
+      label: 'Pending',
+      description: 'Order is being processed'
+    },
+    'quoted': {
+      icon: ClockIcon,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-100',
+      label: 'Quoted',
+      description: 'Quote has been provided'
+    },
+    'provisioned': {
+      icon: Package,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-100',
+      label: 'Provisioned',
+      description: 'Device has been prepared'
+    },
+    'assigned': {
+      icon: UserIcon,
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-100',
+      label: 'Assigned',
+      description: 'Technician has been assigned'
+    },
+    'accepted': {
+      icon: CheckCircleIcon,
+      color: 'text-green-600',
+      bgColor: 'bg-green-100',
+      label: 'Accepted',
+      description: 'Technician has accepted the task'
+    },
+    'shipped': {
+      icon: TruckIcon,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-100',
+      label: 'Shipped',
+      description: 'Device is on its way'
+    },
+    'installing': {
+      icon: WrenchScrewdriverIcon,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-100',
+      label: 'Installing',
+      description: 'Installation in progress'
+    },
+    'completed': {
+      icon: CheckCircleIcon,
+      color: 'text-green-700',
+      bgColor: 'bg-green-200',
+      label: 'Completed',
+      description: 'Installation completed successfully'
+    },
+    'cancelled': {
+      icon: ExclamationTriangleIcon,
+      color: 'text-red-600',
+      bgColor: 'bg-red-100',
+      label: 'Cancelled',
+      description: 'Order has been cancelled'
+    },
+    // Frontend enum mappings (for new orders)
     [OrderStatus.PENDING_PAYMENT]: {
       icon: ClockIcon,
       color: 'text-yellow-600',
@@ -195,11 +285,16 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   ], []);
 
   const getCurrentProgressPercentage = useCallback(() => {
-    if ([OrderStatus.CANCELLED, OrderStatus.FAILED].includes(localCurrentStatus)) {
+    // Convert to string for comparison to handle both enum and string values
+    const currentStatusStr = String(localCurrentStatus);
+    
+    if (['CANCELLED', 'FAILED', 'cancelled', 'failed'].includes(currentStatusStr)) {
       return 0;
     }
     
-    const currentIndex = statusProgression.indexOf(localCurrentStatus);
+    // Find current status in progression (convert enum values to strings for comparison)
+    const progressionStrings = statusProgression.map(status => String(status));
+    const currentIndex = progressionStrings.indexOf(currentStatusStr);
     if (currentIndex === -1) return 0;
     
     return ((currentIndex + 1) / statusProgression.length) * 100;
@@ -290,7 +385,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     }
   }, [connect, disconnect, orderId, showErrorNotification]);
 
-  const currentConfig = statusConfig[localCurrentStatus];
+  const currentConfig = statusConfig[localCurrentStatus as string];
   
   // Add null check to prevent undefined access
   if (!currentConfig) {
@@ -349,8 +444,90 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
         </div>
       </motion.div>
 
+      {/* Order Information */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+        <h5 className="text-sm font-medium text-gray-900 mb-3">Order Details</h5>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <span className="text-gray-600">Order ID:</span>
+            <span className="ml-2 font-medium text-gray-900">{orderId}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Status:</span>
+            <span className={`ml-2 font-medium ${currentConfig.color}`}>{currentConfig.label}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Created:</span>
+            <span className="ml-2 text-gray-900">
+              {new Date().toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-600">Last Updated:</span>
+            <span className="ml-2 text-gray-900">
+              {lastUpdateTime.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* What's Next Section for Pending Orders */}
+      {(localCurrentStatus === 'pending' || localCurrentStatus === 'quoted') && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h5 className="text-sm font-medium text-blue-900 mb-3 flex items-center">
+            <ClockIcon className="h-4 w-4 mr-2" />
+            What Happens Next
+          </h5>
+          <div className="space-y-2 text-sm text-blue-800">
+            {localCurrentStatus === 'pending' ? (
+              <>
+                <div className="flex items-start space-x-2">
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                  <span>Our team will review your order within 2-4 hours</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                  <span>You'll receive a quote via email and SMS</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                  <span>Once approved, we'll assign a technician for installation</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start space-x-2">
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                  <span>Quote has been provided for your order</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                  <span>Please select your payment method to proceed</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                  <span>After payment, we'll schedule your installation</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Progress Bar (for active orders) */}
-      {![OrderStatus.CANCELLED, OrderStatus.FAILED, OrderStatus.PENDING_PAYMENT, OrderStatus.PENDING_CONFIRMATION].includes(localCurrentStatus) && (
+      {!['CANCELLED', 'FAILED', 'PENDING_PAYMENT', 'PENDING_CONFIRMATION', 'cancelled', 'failed'].includes(String(localCurrentStatus)) && (
         <div className="mb-6">
           <div className="flex justify-between text-sm text-gray-600 mb-2">
             <span>Progress</span>
@@ -369,8 +546,10 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
           <div className="flex justify-between mt-3">
             {statusProgression.map((status, index) => {
               const config = statusConfig[status];
-              const isCompleted = statusProgression.indexOf(localCurrentStatus) >= index;
-              const isCurrent = localCurrentStatus === status;
+              const progressionStrings = statusProgression.map(s => String(s));
+              const currentStatusStr = String(localCurrentStatus);
+              const isCompleted = progressionStrings.indexOf(currentStatusStr) >= index;
+              const isCurrent = currentStatusStr === String(status);
               
               return (
                 <div key={status} className="flex flex-col items-center">
@@ -419,7 +598,11 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
         <div className="space-y-3 max-h-64 overflow-y-auto">
           <AnimatePresence>
             {localStatusHistory.map((update, index) => {
-              const config = statusConfig[update.status];
+              const config = statusConfig[update.status as string];
+              if (!config) {
+                console.warn(`No status configuration found for status: ${update.status}`);
+                return null;
+              }
               const UpdateIcon = config.icon;
               
               return (

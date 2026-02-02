@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Package, 
@@ -46,6 +46,14 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   
+  // Bulk operations state
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  
+  // Filtering state
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showCancelledOrders, setShowCancelledOrders] = useState(true);
+  
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info'; visible: boolean }>({
     message: '',
@@ -59,6 +67,67 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
   const hideToast = () => {
     setToast(prev => ({ ...prev, visible: false }));
+  };
+
+  // Helper functions for bulk operations
+  const toggleOrderSelection = (orderId: string) => {
+    setSelectedOrderIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllCancellableOrders = () => {
+    const cancellableOrders = filteredOrders.filter(order => order.status === 'pending');
+    setSelectedOrderIds(new Set(cancellableOrders.map(order => order.orderId)));
+  };
+
+  const clearSelection = () => {
+    setSelectedOrderIds(new Set());
+  };
+
+  // Remove duplicates and filter orders based on status and visibility preferences
+  const filteredOrders = useMemo(() => {
+    // First, deduplicate orders using a Map for better performance
+    const uniqueOrdersMap = new Map();
+    
+    orders.forEach(order => {
+      const key = `${order.orderId}_${order.createdAt || ''}`;
+      if (!uniqueOrdersMap.has(key)) {
+        uniqueOrdersMap.set(key, order);
+      }
+    });
+    
+    const uniqueOrders = Array.from(uniqueOrdersMap.values());
+    
+    // Log duplicate count only in development
+    if (process.env.NODE_ENV === 'development' && orders.length !== uniqueOrders.length) {
+      console.info(`Removed ${orders.length - uniqueOrders.length} duplicate orders`);
+    }
+    
+    // Then apply filters
+    return uniqueOrders.filter(order => {
+      if (!showCancelledOrders && order.status === 'cancelled') {
+        return false;
+      }
+      if (statusFilter === 'all') {
+        return true;
+      }
+      return order.status === statusFilter;
+    });
+  }, [orders, showCancelledOrders, statusFilter]);
+
+  // Get cancellable orders from selection
+  const getCancellableSelectedOrders = () => {
+    return Array.from(selectedOrderIds).filter(orderId => {
+      const order = orders.find(o => o.orderId === orderId);
+      return order && order.status === 'pending';
+    });
   };
 
   // Fetch orders
@@ -173,7 +242,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
   // Handle cancel order
   const handleCancelOrder = async (orderId: string) => {
-    if (!confirm('Are you sure you want to cancel this order?')) return;
+    if (!confirm('Are you sure you want to cancel this order? This action cannot be undone.')) return;
 
     setIsCancelling(true);
     try {
@@ -188,7 +257,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
       if (response.ok) {
         showToast('Order cancelled successfully', 'success');
-        fetchOrders();
+        fetchOrders(); // Refresh the orders list
         setShowDetailsModal(false);
       } else {
         const error = await response.json();
@@ -196,7 +265,43 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
       }
     } catch (error) {
       console.error('Error cancelling order:', error);
-      showToast('Error cancelling order', 'error');
+      showToast('Error cancelling order. Please try again.', 'error');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  // Handle bulk cancel orders (for multiple selection)
+  const handleBulkCancelOrders = async (orderIds: string[]) => {
+    if (!confirm(`Are you sure you want to cancel ${orderIds.length} orders? This action cannot be undone.`)) return;
+
+    setIsCancelling(true);
+    try {
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const cancelPromises = orderIds.map(orderId =>
+        fetch(`http://localhost:3002/api/orders/${orderId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        })
+      );
+
+      const results = await Promise.allSettled(cancelPromises);
+      const successful = results.filter(result => result.status === 'fulfilled').length;
+      const failed = results.length - successful;
+
+      if (successful > 0) {
+        showToast(`${successful} order(s) cancelled successfully${failed > 0 ? `, ${failed} failed` : ''}`, 
+          failed > 0 ? 'warning' : 'success');
+        fetchOrders(); // Refresh the orders list
+      } else {
+        showToast('Failed to cancel orders', 'error');
+      }
+    } catch (error) {
+      console.error('Error cancelling orders:', error);
+      showToast('Error cancelling orders. Please try again.', 'error');
     } finally {
       setIsCancelling(false);
     }
@@ -250,107 +355,226 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {orders.length === 0 ? (
+        {/* Filters and Controls */}
+        {orders.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                {/* Status Filter */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Filter by Status:</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    <option value="all">All Orders</option>
+                    <option value="pending">Pending</option>
+                    <option value="quoted">Quoted</option>
+                    <option value="provisioned">Provisioned</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="installing">Installing</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                {/* Show/Hide Cancelled Orders */}
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={showCancelledOrders}
+                    onChange={(e) => setShowCancelledOrders(e.target.checked)}
+                    className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                  />
+                  <span className="text-gray-700">Show cancelled orders</span>
+                </label>
+              </div>
+
+              {/* Bulk Actions */}
+              <div className="flex items-center gap-2">
+                {selectedOrderIds.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">
+                      {selectedOrderIds.size} selected
+                    </span>
+                    <button
+                      onClick={() => {
+                        const cancellableIds = getCancellableSelectedOrders();
+                        if (cancellableIds.length > 0) {
+                          handleBulkCancelOrders(cancellableIds);
+                        } else {
+                          showToast('No cancellable orders selected', 'warning');
+                        }
+                      }}
+                      disabled={getCancellableSelectedOrders().length === 0 || isCancelling}
+                      className="px-3 py-1 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isCancelling ? 'Cancelling...' : `Cancel Selected (${getCancellableSelectedOrders().length})`}
+                    </button>
+                    <button
+                      onClick={clearSelection}
+                      className="px-3 py-1 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={selectAllCancellableOrders}
+                  className="px-3 py-1 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Select All Pending
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {filteredOrders.length === 0 ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
             <Package className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Orders Yet</h3>
-            <p className="text-gray-600 mb-6">
-              You haven't placed any device orders yet. Request a device to get started!
-            </p>
-            <button
-              onClick={onBack}
-              className="px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
-            >
-              Go to Dashboard
-            </button>
+            {orders.length === 0 ? (
+              <>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Orders Yet</h3>
+                <p className="text-gray-600 mb-6">
+                  You haven't placed any device orders yet. Request a device to get started!
+                </p>
+                <button
+                  onClick={onBack}
+                  className="px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                >
+                  Go to Dashboard
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Orders Match Filter</h3>
+                <p className="text-gray-600 mb-6">
+                  No orders found for the selected status filter. Try adjusting your filters.
+                </p>
+                <button
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setShowCancelledOrders(true);
+                  }}
+                  className="px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                >
+                  Show All Orders
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
-            {orders.map((order) => {
+            {filteredOrders.map((order, index) => {
               const statusInfo = getStatusInfo(order.status);
               const StatusIcon = statusInfo.icon;
+              const isSelected = selectedOrderIds.has(order.orderId);
+              const isCancellable = order.status === 'pending';
+              
+              // Create unique key combining orderId, index, and timestamp to prevent duplicates
+              const uniqueKey = `${order.orderId}_${index}_${order.createdAt || Date.now()}`;
 
               return (
                 <motion.div
-                  key={order.orderId}
+                  key={uniqueKey}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                  className={`bg-white rounded-lg shadow-sm border transition-all ${
+                    isSelected ? 'border-cyan-300 bg-cyan-50' : 'border-gray-200 hover:shadow-md'
+                  }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className={`p-2 rounded-lg ${statusInfo.bg}`}>
-                          <StatusIcon className={`w-5 h-5 ${statusInfo.color}`} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {getDeviceName(order.deviceSKU)}
-                          </h3>
-                          <p className="text-sm text-gray-600">Order #{order.orderId.slice(0, 8)}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Calendar className="w-4 h-4" />
-                          <span>Placed: {new Date(order.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <MapPin className="w-4 h-4" />
-                          <span className="truncate">
-                            {typeof order.address === 'string' && order.address 
-                              ? order.address.split(',')[0] 
-                              : 'Address not available'
-                            }
-                          </span>
-                        </div>
-                        {order.quoteAmount && (
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <IndianRupee className="w-4 h-4" />
-                            <span>₹{order.quoteAmount.toLocaleString()}</span>
+                  <div className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3 flex-1">
+                        {/* Selection Checkbox */}
+                        {isCancellable && (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleOrderSelection(order.orderId)}
+                            className="mt-1 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                          />
+                        )}
+                        
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`p-2 rounded-lg ${statusInfo.bg}`}>
+                              <StatusIcon className={`w-5 h-5 ${statusInfo.color}`} />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900">
+                                {getDeviceName(order.deviceSKU)}
+                              </h3>
+                              <p className="text-sm text-gray-600">Order #{order.orderId.slice(0, 8)}</p>
+                            </div>
                           </div>
-                        )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <Calendar className="w-4 h-4" />
+                              <span>Placed: {new Date(order.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <MapPin className="w-4 h-4" />
+                              <span className="truncate">
+                                {typeof order.address === 'string' && order.address 
+                                  ? order.address.split(',')[0] 
+                                  : 'Address not available'
+                                }
+                              </span>
+                            </div>
+                            {order.quoteAmount && (
+                              <div className="flex items-center gap-2 text-sm text-gray-600">
+                                <IndianRupee className="w-4 h-4" />
+                                <span>₹{order.quoteAmount.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Status Badge */}
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
+                              <StatusIcon className="w-4 h-4" />
+                              {statusInfo.label}
+                            </span>
+                            {order.assignedTechnicianName && (
+                              <span className="text-sm text-gray-600">
+                                Technician: {order.assignedTechnicianName}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Status Badge */}
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
-                          <StatusIcon className="w-4 h-4" />
-                          {statusInfo.label}
-                        </span>
-                        {order.assignedTechnicianName && (
-                          <span className="text-sm text-gray-600">
-                            Technician: {order.assignedTechnicianName}
-                          </span>
+                      <div className="flex flex-col gap-2 ml-4">
+                        <button
+                          onClick={() => handleViewDetails(order)}
+                          className="px-4 py-2 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                        >
+                          View Details
+                        </button>
+                        {order.status === 'quoted' && !order.paymentMethod && (
+                          <button
+                            onClick={() => handleChoosePayment(order)}
+                            className="px-4 py-2 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2"
+                          >
+                            <IndianRupee className="w-4 h-4" />
+                            Choose Payment
+                          </button>
+                        )}
+                        {order.status === 'pending' && (
+                          <button
+                            onClick={() => handleCancelOrder(order.orderId)}
+                            disabled={isCancelling}
+                            className="px-4 py-2 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                          >
+                            {isCancelling ? 'Cancelling...' : 'Cancel Order'}
+                          </button>
                         )}
                       </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <button
-                        onClick={() => handleViewDetails(order)}
-                        className="px-4 py-2 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
-                      >
-                        View Details
-                      </button>
-                      {order.status === 'quoted' && !order.paymentMethod && (
-                        <button
-                          onClick={() => handleChoosePayment(order)}
-                          className="px-4 py-2 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2"
-                        >
-                          <IndianRupee className="w-4 h-4" />
-                          Choose Payment
-                        </button>
-                      )}
-                      {order.status === 'pending' && (
-                        <button
-                          onClick={() => handleCancelOrder(order.orderId)}
-                          className="px-4 py-2 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
-                        >
-                          Cancel Order
-                        </button>
-                      )}
                     </div>
                   </div>
                 </motion.div>

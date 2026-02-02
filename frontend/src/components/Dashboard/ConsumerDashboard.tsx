@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -32,7 +33,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useAuth } from '../../contexts/AuthContext';
 import { useDashboardData } from '../../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
-import { OrderingProvider } from '../../contexts/OrderingContext';
+import { OrderingProvider, useOrdering } from '../../contexts/OrderingContext';
+import ErrorBoundary from '../ErrorBoundary';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -42,6 +44,7 @@ import DataExportModal from './DataExportModal';
 import RequestDeviceModal from './RequestDeviceModal';
 import MyOrdersPage from './MyOrdersPage';
 import OrderingFlow from './OrderingFlow';
+import DemoDeviceModal from './DemoDeviceModal';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -60,10 +63,19 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [showFullReport, setShowFullReport] = useState(false);
   const [showReportIssue, setShowReportIssue] = useState(false);
   const [showAddDevice, setShowAddDevice] = useState(false);
+
+  // Debug: Track showAddDevice state changes
+  useEffect(() => {
+    console.log('🔍 showAddDevice state changed to:', showAddDevice);
+    if (showAddDevice) {
+      console.trace('🔍 Stack trace for showAddDevice = true');
+    }
+  }, [showAddDevice]);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showRequestDevice, setShowRequestDevice] = useState(false);
   const [showMyOrders, setShowMyOrders] = useState(false);
   const [showOrderingFlow, setShowOrderingFlow] = useState(false);
+  const [showDemoDevice, setShowDemoDevice] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [selectedTimeRange, setSelectedTimeRange] = useState('7days');
@@ -90,6 +102,11 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const { latestUpdate, isConnected } = useRealTimeUpdates('consumer-updates', {
     autoConnect: true
   });
+
+  // Test ordering context
+  const orderingContext = useOrdering();
+  console.log('🔍 Ordering context available:', !!orderingContext);
+  console.log('🔍 Ordering state:', orderingContext?.state);
 
   // ✅ Get devices list from dashboard data
   const devices = useMemo(() => {
@@ -152,8 +169,48 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     }
   }, [showReportIssue]);
 
+  // Add debounce state for button clicks
+  const [isToggling, setIsToggling] = useState(false);
+
+  const openAddDeviceModal = useCallback(() => {
+    console.log('🚀 Add Your First Device button clicked');
+    
+    // Force reset state first, then set to true
+    setShowAddDevice(false);
+    setTimeout(() => {
+      setShowAddDevice(true);
+      console.log('🔍 Modal should now be visible');
+    }, 50);
+  }, []);
+
   const toggleAddDevice = useCallback(() => {
-    setShowAddDevice(prev => !prev);
+    if (isToggling) {
+      console.log('🚫 Ignoring rapid toggle attempt');
+      return;
+    }
+    
+    console.log('🔧 Add Device button clicked');
+    setIsToggling(true);
+    
+    // Use functional state update to avoid stale closure issues
+    setShowAddDevice(prevState => {
+      console.log('📂 Previous showAddDevice state:', prevState);
+      if (!prevState) {
+        console.log('📂 Opening Add Device Modal');
+        return true;
+      } else {
+        console.log('📂 Closing Add Device Modal');
+        return false;
+      }
+    });
+    
+    // Reset debounce after a short delay
+    setTimeout(() => setIsToggling(false), 300);
+  }, [isToggling]); // Removed showAddDevice from dependencies
+
+  const closeAddDeviceModal = useCallback(() => {
+    console.log('📂 Explicitly closing Add Device Modal');
+    setShowAddDevice(false);
   }, []);
 
   const handleDeviceAdded = useCallback(() => {
@@ -229,8 +286,21 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   }, []);
 
   const toggleOrderingFlow = useCallback(() => {
-    setShowOrderingFlow(prev => !prev);
+    console.log('🔍 Order Device button clicked');
+    setShowOrderingFlow(prev => {
+      console.log('Setting showOrderingFlow from', prev, 'to', !prev);
+      return !prev;
+    });
   }, []);
+
+  const toggleDemoDevice = useCallback(() => {
+    setShowDemoDevice(prev => !prev);
+  }, []);
+
+  const handleDemoDeviceAdded = useCallback(() => {
+    // Refresh dashboard data after demo device is added
+    refetch();
+  }, [refetch]);
 
   const handleOrderComplete = useCallback((orderId: string) => {
     console.log('Order completed:', orderId);
@@ -697,9 +767,20 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           <div className="flex items-center gap-3">
             {/* Order Device Button */}
             <button
-              onClick={toggleOrderingFlow}
-              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('🚀 Direct button click handler');
+                try {
+                  toggleOrderingFlow();
+                } catch (error) {
+                  console.error('Error toggling ordering flow:', error);
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 cursor-pointer"
+              style={{ pointerEvents: 'auto', zIndex: 10 }}
               title="Order New Device"
+              type="button"
             >
               <Package className="w-5 h-5" />
               <span className="text-sm font-medium">Order Device</span>
@@ -886,13 +967,30 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             <p className="text-gray-600 mb-6">
               Get started by adding your first water quality monitoring device to track your water parameters in real-time.
             </p>
-            <button
-              onClick={toggleAddDevice}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors font-medium"
-            >
-              <Plus className="w-5 h-5" />
-              Add Your First Device
-            </button>
+            
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={openAddDeviceModal}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors font-medium"
+                type="button"
+              >
+                <Plus className="w-5 h-5" />
+                Add Real Device
+              </button>
+              
+              <button
+                onClick={toggleDemoDevice}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
+                type="button"
+              >
+                <Activity className="w-5 h-5" />
+                Try Demo Device
+              </button>
+            </div>
+            
+            <p className="text-sm text-gray-500 mt-4">
+              💡 Try the demo device first to explore all dashboard features with sample data
+            </p>
           </div>
         </div>
       )}
@@ -900,8 +998,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
       {/* Main Content */}
       {devices.length > 0 && (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        {/* WQI Hero Section */}
+          <>
+            {/* WQI Hero Section */}
         <div className="bg-white rounded-lg shadow-md p-8 mb-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-6 text-center">Water Quality Index</h2>
           <div className="flex flex-col items-center">
@@ -966,7 +1064,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             </div>
             {(!dashboardData || !('devices' in dashboardData) || dashboardData.devices?.length === 0) && (
               <button 
-                onClick={toggleAddDevice}
+                onClick={openAddDeviceModal}
                 className="mt-4 w-full flex items-center justify-center space-x-2 px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition"
               >
                 <Plus className="w-4 h-4" />
@@ -1188,8 +1286,17 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <button 
-              onClick={toggleOrderingFlow}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  toggleOrderingFlow();
+                } catch (error) {
+                  console.error('Error toggling ordering flow:', error);
+                }
+              }}
               className="flex items-center space-x-3 p-4 border-2 border-green-200 bg-green-50 rounded-lg hover:border-green-400 hover:bg-green-100 transition"
+              type="button"
             >
               <Package className="w-6 h-6 text-green-600" />
               <div className="flex flex-col items-start">
@@ -1217,18 +1324,24 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               </div>
             </button>
             <button 
+              onClick={toggleDemoDevice}
+              className="flex items-center space-x-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-400 hover:bg-blue-100 transition"
+            >
+              <Activity className="w-6 h-6 text-blue-600" />
+              <div className="flex flex-col items-start">
+                <span className="font-medium text-gray-700">Try Demo</span>
+                <span className="text-xs text-blue-600">Sample device</span>
+              </div>
+            </button>
+            <button 
               onClick={toggleReportIssue}
               className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-cyan-500 hover:bg-cyan-50 transition"
             >
               <AlertTriangle className="w-6 h-6 text-cyan-600" />
-              <span className="font-medium text-gray-700">Report Issue</span>
-            </button>
-            <button 
-              onClick={toggleFullReport}
-              className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-cyan-500 hover:bg-cyan-50 transition"
-            >
-              <Activity className="w-6 h-6 text-cyan-600" />
-              <span className="font-medium text-gray-700">View Full Report</span>
+              <div className="flex flex-col items-start">
+                <span className="font-medium text-gray-700">Report Issue</span>
+                <span className="text-xs text-cyan-600">Get help</span>
+              </div>
             </button>
           </div>
           <p className="text-sm text-gray-500 mt-4 text-center">
@@ -1707,184 +1820,206 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           </div>
         )}
 
-        {/* Ordering Flow Modal */}
-        {showOrderingFlow && (
-          <OrderingFlow
-            onClose={toggleOrderingFlow}
-            onOrderComplete={handleOrderComplete}
-          />
-        )}
 
-        {/* Add Device Modal */}
-        <AddDeviceModal
-          isOpen={showAddDevice}
-          onClose={toggleAddDevice}
-          onDeviceAdded={handleDeviceAdded}
-        />
+          </>
+      </main>
+      )}
 
-        {/* Request Device Modal */}
+      {/* ===== MODALS - RENDER ALWAYS (OUTSIDE CONDITIONALS) ===== */}
+      
+      {/* Add Device Modal */}
+      {console.log('🔍 Rendering AddDeviceModal with showAddDevice:', showAddDevice)}
+      {console.log('🔍 About to render portal for AddDeviceModal')}
+      {createPortal(
+        (() => {
+          console.log('🔍 Inside portal - rendering AddDeviceModal');
+          return (
+            <AddDeviceModal
+              isOpen={showAddDevice}
+              onClose={closeAddDeviceModal}
+              onDeviceAdded={handleDeviceAdded}
+            />
+          );
+        })(),
+        document.body
+      )}
+
+      {/* Ordering Flow Modal */}
+      {console.log('🔍 Rendering OrderingFlow with showOrderingFlow:', showOrderingFlow)}
+      {createPortal(
+        (() => {
+          console.log('🔍 Inside portal - rendering OrderingFlow');
+          return showOrderingFlow ? (
+            <ErrorBoundary>
+              <OrderingFlow
+                onClose={toggleOrderingFlow}
+                onOrderComplete={handleOrderComplete}
+              />
+            </ErrorBoundary>
+          ) : null;
+        })(),
+        document.body
+      )}
+
+      {/* Demo Device Modal */}
+      {createPortal(
+        <DemoDeviceModal
+          isOpen={showDemoDevice}
+          onClose={toggleDemoDevice}
+          onDemoDeviceAdded={handleDemoDeviceAdded}
+        />,
+        document.body
+      )}
+
+      {/* Request Device Modal */}
+      {createPortal(
         <RequestDeviceModal
           isOpen={showRequestDevice}
           onClose={toggleRequestDevice}
           onSuccess={handleDeviceRequested}
-        />
+        />,
+        document.body
+      )}
 
-        {/* Edit Profile Modal */}
+      {/* Edit Profile Modal */}
+      {createPortal(
         <EditProfileModal
           isOpen={showEditProfile}
           onClose={toggleEditProfile}
           currentProfile={{
-            firstName: user.profile?.firstName,
-            lastName: user.profile?.lastName,
-            email: user.email,
-            phone: user.profile?.phone,
-            address: user.profile?.address || ''
+            firstName: user?.profile?.firstName,
+            lastName: user?.profile?.lastName,
+            email: user?.email,
+            phone: user?.profile?.phone,
+            address: user?.profile?.address || ''
           }}
           onProfileUpdated={handleProfileUpdated}
-        />
-
-        {/* Remove Device Confirmation Dialog */}
-        <AnimatePresence>
-          {showRemoveConfirm && deviceToRemove && (
-            <>
-              <div 
-                className="fixed inset-0 bg-black bg-opacity-50 z-50"
-                onClick={handleCancelRemoveDevice}
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="fixed inset-0 z-50 flex items-center justify-center p-4"
-              >
-                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                      <ExclamationTriangleIcon className="w-6 h-6 text-red-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-900">Remove Device</h3>
-                      <p className="text-sm text-gray-600">This action cannot be undone</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                    <p className="text-sm text-red-800 mb-2">
-                      <strong>Warning:</strong> You are about to remove the following device:
-                    </p>
-                    <div className="bg-white rounded-lg p-3 mt-2">
-                      <p className="font-semibold text-gray-900">{deviceToRemove.name || deviceToRemove.device_id}</p>
-                      <p className="text-sm text-gray-600">ID: {deviceToRemove.device_id}</p>
-                      {deviceToRemove.location && (
-                        <p className="text-sm text-gray-600">Location: {deviceToRemove.location}</p>
-                      )}
-                    </div>
-                    <p className="text-sm text-red-800 mt-3">
-                      All historical data and settings for this device will be permanently deleted.
-                    </p>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={handleCancelRemoveDevice}
-                      disabled={isRemovingDevice}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleConfirmRemoveDevice}
-                      disabled={isRemovingDevice}
-                      className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isRemovingDevice ? 'Removing...' : 'Remove Device'}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-
-        {/* Profile Incomplete Modal */}
-        <AnimatePresence>
-          {showProfileIncompleteModal && (
-            <>
-              <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowProfileIncompleteModal(false)} />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="fixed inset-0 z-50 flex items-center justify-center p-4"
-              >
-                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
-                  {/* Header */}
-                  <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-4 flex items-center justify-between rounded-t-xl">
-                    <div className="flex items-center gap-3">
-                      <User className="w-6 h-6 text-white" />
-                      <h2 className="text-xl font-bold text-white">Complete Your Profile</h2>
-                    </div>
-                    <button
-                      onClick={() => setShowProfileIncompleteModal(false)}
-                      className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
-                    >
-                      <XMarkIcon className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  {/* Content */}
-                  <div className="p-6">
-                    <div className="flex items-start gap-3 mb-6">
-                      <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <AlertTriangle className="w-6 h-6 text-amber-600" />
-                      </div>
-                      <div>
-                        <p className="text-gray-900 font-medium mb-2">
-                          Please complete your profile before requesting a device.
-                        </p>
-                        <p className="text-sm text-gray-600 mb-3">
-                          We need the following information to process your device request:
-                        </p>
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                          <p className="text-sm font-semibold text-amber-900 mb-2">Missing Information:</p>
-                          <ul className="space-y-1">
-                            {missingProfileFields.map((field, index) => (
-                              <li key={index} className="flex items-center gap-2 text-sm text-amber-800">
-                                <span className="w-1.5 h-1.5 bg-amber-600 rounded-full"></span>
-                                {field}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setShowProfileIncompleteModal(false)}
-                        className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowProfileIncompleteModal(false);
-                          setShowSettings(true);
-                          setShowEditProfile(true);
-                        }}
-                        className="flex-1 px-4 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium"
-                      >
-                        Update Profile
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-      </main>
+        />,
+        document.body
       )}
+
+      {/* Profile Incomplete Modal */}
+      {showProfileIncompleteModal && createPortal(
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full"
+          >
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <User className="w-6 h-6 text-white" />
+                <h2 className="text-xl font-bold text-white">Complete Your Profile</h2>
+              </div>
+              <button
+                onClick={() => setShowProfileIncompleteModal(false)}
+                className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="flex items-start space-x-3 mb-4">
+                <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-1" />
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Profile Information Required</h3>
+                  <p className="text-gray-600 mb-4">
+                    To request a device, please complete your profile with the following information:
+                  </p>
+                  <ul className="space-y-2">
+                    {missingProfileFields.map((field, index) => (
+                      <li key={index} className="flex items-center space-x-2 text-sm text-gray-700">
+                        <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
+                        <span>{field}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowProfileIncompleteModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowProfileIncompleteModal(false);
+                    toggleEditProfile();
+                  }}
+                  className="flex-1 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition"
+                >
+                  Update Profile
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>,
+        document.body
+      )}
+
+      {/* Remove Device Confirmation Modal */}
+      {showRemoveConfirm && createPortal(
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full"
+          >
+            <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <AlertTriangle className="w-6 h-6 text-white" />
+                <h2 className="text-xl font-bold text-white">Remove Device</h2>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Device Removal</h3>
+                <p className="text-gray-600 mb-4">
+                  Are you sure you want to remove <strong>{deviceToRemove?.name || deviceToRemove?.device_id}</strong>? 
+                  This action cannot be undone and all associated data will be permanently deleted.
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-800">
+                    <strong>Warning:</strong> This will permanently delete all historical data, readings, and alerts for this device.
+                  </p>
+                </div>
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleCancelRemoveDevice}
+                  disabled={isRemovingDevice}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmRemoveDevice}
+                  disabled={isRemovingDevice}
+                  className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:opacity-50 flex items-center justify-center space-x-2"
+                >
+                  {isRemovingDevice ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Removing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>Remove Device</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>,
+        document.body
+      )}
+
     </div>
   );
 });

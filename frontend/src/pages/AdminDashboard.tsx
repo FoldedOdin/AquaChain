@@ -146,7 +146,7 @@ const AdminDashboard = () => {
             <p className="text-gray-600 mt-2">System monitoring and management</p>
             {latestUpdate && (
               <p className="text-sm text-blue-600 mt-1">
-                Latest update: {new Date(latestUpdate.timestamp).toLocaleTimeString()}
+                Latest update: {new Date(latestUpdate.timestamp || new Date()).toLocaleTimeString()}
               </p>
             )}
           </div>

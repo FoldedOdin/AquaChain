@@ -54,7 +54,7 @@ export interface ContactInfo {
 
 // Status update interface
 export interface StatusUpdate {
-  status: OrderStatus;
+  status: OrderStatus | string;
   timestamp: Date;
   message: string;
   metadata?: Record<string, any>;
@@ -79,7 +79,7 @@ export interface Order {
   deviceType: string;
   serviceType: string;
   paymentMethod: PaymentMethod;
-  status: OrderStatus;
+  status: OrderStatus | string;
   amount?: number;
   deliveryAddress: Address;
   contactInfo: ContactInfo;
@@ -184,7 +184,7 @@ export interface RazorpayCheckoutProps {
 
 export interface OrderStatusTrackerProps {
   orderId: string;
-  currentStatus: OrderStatus;
+  currentStatus: OrderStatus | string;
   statusHistory: StatusUpdate[];
   estimatedDelivery?: Date;
 }

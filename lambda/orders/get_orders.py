@@ -254,6 +254,7 @@ def ensure_backward_compatibility(orders: List[Dict[str, Any]]) -> List[Dict[str
     - Keeps the status field unchanged (e.g., "shipped")
     - Does not expose internal shipment_id, tracking_number, or internal_status
     - Maintains the same response structure as before
+    - Removes duplicate orders based on orderId and createdAt
     
     Args:
         orders: List of order items from DynamoDB
@@ -264,10 +265,25 @@ def ensure_backward_compatibility(orders: List[Dict[str, Any]]) -> List[Dict[str
     Requirements: 8.1, 8.2, 8.3
     """
     compatible_orders = []
+    seen_orders = set()  # Track unique orders to prevent duplicates
     
     for order in orders:
         # Create a copy to avoid modifying original
         compatible_order = dict(order)
+        
+        # Create unique key for deduplication
+        order_key = f"{compatible_order.get('orderId', '')}_{compatible_order.get('createdAt', '')}"
+        
+        # Skip if we've already seen this order
+        if order_key in seen_orders:
+            logger.warning(
+                "Duplicate order detected in database",
+                order_id=compatible_order.get('orderId'),
+                created_at=compatible_order.get('createdAt')
+            )
+            continue
+        
+        seen_orders.add(order_key)
         
         # Remove internal shipment fields from response
         # These fields exist in DynamoDB but should not be exposed
@@ -284,6 +300,17 @@ def ensure_backward_compatibility(orders: List[Dict[str, Any]]) -> List[Dict[str
         # Internal shipment states are managed in Shipments table
         
         compatible_orders.append(compatible_order)
+    
+    # Log deduplication stats
+    original_count = len(orders)
+    final_count = len(compatible_orders)
+    if original_count != final_count:
+        logger.warning(
+            "Removed duplicate orders from response",
+            original_count=original_count,
+            final_count=final_count,
+            duplicates_removed=original_count - final_count
+        )
     
     return compatible_orders
 

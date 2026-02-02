@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Package, CheckCircle, AlertTriangle, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -269,9 +270,24 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
     }
   };
 
-  return (
+  return createPortal(
     <OrderingErrorBoundary>
-      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4"
+        style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          zIndex: 9999,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
+        }}
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -544,7 +560,8 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
           )}
         </motion.div>
       </div>
-    </OrderingErrorBoundary>
+    </OrderingErrorBoundary>,
+    document.body
   );
 };
 
