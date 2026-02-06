@@ -977,20 +977,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <Plus className="w-5 h-5" />
                 Add Real Device
               </button>
-              
-              <button
-                onClick={toggleDemoDevice}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
-                type="button"
-              >
-                <Activity className="w-5 h-5" />
-                Try Demo Device
-              </button>
             </div>
-            
-            <p className="text-sm text-gray-500 mt-4">
-              💡 Try the demo device first to explore all dashboard features with sample data
-            </p>
           </div>
         </div>
       )}
