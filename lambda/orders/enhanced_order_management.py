@@ -80,7 +80,6 @@ class OrderManagementService:
         # Valid state transitions
         self.valid_transitions = {
             OrderStatus.PENDING_PAYMENT: [OrderStatus.ORDER_PLACED, OrderStatus.CANCELLED, OrderStatus.FAILED],
-            OrderStatus.PENDING_CONFIRMATION: [OrderStatus.ORDER_PLACED, OrderStatus.CANCELLED],
             OrderStatus.ORDER_PLACED: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
             OrderStatus.SHIPPED: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
             OrderStatus.OUT_FOR_DELIVERY: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
@@ -194,9 +193,10 @@ class OrderManagementService:
             timestamp = datetime.now(timezone.utc).isoformat()
             
             # Determine initial status based on payment method
+            # COD orders go directly to ORDER_PLACED since pricing is fixed upfront
             payment_method = PaymentMethod(validated_data['paymentMethod'])
             initial_status = (
-                OrderStatus.PENDING_CONFIRMATION if payment_method == PaymentMethod.COD
+                OrderStatus.ORDER_PLACED if payment_method == PaymentMethod.COD
                 else OrderStatus.PENDING_PAYMENT
             )
             

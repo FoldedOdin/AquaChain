@@ -21,6 +21,7 @@ const CODConfirmationTimer: React.FC<CODConfirmationTimerProps> = ({
     isActive: true,
     progress: 0
   });
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasConfirmedRef = useRef(false);
@@ -36,11 +37,13 @@ const CODConfirmationTimer: React.FC<CODConfirmationTimerProps> = ({
       const newRemaining = prevState.remainingSeconds - 1;
       
       if (newRemaining <= 0) {
-        // Timer completed - auto-confirm
+        // Timer completed - show success message first
         if (!hasConfirmedRef.current) {
           hasConfirmedRef.current = true;
-          // Call onConfirm immediately instead of using setTimeout
-          onConfirm();
+          // Delay calling onConfirm to show success message for 2 seconds
+          setTimeout(() => {
+            onConfirm();
+          }, 2000);
         }
         return {
           remainingSeconds: 0,
@@ -70,12 +73,23 @@ const CODConfirmationTimer: React.FC<CODConfirmationTimerProps> = ({
 
   // Handle cancel button click
   const handleCancel = useCallback(() => {
+    setShowCancelModal(true);
+  }, []);
+
+  // Confirm cancellation
+  const handleConfirmCancel = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
     setTimerState(prev => ({ ...prev, isActive: false }));
+    setShowCancelModal(false);
     onCancel();
   }, [onCancel]);
+
+  // Close cancel modal and continue countdown
+  const handleCloseCancelModal = useCallback(() => {
+    setShowCancelModal(false);
+  }, []);
 
   // Format remaining time for display
   const formatTime = (seconds: number): string => {
@@ -216,14 +230,26 @@ const CODConfirmationTimer: React.FC<CODConfirmationTimerProps> = ({
               animate={{ opacity: 1, y: 0 }}
               className="space-y-4"
             >
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center justify-center space-x-2 text-green-800">
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="font-medium">Order Successfully Placed!</span>
+              <div className="p-6 bg-green-50 border-2 border-green-300 rounded-xl">
+                <div className="flex flex-col items-center justify-center space-y-3">
+                  <div className="p-3 bg-green-100 rounded-full">
+                    <CheckCircle className="w-12 h-12 text-green-600" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-green-800">
+                    Order Placed Successfully!
+                  </h3>
+                  <p className="text-sm text-green-700 text-center">
+                    Your Cash on Delivery order has been confirmed.
+                  </p>
+                  <p className="text-sm text-green-600 text-center">
+                    You will receive updates about your order status shortly.
+                  </p>
                 </div>
-                <p className="text-sm text-green-700 mt-2">
-                  You will receive updates about your order status shortly.
-                </p>
+              </div>
+              
+              <div className="flex items-center justify-center space-x-2 text-gray-500 text-sm">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                <span>Processing your order...</span>
               </div>
             </motion.div>
           )}
@@ -238,6 +264,64 @@ const CODConfirmationTimer: React.FC<CODConfirmationTimerProps> = ({
             )}
           </div>
         </motion.div>
+
+        {/* Cancellation Confirmation Modal */}
+        <AnimatePresence>
+          {showCancelModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center z-10"
+              onClick={handleCloseCancelModal}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-xl shadow-2xl max-w-sm w-full mx-4 p-6"
+              >
+                {/* Warning Icon */}
+                <div className="flex justify-center mb-4">
+                  <div className="p-3 bg-red-100 rounded-full">
+                    <AlertTriangle className="w-10 h-10 text-red-600" />
+                  </div>
+                </div>
+
+                {/* Title */}
+                <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
+                  Cancel Order?
+                </h3>
+
+                {/* Description */}
+                <p className="text-gray-600 text-center text-sm mb-6">
+                  Are you sure you want to cancel this order? This action cannot be undone and you'll need to start the ordering process again.
+                </p>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col space-y-3">
+                  <button
+                    onClick={handleConfirmCancel}
+                    className="w-full px-6 py-3 bg-red-600 text-white rounded-lg font-medium
+                             hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2
+                             transition-colors duration-200"
+                  >
+                    Yes, Cancel Order
+                  </button>
+                  <button
+                    onClick={handleCloseCancelModal}
+                    className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium
+                             hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2
+                             transition-colors duration-200"
+                  >
+                    No, Keep Order
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </AnimatePresence>
   );

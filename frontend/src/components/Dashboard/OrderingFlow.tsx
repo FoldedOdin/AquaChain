@@ -48,9 +48,8 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
 
   // Device and service options
   const deviceTypes = [
-    { id: 'basic', name: 'Basic Water Monitor', price: 2999, description: 'pH, TDS, Temperature monitoring' },
-    { id: 'advanced', name: 'Advanced Water Monitor', price: 4999, description: 'pH, TDS, Temperature, Turbidity monitoring' },
-    { id: 'premium', name: 'Premium Water Monitor', price: 7999, description: 'Full spectrum monitoring with IoT connectivity' },
+    { id: 'basic', name: 'Basic Water Monitor', price: 4999, description: 'pH, TDS, Temperature, Turbidity monitoring', disabled: false },
+    { id: 'premium', name: 'Premium Water Monitor', price: 7999, description: 'Full spectrum monitoring with IoT connectivity', disabled: true, comingSoon: true },
   ];
 
   const serviceTypes = [
@@ -376,22 +375,32 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
                   {/* Device Type Selection */}
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose Device Type</h3>
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-2">
                       {deviceTypes.map((device) => (
                         <button
                           key={device.id}
-                          onClick={() => setSelectedDeviceType(device.id)}
+                          onClick={() => !device.disabled && setSelectedDeviceType(device.id)}
+                          disabled={device.disabled}
                           className={`
-                            p-4 rounded-lg border-2 text-left transition-all
-                            ${selectedDeviceType === device.id
-                              ? 'border-cyan-500 bg-cyan-50'
-                              : 'border-gray-200 hover:border-gray-300'
+                            p-4 rounded-lg border-2 text-left transition-all relative
+                            ${device.disabled 
+                              ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed' 
+                              : selectedDeviceType === device.id
+                                ? 'border-cyan-500 bg-cyan-50'
+                                : 'border-gray-200 hover:border-gray-300'
                             }
                           `}
                         >
+                          {device.comingSoon && (
+                            <span className="absolute top-2 right-2 bg-amber-500 text-white text-xs font-semibold px-2 py-1 rounded">
+                              Coming Soon
+                            </span>
+                          )}
                           <h4 className="font-semibold text-gray-900">{device.name}</h4>
                           <p className="text-sm text-gray-600 mt-1">{device.description}</p>
-                          <p className="text-lg font-bold text-cyan-600 mt-2">₹{device.price.toLocaleString()}</p>
+                          <p className={`text-lg font-bold mt-2 ${device.disabled ? 'text-gray-400' : 'text-cyan-600'}`}>
+                            {device.disabled ? '-----' : `₹${device.price.toLocaleString()}`}
+                          </p>
                         </button>
                       ))}
                     </div>

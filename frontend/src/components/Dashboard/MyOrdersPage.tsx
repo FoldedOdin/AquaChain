@@ -168,20 +168,24 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'pending':
-        return { icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100', label: 'Pending Review' };
-      case 'quoted':
-        return { icon: IndianRupee, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Quote Provided' };
+      case 'ORDER_PLACED':
+        return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Order Placed' };
       case 'provisioned':
         return { icon: Package, color: 'text-purple-600', bg: 'bg-purple-100', label: 'Device Provisioned' };
       case 'assigned':
         return { icon: Wrench, color: 'text-indigo-600', bg: 'bg-indigo-100', label: 'Technician Assigned' };
       case 'shipped':
+      case 'SHIPPED':
         return { icon: Truck, color: 'text-cyan-600', bg: 'bg-cyan-100', label: 'Shipped' };
+      case 'OUT_FOR_DELIVERY':
+        return { icon: Truck, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Out for Delivery' };
       case 'installing':
         return { icon: Wrench, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Installing' };
       case 'completed':
+      case 'DELIVERED':
         return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Completed' };
       case 'cancelled':
+      case 'CANCELLED':
         return { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Cancelled' };
       default:
         return { icon: Clock, color: 'text-gray-600', bg: 'bg-gray-100', label: status };
@@ -311,11 +315,10 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const getTimelineSteps = (order: Order) => {
     const steps = [
       { status: 'pending', label: 'Order Placed', completed: true },
-      { status: 'quoted', label: 'Quote Provided', completed: ['quoted', 'provisioned', 'assigned', 'shipped', 'installing', 'completed'].includes(order.status) },
-      { status: 'provisioned', label: 'Device Ready', completed: ['provisioned', 'assigned', 'shipped', 'installing', 'completed'].includes(order.status) },
-      { status: 'assigned', label: 'Technician Assigned', completed: ['assigned', 'shipped', 'installing', 'completed'].includes(order.status) },
-      { status: 'shipped', label: 'Shipped', completed: ['shipped', 'installing', 'completed'].includes(order.status) },
-      { status: 'completed', label: 'Installed', completed: order.status === 'completed' },
+      { status: 'provisioned', label: 'Device Ready', completed: ['provisioned', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) },
+      { status: 'assigned', label: 'Technician Assigned', completed: ['assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) },
+      { status: 'shipped', label: 'Shipped', completed: ['shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) },
+      { status: 'completed', label: 'Installed', completed: ['completed', 'DELIVERED'].includes(order.status) },
     ];
     return steps;
   };
@@ -369,13 +372,13 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                     className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
                     <option value="all">All Orders</option>
-                    <option value="pending">Pending</option>
-                    <option value="quoted">Quoted</option>
+                    <option value="ORDER_PLACED">Order Placed</option>
                     <option value="provisioned">Provisioned</option>
                     <option value="assigned">Assigned</option>
-                    <option value="shipped">Shipped</option>
+                    <option value="SHIPPED">Shipped</option>
+                    <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
                     <option value="installing">Installing</option>
-                    <option value="completed">Completed</option>
+                    <option value="DELIVERED">Delivered</option>
                     <option value="cancelled">Cancelled</option>
                   </select>
                 </div>
@@ -716,39 +719,6 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                   </div>
 
                   {/* Status Message */}
-                  {selectedOrder.status === 'pending' && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                        <div className="text-sm text-yellow-900">
-                          <p className="font-semibold mb-1">Awaiting Admin Review</p>
-                          <p>Your order is being reviewed by our admin team. You'll receive a quote within 24 hours.</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {selectedOrder.status === 'quoted' && !selectedOrder.paymentMethod && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                        <div className="text-sm text-green-900">
-                          <p className="font-semibold mb-1">Action Required: Choose Payment Method</p>
-                          <p>Admin has provided a quote of ₹{selectedOrder.quoteAmount?.toLocaleString()}. Please select your payment method (COD or Online) to proceed with device provisioning.</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {selectedOrder.status === 'quoted' && selectedOrder.paymentMethod && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <IndianRupee className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                        <div className="text-sm text-blue-900">
-                          <p className="font-semibold mb-1">Quote Accepted</p>
-                          <p>Quote: ₹{selectedOrder.quoteAmount?.toLocaleString()} | Payment: {selectedOrder.paymentMethod}. Waiting for admin to provision device.</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                   {selectedOrder.status === 'completed' && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                       <div className="flex items-start gap-3">

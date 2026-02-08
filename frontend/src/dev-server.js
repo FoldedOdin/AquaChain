@@ -1006,10 +1006,55 @@ app.post('/api/orders', (req, res) => {
     });
   }
   
-  const { deviceSKU, address, phone, preferredSlot } = req.body;
+  // Support both old and new order formats
+  const { 
+    deviceSKU, 
+    deviceType,
+    serviceType,
+    address, 
+    deliveryAddress,
+    phone, 
+    contactInfo,
+    preferredSlot,
+    paymentMethod,
+    amount
+  } = req.body;
   
-  // Ensure deviceSKU has a default value
-  const orderDeviceSKU = deviceSKU || 'AC-HOME-V1';
+  // Ensure deviceSKU has a default value (support both deviceSKU and deviceType)
+  const orderDeviceSKU = deviceSKU || deviceType || 'AC-HOME-V1';
+  
+  // Handle address - support both string and object formats
+  let orderAddress = '';
+  if (deliveryAddress && typeof deliveryAddress === 'object') {
+    // New format: deliveryAddress object
+    const addr = deliveryAddress;
+    orderAddress = [
+      addr.street,
+      addr.city,
+      addr.state,
+      addr.pincode,
+      addr.country
+    ].filter(Boolean).join(', ');
+  } else if (address) {
+    // Old format: address string
+    orderAddress = address;
+  } else if (user.address) {
+    orderAddress = user.address;
+  }
+  
+  // Handle phone - support both direct phone and contactInfo object
+  let orderPhone = '';
+  if (contactInfo && typeof contactInfo === 'object') {
+    orderPhone = contactInfo.phone || '';
+  } else if (phone) {
+    orderPhone = phone;
+  } else if (user.phone) {
+    orderPhone = user.phone;
+  }
+  
+  // Determine initial status based on payment method
+  // COD orders go directly to ORDER_PLACED
+  const initialStatus = paymentMethod === 'COD' ? 'ORDER_PLACED' : 'pending';
   
   // Generate a single order ID for consistency
   const orderIdValue = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1020,12 +1065,13 @@ app.post('/api/orders', (req, res) => {
     userId: user.userId || tokenData.userId,
     consumerName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name || user.email,
     consumerEmail: user.email,
-    phone: phone || user.phone || '',
-    address: address || user.address || '',
+    phone: orderPhone,
+    address: orderAddress,
     deviceSKU: orderDeviceSKU,
-    status: 'pending',
-    quoteAmount: null,
-    paymentMethod: null,
+    serviceType: serviceType || 'installation',
+    status: initialStatus,
+    quoteAmount: amount || null,
+    paymentMethod: paymentMethod || null,
     paymentReference: null,
     assignedTechnicianId: null,
     assignedTechnicianName: null,
@@ -1037,16 +1083,16 @@ app.post('/api/orders', (req, res) => {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     quotedAt: null,
-    paidAt: null,
+    paidAt: paymentMethod === 'COD' ? null : null,
     shippedAt: null,
     installedAt: null,
     auditTrail: [],
     // Add frontend-expected fields
     statusHistory: [{
-      status: 'pending',
-      timestamp: new Date(),
-      message: 'Order placed successfully',
-      metadata: { deviceSKU: orderDeviceSKU }
+      status: initialStatus,
+      timestamp: new Date().toISOString(),
+      message: paymentMethod === 'COD' ? 'Order placed with Cash on Delivery' : 'Order placed successfully',
+      metadata: { deviceSKU: orderDeviceSKU, paymentMethod: paymentMethod || 'Not selected' }
     }]
   };
   
@@ -1661,6 +1707,75 @@ app.put('/api/admin/orders/:orderId/cancel', (req, res) => {
   res.json({
     success: true,
     message: 'Order cancelled',
+    order
+  });
+});
+
+// Cancel order (Consumer) - PUT endpoint
+// Update order status (Admin only) - For auto-progression
+app.put('/api/orders/:orderId/status', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Authentication required' 
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  const tokenData = validTokens.get(token);
+  
+  if (!tokenData) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Invalid or expired token' 
+    });
+  }
+  
+  const { orderId } = req.params;
+  const { status, metadata, reason } = req.body;
+  
+  const order = deviceOrders.find(o => o.orderId === orderId);
+  
+  if (!order) {
+    return res.status(404).json({ 
+      success: false, 
+      error: 'Order not found' 
+    });
+  }
+  
+  // Update order status
+  const previousStatus = order.status;
+  order.status = status;
+  order.updatedAt = new Date().toISOString();
+  
+  // Add to status history
+  if (!order.statusHistory) {
+    order.statusHistory = [];
+  }
+  
+  order.statusHistory.push({
+    status: status,
+    timestamp: new Date().toISOString(),
+    message: reason || `Status updated from ${previousStatus} to ${status}`,
+    metadata: metadata || {}
+  });
+  
+  // Update specific timestamps based on status
+  if (status === 'SHIPPED' || status === 'shipped') {
+    order.shippedAt = new Date().toISOString();
+  } else if (status === 'DELIVERED' || status === 'completed') {
+    order.installedAt = new Date().toISOString();
+  }
+  
+  saveDevData();
+  
+  console.log(`📦 Order ${orderId} status updated: ${previousStatus} → ${status}`);
+  
+  res.json({
+    success: true,
+    message: `Order status updated to ${status}`,
     order
   });
 });
