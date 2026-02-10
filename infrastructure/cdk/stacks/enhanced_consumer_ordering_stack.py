@@ -343,6 +343,17 @@ class EnhancedConsumerOrderingStack(Stack):
             **common_lambda_config
         )
         
+        # Razorpay Webhook Handler Lambda
+        self.razorpay_webhook_function = lambda_python.PythonFunction(
+            self, "RazorpayWebhookFunction",
+            function_name=get_resource_name(self.config, "function", "razorpay-webhook"),
+            entry="../../lambda/payment_service",
+            index="webhook_handler.py",
+            handler="lambda_handler",
+            layers=layers,
+            **common_lambda_config
+        )
+        
         # Store Lambda functions
         self.lambda_functions.update({
             "order_management": self.order_management_function,
@@ -351,7 +362,8 @@ class EnhancedConsumerOrderingStack(Stack):
             "status_simulator": self.status_simulator_function,
             "websocket_connect": self.websocket_connect_function,
             "websocket_disconnect": self.websocket_disconnect_function,
-            "websocket_broadcast": self.websocket_broadcast_function
+            "websocket_broadcast": self.websocket_broadcast_function,
+            "razorpay_webhook": self.razorpay_webhook_function
         })
         
         # Grant DynamoDB permissions to all Lambda functions
@@ -412,10 +424,22 @@ class EnhancedConsumerOrderingStack(Stack):
     
     def _grant_secrets_permissions(self) -> None:
         """
-        Grant Secrets Manager permissions to payment service
+        Grant Secrets Manager permissions to payment service and webhook handler
         """
         
+        # Grant to payment service
         self.payment_service_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[self.razorpay_secret.secret_arn]
+            )
+        )
+        
+        # Grant to webhook handler
+        self.razorpay_webhook_function.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[

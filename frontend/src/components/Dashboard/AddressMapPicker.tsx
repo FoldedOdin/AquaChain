@@ -20,8 +20,8 @@ interface AddressMapPickerProps {
 const AddressMapPicker: React.FC<AddressMapPickerProps> = ({
   onAddressSelect,
   initialAddress = '',
-  initialLat = 10.8505,
-  initialLng = 76.2711
+  initialLat = 20.5937, // Center of India (for broader coverage)
+  initialLng = 78.9629
 }) => {
   const [searchQuery, setSearchQuery] = useState(initialAddress);
   const [selectedAddress, setSelectedAddress] = useState<any>(null);

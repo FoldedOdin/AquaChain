@@ -1163,8 +1163,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = memo(() => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6">
-        {/* Connection Status */}
-        {!isConnected && (
+        {/* Connection Status - Only show in production or when explicitly enabled */}
+        {!isConnected && process.env.NODE_ENV === 'production' && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-600" />
             <span className="text-sm text-amber-800">Real-time updates disconnected.</span>

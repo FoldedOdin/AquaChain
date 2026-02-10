@@ -29,6 +29,60 @@ let inventory = new Map();
 
 // ============================================================================
 
+// ============================================================================
+// AUTO-PROGRESSION FOR DEMO ORDERS
+// ============================================================================
+
+// Auto-progress orders every 10 seconds for demo purposes
+let autoProgressionInterval = null;
+
+function startAutoProgression() {
+  if (autoProgressionInterval) {
+    clearInterval(autoProgressionInterval);
+  }
+  
+  autoProgressionInterval = setInterval(() => {
+    const STATUS_PROGRESSION = {
+      'pending': 'ORDER_PLACED',
+      'ORDER_PLACED': 'SHIPPED',
+      'SHIPPED': 'OUT_FOR_DELIVERY',
+      'OUT_FOR_DELIVERY': 'DELIVERED'
+    };
+    
+    let progressedCount = 0;
+    
+    deviceOrders.forEach(order => {
+      const nextStatus = STATUS_PROGRESSION[order.status];
+      
+      if (nextStatus && order.status !== 'DELIVERED' && order.status !== 'CANCELLED' && order.status !== 'cancelled') {
+        const oldStatus = order.status;
+        order.status = nextStatus;
+        order.updatedAt = new Date().toISOString();
+        
+        // Add to status history
+        if (!order.statusHistory) order.statusHistory = [];
+        order.statusHistory.push({
+          status: nextStatus,
+          timestamp: new Date().toISOString(),
+          message: `Auto-progressed from ${oldStatus} to ${nextStatus}`
+        });
+        
+        progressedCount++;
+        console.log(`🔄 Auto-progressed order ${order.orderId.substring(0, 12)}... from ${oldStatus} to ${nextStatus}`);
+      }
+    });
+    
+    if (progressedCount > 0) {
+      saveDevData();
+      console.log(`✅ Auto-progressed ${progressedCount} orders`);
+    }
+  }, 10000); // Every 10 seconds
+  
+  console.log('🔄 Auto-progression started (every 10 seconds)');
+}
+
+// ============================================================================
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3002;
@@ -245,6 +299,8 @@ function loadDevData() {
       // Load orders
       if (data.orders) {
         deviceOrders = data.orders;
+      } else if (data.deviceOrders) {
+        deviceOrders = data.deviceOrders;
       }
       
       // Load issues
@@ -288,7 +344,7 @@ function saveDevData() {
       users: Object.fromEntries(devUsers),
       tokens: Object.fromEntries(validTokens),
       devices: Object.fromEntries(devDevices),
-      orders: deviceOrders,
+      deviceOrders: deviceOrders,  // Changed from 'orders' to 'deviceOrders'
       issues: reportedIssues,
       alerts: systemAlerts,
       notifications: notifications,
@@ -1830,11 +1886,11 @@ app.put('/api/orders/:orderId/cancel', (req, res) => {
     });
   }
   
-  // Check if order can be cancelled (only pending orders)
-  if (order.status !== 'pending') {
+  // Check if order can be cancelled (only ORDER_PLACED or pending orders)
+  if (order.status !== 'ORDER_PLACED' && order.status !== 'pending') {
     return res.status(400).json({ 
       success: false, 
-      error: 'Only pending orders can be cancelled. Please contact support for approved orders.' 
+      error: 'Only orders in ORDER_PLACED status can be cancelled.' 
     });
   }
   
@@ -1916,10 +1972,10 @@ app.delete('/api/orders/:orderId', (req, res) => {
   }
   
   // Check if order can be cancelled
-  if (user.role !== 'admin' && order.status !== 'pending') {
+  if (user.role !== 'admin' && order.status !== 'ORDER_PLACED' && order.status !== 'pending') {
     return res.status(400).json({ 
       success: false, 
-      error: 'Only pending orders can be cancelled. Please contact support for approved orders.' 
+      error: 'Only orders in ORDER_PLACED status can be cancelled.' 
     });
   }
   
@@ -6238,6 +6294,9 @@ server.listen(PORT, () => {
   
   // Start real-time alert monitoring
   startAlertMonitoring();
+  
+  // Start auto-progression for demo orders
+  startAutoProgression();
   
   // Save initial state
   saveDevData();

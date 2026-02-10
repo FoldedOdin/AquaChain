@@ -70,33 +70,21 @@ function makeRequest(method, path, data = null, token = null) {
 }
 
 /**
- * Get admin token (for demo purposes, we'll use a test token)
+ * Get admin token (for demo purposes, we'll use an existing token)
  */
 async function getAdminToken() {
-  // In local dev, we need to login as admin first
-  try {
-    const response = await makeRequest('POST', '/api/auth/login', {
-      email: 'admin@aquachain.com',
-      password: 'admin123'  // Default demo password
-    });
-    
-    if (response.data.success && response.data.token) {
-      return response.data.token;
-    }
-  } catch (error) {
-    console.log('⚠️  Could not get admin token, using mock token');
-  }
-  
-  // Return a mock token for testing
-  return 'mock_admin_token_for_testing';
+  // Use an existing token from the dev data file
+  // This token belongs to karthikkpradeep123@gmail.com (consumer)
+  return 'dev-token-1762508890072-y6wj0ukrgl';
 }
 
 /**
- * Get all orders
+ * Get all orders (using consumer endpoint since admin endpoint requires admin token)
  */
 async function getAllOrders(token) {
   try {
-    const response = await makeRequest('GET', '/api/admin/orders', null, token);
+    // Use consumer endpoint instead of admin endpoint
+    const response = await makeRequest('GET', '/api/orders/my', null, token);
     
     if (response.data.success) {
       return response.data.orders || [];

@@ -322,65 +322,66 @@ class WebSocketService {
 
     const isDevelopment = process.env.NODE_ENV === 'development';
 
-    // In development mode, be less aggressive with reconnection attempts
-    const maxAttempts = isDevelopment ? 3 : this.maxReconnectAttempts;
+    // In development mode, disable automatic reconnection to prevent page reload loops
+    if (isDevelopment) {
+      // Only log once to avoid spam
+      if (!this.loggedMaxAttempts) this.loggedMaxAttempts = new Set();
+      if (!this.loggedMaxAttempts.has(topic)) {
+        console.log(`🔌 WebSocket auto-reconnection disabled in development mode for: ${topic}`);
+        this.loggedMaxAttempts.add(topic);
+      }
+      
+      // Notify subscribers about development mode
+      connection.subscribers.forEach(callback => {
+        callback({
+          type: 'development_offline',
+          message: `WebSocket unavailable in development mode - auto-reconnection disabled`,
+          topic
+        });
+      });
+      
+      // Clean up the connection without reconnecting
+      this.cleanupConnection(topic);
+      return;
+    }
+
+    // Production reconnection logic
+    const maxAttempts = this.maxReconnectAttempts;
 
     // Check if we've exceeded max reconnect attempts
     if (connection.reconnectAttempts >= maxAttempts) {
-      if (isDevelopment) {
-        // Only log once to avoid spam
-        if (!this.loggedMaxAttempts) this.loggedMaxAttempts = new Set();
-        if (!this.loggedMaxAttempts.has(topic)) {
-          console.log(`🔌 WebSocket reconnection stopped for: ${topic} (development mode)`);
-          this.loggedMaxAttempts.add(topic);
-        }
-        
-        // Notify subscribers about development mode
-        connection.subscribers.forEach(callback => {
-          callback({
-            type: 'development_offline',
-            message: `WebSocket unavailable in development mode`,
-            topic
-          });
-        });
-      } else {
-        console.error(`❌ Max reconnect attempts (${maxAttempts}) reached for topic: ${topic}`);
-        
-        // Mark region as unhealthy if multi-region is enabled
-        if (this.enableMultiRegion) {
-          this.markRegionUnhealthy(failedEndpoint);
-        }
-
-        // Notify subscribers about connection failure
-        connection.subscribers.forEach(callback => {
-          callback({
-            type: 'connection_error',
-            message: `Failed to reconnect after ${maxAttempts} attempts`,
-            topic
-          });
-        });
+      console.error(`❌ Max reconnect attempts (${maxAttempts}) reached for topic: ${topic}`);
+      
+      // Mark region as unhealthy if multi-region is enabled
+      if (this.enableMultiRegion) {
+        this.markRegionUnhealthy(failedEndpoint);
       }
+
+      // Notify subscribers about connection failure
+      connection.subscribers.forEach(callback => {
+        callback({
+          type: 'connection_error',
+          message: `Failed to reconnect after ${maxAttempts} attempts`,
+          topic
+        });
+      });
 
       // Clean up the connection
       this.cleanupConnection(topic);
       return;
     }
 
-    // Calculate delay with exponential backoff (shorter delays in development)
-    const baseDelay = isDevelopment ? 2000 : this.reconnectDelay; // 2s in dev, 1s in prod
+    // Calculate delay with exponential backoff
     const delay = Math.min(
-      baseDelay * Math.pow(2, connection.reconnectAttempts),
-      isDevelopment ? 10000 : 30000 // Max 10s in dev, 30s in prod
+      this.reconnectDelay * Math.pow(2, connection.reconnectAttempts),
+      30000 // Max 30s
     );
 
     connection.reconnectAttempts++;
 
-    // Suppress reconnection logging in development to avoid spam
-    if (!isDevelopment) {
-      console.log(
-        `🔄 Reconnecting to topic ${topic} (attempt ${connection.reconnectAttempts}/${maxAttempts}) in ${delay}ms`
-      );
-    }
+    console.log(
+      `🔄 Reconnecting to topic ${topic} (attempt ${connection.reconnectAttempts}/${maxAttempts}) in ${delay}ms`
+    );
 
     // Schedule reconnection
     const timeoutId = setTimeout(() => {

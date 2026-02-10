@@ -448,6 +448,18 @@ class AquaChainApiStack(Stack):
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )
         
+        # /api/webhooks - Webhook endpoints (no authentication required)
+        api_webhooks = self.rest_api.root.add_resource("api").add_resource("webhooks")
+        
+        # /api/webhooks/razorpay - Razorpay payment webhooks
+        if "razorpay_webhook" in self.lambda_functions:
+            razorpay_webhook_resource = api_webhooks.add_resource("razorpay")
+            razorpay_webhook_resource.add_method(
+                "POST",
+                apigateway.LambdaIntegration(self.lambda_functions["razorpay_webhook"]),
+                authorization_type=apigateway.AuthorizationType.NONE  # Webhook uses signature verification
+            )
+        
         self.api_resources.update({
             "rest_api": self.rest_api,
             "cognito_authorizer": self.cognito_authorizer

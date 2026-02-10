@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Package, 
@@ -12,7 +12,13 @@ import {
   Phone,
   Calendar,
   AlertCircle,
-  ArrowLeft
+  ArrowLeft,
+  Copy,
+  Check,
+  Lock,
+  Loader2,
+  HelpCircle,
+  Info
 } from 'lucide-react';
 import Toast from '../Toast/Toast';
 import ShipmentTracking from './ShipmentTracking';
@@ -30,6 +36,12 @@ interface Order {
   assignedTechnicianName?: string;
   createdAt: string;
   updatedAt: string;
+  statusHistory?: Array<{
+    status: string;
+    timestamp: string;
+    message: string;
+    metadata?: any;
+  }>;
 }
 
 interface MyOrdersPageProps {
@@ -45,6 +57,10 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  
+  // Ref for auto-scrolling to current step
+  const currentStepRef = useRef<HTMLDivElement>(null);
   
   // Bulk operations state
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
@@ -83,7 +99,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   };
 
   const selectAllCancellableOrders = () => {
-    const cancellableOrders = filteredOrders.filter(order => order.status === 'pending');
+    const cancellableOrders = filteredOrders.filter(order => order.status === 'ORDER_PLACED' || order.status === 'pending');
     setSelectedOrderIds(new Set(cancellableOrders.map(order => order.orderId)));
   };
 
@@ -126,7 +142,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const getCancellableSelectedOrders = () => {
     return Array.from(selectedOrderIds).filter(orderId => {
       const order = orders.find(o => o.orderId === orderId);
-      return order && order.status === 'pending';
+      return order && (order.status === 'ORDER_PLACED' || order.status === 'pending');
     });
   };
 
@@ -162,7 +178,8 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     }, 10000);
     
     return () => clearInterval(pollInterval);
-  }, [fetchOrders]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - fetchOrders is stable with useCallback
 
   // Get status info
   const getStatusInfo = (status: string) => {
@@ -311,17 +328,131 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     }
   };
 
-  // Get timeline steps
+  // Get timeline steps with descriptions
   const getTimelineSteps = (order: Order) => {
     const steps = [
-      { status: 'pending', label: 'Order Placed', completed: true },
-      { status: 'provisioned', label: 'Device Ready', completed: ['provisioned', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) },
-      { status: 'assigned', label: 'Technician Assigned', completed: ['assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) },
-      { status: 'shipped', label: 'Shipped', completed: ['shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) },
-      { status: 'completed', label: 'Installed', completed: ['completed', 'DELIVERED'].includes(order.status) },
+      { 
+        status: 'ORDER_PLACED', 
+        label: 'Order Placed', 
+        description: 'Payment confirmed',
+        completed: true 
+      },
+      { 
+        status: 'provisioned', 
+        label: 'Device Ready', 
+        description: 'Assembly & calibration (1–2 days)',
+        completed: ['provisioned', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+      },
+      { 
+        status: 'SHIPPED', 
+        label: 'Shipped', 
+        description: 'Device dispatched • Tracking ID will be shared',
+        completed: ['shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+      },
+      { 
+        status: 'OUT_FOR_DELIVERY', 
+        label: 'Out for Delivery', 
+        description: 'Device is on the way to your location',
+        completed: ['OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+      },
+      { 
+        status: 'assigned', 
+        label: 'Technician Assigned', 
+        description: 'Dedicated technician assigned for support & maintenance',
+        completed: ['assigned', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+      },
+      { 
+        status: 'DELIVERED', 
+        label: 'Installed', 
+        description: 'Device installed and initial setup completed',
+        completed: ['completed', 'DELIVERED'].includes(order.status) 
+      },
     ];
     return steps;
   };
+
+  // Get current step index
+  const getCurrentStepIndex = (order: Order) => {
+    const statusMap: { [key: string]: number } = {
+      'pending': 0,
+      'ORDER_PLACED': 0,
+      'provisioned': 1,
+      'shipped': 2,
+      'SHIPPED': 2,
+      'OUT_FOR_DELIVERY': 3,
+      'assigned': 4,
+      'installing': 4,
+      'completed': 5,
+      'DELIVERED': 5,
+      'cancelled': -1,
+      'CANCELLED': -1
+    };
+    return statusMap[order.status] ?? 0;
+  };
+
+  // Format timestamp for display
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    const timeStr = date.toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+    
+    if (isToday) {
+      return `Today, ${timeStr}`;
+    }
+    
+    const dateStr = date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric'
+    });
+    
+    return `${dateStr}, ${timeStr}`;
+  };
+
+  // Get next step message
+  const getNextStepMessage = (order: Order) => {
+    const currentIndex = getCurrentStepIndex(order);
+    
+    if (order.status === 'cancelled' || order.status === 'CANCELLED') {
+      return 'This order has been cancelled. Contact support if you have questions.';
+    }
+    
+    if (order.status === 'completed' || order.status === 'DELIVERED') {
+      return 'Your device has been successfully installed and is now active. Enjoy monitoring your water quality!';
+    }
+    
+    const messages: { [key: number]: string } = {
+      0: 'Your order is being processed. The device will be provisioned and prepared for shipment. You\'ll receive an email notification once it\'s ready.',
+      1: 'Device is ready! A technician will be assigned for installation. You\'ll be notified via email and SMS with their contact details.',
+      2: 'Technician has been assigned. Your device will be shipped soon. Track your shipment for real-time updates.',
+      3: 'Your device is on the way! The technician will contact you to schedule the installation. Please keep your phone handy.',
+      4: 'Installation is in progress. The technician will calibrate the device and ensure everything works perfectly.'
+    };
+    
+    return messages[currentIndex] || 'Your order is being processed. You\'ll receive updates at each step.';
+  };
+
+  // Copy order ID to clipboard
+  const copyOrderId = (orderId: string) => {
+    navigator.clipboard.writeText(orderId).then(() => {
+      setCopiedOrderId(orderId);
+      setTimeout(() => setCopiedOrderId(null), 2000);
+    });
+  };
+
+  // Auto-scroll to current step when modal opens
+  useEffect(() => {
+    if (showDetailsModal && currentStepRef.current) {
+      setTimeout(() => {
+        currentStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [showDetailsModal]);
 
   if (isLoading) {
     return (
@@ -428,7 +559,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                   onClick={selectAllCancellableOrders}
                   className="px-3 py-1 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  Select All Pending
+                  Select All Cancellable
                 </button>
               </div>
             </div>
@@ -475,7 +606,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
               const statusInfo = getStatusInfo(order.status);
               const StatusIcon = statusInfo.icon;
               const isSelected = selectedOrderIds.has(order.orderId);
-              const isCancellable = order.status === 'pending';
+              const isCancellable = order.status === 'ORDER_PLACED' || order.status === 'pending';
               
               // Create unique key combining orderId, index, and timestamp to prevent duplicates
               const uniqueKey = `${order.orderId}_${index}_${order.createdAt || Date.now()}`;
@@ -568,7 +699,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                             Choose Payment
                           </button>
                         )}
-                        {order.status === 'pending' && (
+                        {(order.status === 'ORDER_PLACED' || order.status === 'pending') && (
                           <button
                             onClick={() => handleCancelOrder(order.orderId)}
                             disabled={isCancelling}
@@ -685,32 +816,156 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                   {/* Shipment Tracking */}
                   <ShipmentTracking orderId={selectedOrder.orderId} orderStatus={selectedOrder.status} />
 
-                  {/* Order Timeline */}
+                  {/* Enhanced Order Timeline */}
                   <div className="mb-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Progress</h3>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">Order Progress</h3>
+                      {/* Copyable Order ID */}
+                      <button
+                        onClick={() => copyOrderId(selectedOrder.orderId)}
+                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors group"
+                        title="Copy Order ID"
+                      >
+                        <span className="font-mono text-xs">#{selectedOrder.orderId.slice(0, 12)}</span>
+                        {copiedOrderId === selectedOrder.orderId ? (
+                          <Check className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <Copy className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                        )}
+                      </button>
+                    </div>
+                    
                     <div className="relative">
                       {getTimelineSteps(selectedOrder).map((step, index) => {
                         const isLast = index === getTimelineSteps(selectedOrder).length - 1;
+                        const currentStepIndex = getCurrentStepIndex(selectedOrder);
+                        const isCurrent = index === currentStepIndex;
+                        const isUpcoming = index > currentStepIndex;
+                        const isCompleted = step.completed;
+                        
+                        // Determine icon and styling
+                        let IconComponent = Clock;
+                        let iconBgClass = 'bg-gray-200';
+                        let iconColorClass = 'text-gray-400';
+                        let lineClass = 'bg-gray-200';
+                        let textClass = 'text-gray-400';
+                        let iconSize = 'w-8 h-8';
+                        
+                        if (isCompleted && !isCurrent) {
+                          IconComponent = CheckCircle;
+                          iconBgClass = 'bg-green-500';
+                          iconColorClass = 'text-white';
+                          lineClass = 'bg-green-500';
+                          textClass = 'text-gray-900';
+                        } else if (isCurrent) {
+                          IconComponent = Loader2;
+                          iconBgClass = 'bg-cyan-500';
+                          iconColorClass = 'text-white';
+                          lineClass = 'bg-cyan-500';
+                          textClass = 'text-gray-900';
+                          iconSize = 'w-10 h-10'; // Bigger for current step
+                        } else if (isUpcoming) {
+                          IconComponent = Lock;
+                          iconBgClass = 'bg-gray-100';
+                          iconColorClass = 'text-gray-300';
+                          lineClass = 'bg-gray-200';
+                          textClass = 'text-gray-400';
+                        }
+                        
                         return (
-                          <div key={step.status} className="flex items-start mb-4">
-                            <div className="flex flex-col items-center mr-4">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                                step.completed ? 'bg-green-500' : 'bg-gray-300'
-                              }`}>
-                                {step.completed ? (
-                                  <CheckCircle className="w-5 h-5 text-white" />
-                                ) : (
-                                  <Clock className="w-5 h-5 text-gray-600" />
-                                )}
-                              </div>
+                          <div 
+                            key={step.status} 
+                            className={`flex items-start mb-4 transition-all duration-300 ${
+                              isCurrent ? 'scale-105' : 'scale-100'
+                            }`}
+                            ref={isCurrent ? currentStepRef : null}
+                          >
+                            <div className="flex flex-col items-center mr-4 relative">
+                              {/* Icon with animation */}
+                              <motion.div 
+                                className={`${iconSize} rounded-full flex items-center justify-center ${iconBgClass} ${
+                                  isCurrent ? 'ring-4 ring-cyan-100' : ''
+                                } transition-all duration-300`}
+                                animate={isCurrent ? { scale: [1, 1.1, 1] } : {}}
+                                transition={{ repeat: Infinity, duration: 2 }}
+                              >
+                                <IconComponent 
+                                  className={`${isCurrent ? 'w-6 h-6' : 'w-5 h-5'} ${iconColorClass} ${
+                                    isCurrent ? 'animate-spin' : ''
+                                  }`} 
+                                />
+                              </motion.div>
+                              
+                              {/* Animated connecting line */}
                               {!isLast && (
-                                <div className={`w-0.5 h-12 ${step.completed ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                <motion.div 
+                                  className={`w-0.5 h-12 ${lineClass} transition-all duration-500`}
+                                  initial={{ scaleY: 0 }}
+                                  animate={{ scaleY: isCompleted || isCurrent ? 1 : 0 }}
+                                  style={{ transformOrigin: 'top' }}
+                                />
                               )}
                             </div>
-                            <div className="flex-1 pt-1">
-                              <p className={`font-medium ${step.completed ? 'text-gray-900' : 'text-gray-500'}`}>
-                                {step.label}
+                            
+                            {/* Step content */}
+                            <div className={`flex-1 pt-1 ${
+                              isCurrent ? 'bg-cyan-50 -ml-2 pl-2 pr-3 py-2 rounded-lg border border-cyan-100' : ''
+                            } transition-all duration-300`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className={`font-semibold ${textClass} ${
+                                  isCurrent ? 'text-lg' : 'text-base'
+                                } transition-all`}>
+                                  {step.label}
+                                </p>
+                                {isCurrent && (
+                                  <motion.span 
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-500 text-white text-xs font-medium rounded-full"
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                  >
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    In Progress
+                                  </motion.span>
+                                )}
+                                {isCompleted && !isCurrent && (
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                )}
+                              </div>
+                              
+                              {/* Step description */}
+                              <p className={`text-sm ${
+                                isCompleted || isCurrent ? 'text-gray-600' : 'text-gray-400'
+                              } mb-1`}>
+                                {step.description}
                               </p>
+                              
+                              {/* Timestamp for completed steps */}
+                              {isCompleted && !isCurrent && selectedOrder.statusHistory && (
+                                (() => {
+                                  const historyEntry = selectedOrder.statusHistory.find(
+                                    (h: any) => h.status === step.status || 
+                                    (step.status === 'ORDER_PLACED' && (h.status === 'pending' || h.status === 'ORDER_PLACED'))
+                                  );
+                                  return historyEntry ? (
+                                    <p className="text-xs text-gray-500 flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {formatTimestamp(historyEntry.timestamp)}
+                                    </p>
+                                  ) : null;
+                                })()
+                              )}
+                              
+                              {/* Current step timestamp */}
+                              {isCurrent && (
+                                <motion.p 
+                                  className="text-xs text-cyan-600 flex items-center gap-1 font-medium"
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                >
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Processing now...
+                                </motion.p>
+                              )}
                             </div>
                           </div>
                         );
@@ -718,9 +973,22 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                     </div>
                   </div>
 
-                  {/* Status Message */}
-                  {selectedOrder.status === 'completed' && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  {/* What Happens Next Section */}
+                  <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-semibold text-blue-900 mb-1">What Happens Next?</h4>
+                        <p className="text-sm text-blue-800">
+                          {getNextStepMessage(selectedOrder)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status Message for Completed Orders */}
+                  {(selectedOrder.status === 'completed' || selectedOrder.status === 'DELIVERED') && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
                       <div className="flex items-start gap-3">
                         <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                         <div className="text-sm text-green-900">
@@ -732,32 +1000,54 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                   )}
                 </div>
 
-                {/* Footer */}
-                <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-t">
-                  {selectedOrder.status === 'pending' ? (
-                    <>
-                      <button
-                        onClick={() => handleCancelOrder(selectedOrder.orderId)}
-                        disabled={isCancelling}
-                        className="px-6 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-                      >
-                        {isCancelling ? 'Cancelling...' : 'Cancel Order'}
-                      </button>
-                      <button
-                        onClick={() => setShowDetailsModal(false)}
-                        className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                      >
-                        Close
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setShowDetailsModal(false)}
-                      className="ml-auto px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
-                    >
-                      Close
-                    </button>
-                  )}
+                {/* Enhanced Footer */}
+                <div className="bg-gray-50 px-6 py-4 border-t">
+                  <div className="flex items-center justify-between">
+                    {(selectedOrder.status === 'ORDER_PLACED' || selectedOrder.status === 'pending') ? (
+                      <>
+                        <button
+                          onClick={() => handleCancelOrder(selectedOrder.orderId)}
+                          disabled={isCancelling}
+                          className="px-6 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
+                          {isCancelling ? 'Cancelling...' : 'Cancel Order'}
+                        </button>
+                        <div className="flex items-center gap-3">
+                          <a
+                            href="mailto:support@aquachain.com"
+                            className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors"
+                          >
+                            <HelpCircle className="w-4 h-4" />
+                            Need Help?
+                          </a>
+                          <button
+                            onClick={() => setShowDetailsModal(false)}
+                            className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                          >
+                            Okay, Got It
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-between w-full">
+                        <a
+                          href="mailto:support@aquachain.com"
+                          className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors"
+                        >
+                          <HelpCircle className="w-4 h-4" />
+                          Need Help?
+                        </a>
+                        <button
+                          onClick={() => setShowDetailsModal(false)}
+                          className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                        >
+                          {selectedOrder.status === 'completed' || selectedOrder.status === 'DELIVERED' 
+                            ? 'Close' 
+                            : 'Track Later'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
