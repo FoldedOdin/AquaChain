@@ -112,7 +112,8 @@ export function useDashboardData(userRole: UserRole) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 300000); // Refetch every 5 minutes (300 seconds)
+    // Poll every 60 seconds for fresher data (since WebSocket is disabled)
+    const interval = setInterval(fetchData, 60000); // 60 seconds
 
     return () => {
       clearInterval(interval);
