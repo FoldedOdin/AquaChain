@@ -56,7 +56,7 @@ def lambda_handler(event, context):
             return _handle_incident_management(http_method, path, body, query_params, path_params)
         elif path.startswith('/api/admin/audit'):
             return _handle_audit_management(http_method, path, query_params)
-        elif path.startswith('/api/admin/devices'):
+        elif path.startswith('/api/admin/devices') or path.startswith('/api/devices'):
             return _handle_device_management(http_method, path, query_params)
         else:
             return _create_response(404, {'error': 'Endpoint not found'})
@@ -435,8 +435,9 @@ def _get_audit_trail(query_params: Dict):
 def _handle_device_management(method: str, path: str, query_params: Dict):
     """
     Handle device management operations
+    Accepts both /api/admin/devices and /api/devices paths
     """
-    if method == 'GET' and path == '/api/admin/devices':
+    if method == 'GET' and (path == '/api/admin/devices' or path == '/api/devices'):
         return _get_all_devices(query_params)
     else:
         return _create_response(404, {'error': 'Device management endpoint not found'})

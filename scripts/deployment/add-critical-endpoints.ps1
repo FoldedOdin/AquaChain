@@ -12,9 +12,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Lambda ARNs
-$dataProcessingLambda = "arn:aws:lambda:$region:${accountId}:function:aquachain-function-data-processing-dev"
-$alertDetectionLambda = "arn:aws:lambda:$region:${accountId}:function:aquachain-function-alert-detection-dev"
-$adminServiceLambda = "arn:aws:lambda:$region:${accountId}:function:aquachain-function-admin-service-dev"
+$dataProcessingLambda = "arn:aws:lambda:${region}:${accountId}:function:aquachain-function-data-processing-dev"
+$alertDetectionLambda = "arn:aws:lambda:${region}:${accountId}:function:aquachain-function-alert-detection-dev"
+$adminServiceLambda = "arn:aws:lambda:${region}:${accountId}:function:aquachain-function-admin-service-dev"
 
 # Function to add CORS to a resource
 function Add-CorsToResource {
