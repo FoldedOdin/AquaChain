@@ -172,19 +172,41 @@ class AuthService {
           });
 
           const user = result.user || await auth.getCurrentUser();
-          const session = { isValid: () => true, ...result };
+          
+          // Extract token from Amplify session and store in localStorage
+          // This ensures compatibility with the rest of the app
+          const session = await auth.fetchAuthSession();
+          const idToken = session.tokens?.idToken?.toString();
+          
           const userRole: UserRole = user.attributes?.['custom:role'] || 'consumer';
           const redirectPath = this.getRedirectPath(userRole);
 
           this.currentUser = user;
-          this.currentSession = session;
+          this.currentSession = { isValid: () => true, ...result, tokens: session.tokens };
+
+          // Store token and user info in localStorage for persistence
+          // This makes the app work consistently across auth modes
+          if (idToken) {
+            localStorage.setItem('aquachain_token', idToken);
+            localStorage.setItem('aquachain_user', JSON.stringify({
+              id: user.userId || user.username,
+              email: user.attributes?.email || credentials.email,
+              name: user.attributes?.name || user.attributes?.email,
+              role: userRole,
+              emailVerified: user.attributes?.email_verified || false
+            }));
+            localStorage.setItem('aquachain_role', userRole);
+            console.log('Token stored in localStorage for AWS Cognito mode');
+          } else {
+            console.warn('No ID token found in Amplify session');
+          }
 
           // Track login event
           await this.trackAuthEvent('login', userRole);
 
           return {
             user,
-            session,
+            session: this.currentSession,
             userRole,
             redirectPath
           };
@@ -431,7 +453,10 @@ class AuthService {
     try {
       const userRole = this.getCurrentUserRole();
       
-      if (process.env.NODE_ENV === 'development') {
+      // Check auth mode
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (!useAWS) {
         // Development mode - clear local state
         this.currentUser = null;
         this.currentSession = null;
@@ -439,6 +464,7 @@ class AuthService {
         // Clear localStorage
         localStorage.removeItem('aquachain_user');
         localStorage.removeItem('aquachain_token');
+        localStorage.removeItem('aquachain_role');
       } else {
         // Production: Use AWS Amplify v6
         const { signOut } = await import('aws-amplify/auth');
@@ -446,6 +472,11 @@ class AuthService {
         
         this.currentUser = null;
         this.currentSession = null;
+        
+        // Clear localStorage (important for AWS mode too!)
+        localStorage.removeItem('aquachain_user');
+        localStorage.removeItem('aquachain_token');
+        localStorage.removeItem('aquachain_role');
       }
 
       // Track logout event
@@ -541,13 +572,32 @@ class AuthService {
    */
   async getAuthToken(): Promise<string | null> {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        const token = localStorage.getItem('aquachain_token');
-        return token;
+      // Check auth mode
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      // First, try to get token from localStorage (works for both modes now)
+      const storedToken = localStorage.getItem('aquachain_token');
+      if (storedToken) {
+        return storedToken;
       }
 
-      const session = await this.getCurrentSession();
-      return session?.tokens?.idToken?.toString() || null;
+      // If not in localStorage and using AWS, try to fetch from Amplify
+      if (useAWS) {
+        const auth = await loadAmplifyAuth();
+        if (auth) {
+          const session = await auth.fetchAuthSession();
+          const idToken = session.tokens?.idToken?.toString();
+          
+          // Store it for next time
+          if (idToken) {
+            localStorage.setItem('aquachain_token', idToken);
+          }
+          
+          return idToken || null;
+        }
+      }
+
+      return null;
     } catch (error) {
       console.error('Failed to get auth token:', error);
       return null;

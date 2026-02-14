@@ -159,6 +159,22 @@ class WebSocketService {
    * Reuses existing connection if available
    */
   connect(topic: string, onMessage: (data: unknown) => void): void {
+    // TEMPORARY: Disable WebSocket for initial deployment
+    // WebSocket API needs separate configuration and handlers
+    // This will be re-enabled in Phase 3 of the roadmap
+    const WEBSOCKET_DISABLED = true;
+    
+    if (WEBSOCKET_DISABLED) {
+      console.log(`🔌 WebSocket temporarily disabled for topic: ${topic}`);
+      // Notify subscriber that WebSocket is disabled
+      onMessage({
+        type: 'websocket_disabled',
+        message: 'WebSocket connections are temporarily disabled. Using polling instead.',
+        topic
+      });
+      return;
+    }
+    
     // Check if connection already exists
     const existingConnection = this.connections.get(topic);
     
