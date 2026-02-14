@@ -254,6 +254,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
       // Clear localStorage
       localStorage.removeItem('aquachain_user');
       localStorage.removeItem('aquachain_token');
@@ -262,8 +265,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(null);
       setIsAuthenticated(false);
 
-      // In production, would call AWS Amplify signOut
-      if (process.env.NODE_ENV !== 'development') {
+      // Sign out from AWS Cognito if using AWS mode
+      if (useAWS) {
+        const { signOut } = await import('aws-amplify/auth');
         await signOut();
       }
     } catch (error) {

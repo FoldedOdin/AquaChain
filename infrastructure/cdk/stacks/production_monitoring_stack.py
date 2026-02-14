@@ -22,7 +22,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 from typing import Dict, Any, List
-from infrastructure.cdk.config.environment_config import get_resource_name
+from config.environment_config import get_resource_name
 
 class ProductionMonitoringStack(Stack):
     """

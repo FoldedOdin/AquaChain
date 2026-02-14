@@ -22,7 +22,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 from typing import Dict, Any
-from infrastructure.cdk.config.environment_config import get_resource_name
+from config.environment_config import get_resource_name
 
 class DashboardOverhaulStack(Stack):
     """
@@ -211,18 +211,18 @@ class DashboardOverhaulStack(Stack):
             preferred_maintenance_window="sun:05:00-sun:07:00",  # Sunday maintenance window
             notification_topic_arn=None,  # Will be set up with monitoring
             tags=[
-                elasticache.CfnReplicationGroup.TagProperty(
-                    key="Name",
-                    value=get_resource_name(self.config, "redis", "dashboard")
-                ),
-                elasticache.CfnReplicationGroup.TagProperty(
-                    key="Environment",
-                    value=self.config["environment"]
-                ),
-                elasticache.CfnReplicationGroup.TagProperty(
-                    key="Purpose",
-                    value="DashboardCaching"
-                )
+                {
+                    "key": "Name",
+                    "value": get_resource_name(self.config, "redis", "dashboard")
+                },
+                {
+                    "key": "Environment",
+                    "value": self.config["environment"]
+                },
+                {
+                    "key": "Purpose",
+                    "value": "DashboardCaching"
+                }
             ]
         )
         

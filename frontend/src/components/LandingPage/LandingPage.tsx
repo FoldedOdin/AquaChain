@@ -55,6 +55,17 @@ const LandingPage: React.FC<LandingPageProps> = ({
 }) => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'signup'>('login');
+  const navigate = useNavigate();
+  const { isAuthenticated, user, login } = useAuth();
+
+  // Redirect authenticated users to their dashboard
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const dashboardPath = `/dashboard/${user.role}`;
+      console.log('User is authenticated, redirecting to:', dashboardPath);
+      navigate(dashboardPath);
+    }
+  }, [isAuthenticated, user, navigate]);
 
   
   // Animation settings based on user preferences and performance
@@ -103,10 +114,16 @@ const LandingPage: React.FC<LandingPageProps> = ({
       if (onLogin) {
         await onLogin(credentials);
       } else {
-        // Use auth service directly if no custom handler provided
-        const result = await authService.signIn(credentials);
-        // Redirect based on user role
-        window.location.href = result.redirectPath;
+        // Use AuthContext login to ensure state is updated
+        await login(credentials.email, credentials.password);
+        
+        // Wait a moment for state to update, then redirect
+        setTimeout(() => {
+          if (user) {
+            const dashboardPath = `/dashboard/${user.role}`;
+            navigate(dashboardPath);
+          }
+        }, 100);
       }
       
       // Track successful login conversion

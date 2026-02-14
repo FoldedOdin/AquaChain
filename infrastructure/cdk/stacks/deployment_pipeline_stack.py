@@ -15,6 +15,7 @@ from aws_cdk import (
     aws_appconfig as appconfig,
     aws_cloudwatch as cloudwatch,
     aws_sns as sns,
+    aws_sns_subscriptions as sns_subscriptions,
     aws_iam as iam,
     aws_s3 as s3,
     Duration,
@@ -24,7 +25,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 from typing import Dict, Any
-from infrastructure.cdk.config.environment_config import get_resource_name
+from config.environment_config import get_resource_name
 
 class DeploymentPipelineStack(Stack):
     """
@@ -102,12 +103,7 @@ class DeploymentPipelineStack(Stack):
         # Add email subscriptions for deployment notifications
         for email in self.config.get("notification_channels", {}).get("email", []):
             self.deployment_notifications.add_subscription(
-                sns.Subscription(
-                    self, f"EmailSubscription{hash(email)}",
-                    topic=self.deployment_notifications,
-                    endpoint=email,
-                    protocol=sns.SubscriptionProtocol.EMAIL
-                )
+                sns_subscriptions.EmailSubscription(email)
             )
         
         self.deployment_resources["notification_topic"] = self.deployment_notifications

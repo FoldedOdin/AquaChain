@@ -10,9 +10,10 @@ import logging
 import uuid
 import sys
 import os
+import random
 from typing import Dict, List, Optional, Any
 from botocore.exceptions import ClientError
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import re
 
 # Add shared utilities to path
@@ -30,6 +31,9 @@ from cache_service import get_cache_service
 
 # Import audit logging
 from audit_logger import audit_logger
+
+# Import CORS utilities
+from cors_utils import handle_options, cors_response, success_response, error_response
 
 # Configure structured logging
 logger = get_logger(__name__, service='user-management')
@@ -555,12 +559,64 @@ def _get_request_context(event: Dict) -> Dict:
         'source': 'api'
     }
 
+def _generate_otp() -> str:
+    """Generate a 6-digit OTP"""
+    return str(random.randint(100000, 999999))
+
+def _store_otp(cache, email: str, otp: str, changes: Dict) -> None:
+    """Store OTP in cache with 5-minute expiration"""
+    otp_data = {
+        'otp': otp,
+        'changes': changes,
+        'expires_at': (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+        'attempts': 0
+    }
+    cache.set(f'otp:{email}', json.dumps(otp_data), ttl=300)  # 5 minutes
+
+def _verify_otp(cache, email: str, provided_otp: str) -> tuple[bool, Optional[Dict], Optional[str]]:
+    """
+    Verify OTP and return (is_valid, changes, error_message)
+    """
+    otp_key = f'otp:{email}'
+    otp_data_str = cache.get(otp_key)
+    
+    if not otp_data_str:
+        return False, None, 'No OTP request found. Please request a new OTP.'
+    
+    otp_data = json.loads(otp_data_str)
+    
+    # Check expiration
+    expires_at = datetime.fromisoformat(otp_data['expires_at'])
+    if datetime.utcnow() > expires_at:
+        cache.delete(otp_key)
+        return False, None, 'OTP expired. Please request a new one.'
+    
+    # Check attempts
+    if otp_data['attempts'] >= 3:
+        cache.delete(otp_key)
+        return False, None, 'Too many failed attempts. Please request a new OTP.'
+    
+    # Verify OTP
+    if otp_data['otp'] != provided_otp:
+        otp_data['attempts'] += 1
+        cache.set(otp_key, json.dumps(otp_data), ttl=300)
+        attempts_remaining = 3 - otp_data['attempts']
+        return False, None, f'Invalid OTP. {attempts_remaining} attempts remaining.'
+    
+    # OTP is valid
+    cache.delete(otp_key)
+    return True, otp_data['changes'], None
+
 # Lambda handler
 @handle_errors
 def lambda_handler(event, context):
     """
     Main Lambda handler for user management operations.
     """
+    # Handle OPTIONS preflight requests for CORS
+    if event.get('httpMethod') == 'OPTIONS':
+        return handle_options()
+    
     # Get configuration
     user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
     client_id = os.environ.get('COGNITO_CLIENT_ID')
@@ -604,10 +660,7 @@ def lambda_handler(event, context):
             request_context=request_context
         )
         
-        return {
-            'statusCode': 201,
-            'body': json.dumps(result)
-        }
+        return cors_response(201, result)
     
     elif http_method == 'GET' and '/profile/' in path:
         # Get user profile
@@ -626,10 +679,7 @@ def lambda_handler(event, context):
             request_context=request_context
         )
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps(profile)
-        }
+        return success_response(profile)
     
     elif http_method == 'PUT' and '/profile/' in path:
         # Update user profile
@@ -651,10 +701,7 @@ def lambda_handler(event, context):
             request_context=request_context
         )
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps(updated_profile)
-        }
+        return success_response(updated_profile)
     
     elif http_method == 'POST' and '/devices/associate' in path:
         # Associate device
@@ -663,10 +710,7 @@ def lambda_handler(event, context):
         
         user_service.associate_device(user_id, device_id)
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps({'message': 'Device associated successfully'})
-        }
+        return success_response({'message': 'Device associated successfully'})
     
     elif http_method == 'DELETE' and '/devices/associate' in path:
         # Remove device association
@@ -675,10 +719,7 @@ def lambda_handler(event, context):
         
         user_service.remove_device_association(user_id, device_id)
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps({'message': 'Device association removed'})
-        }
+        return success_response({'message': 'Device association removed'})
     
     elif http_method == 'POST' and '/technician/setup' in path:
         # Setup technician profile
@@ -690,10 +731,47 @@ def lambda_handler(event, context):
             user_id, work_schedule, initial_location
         )
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps(result)
-        }
+        return success_response(result)
+    
+    elif http_method == 'PUT' and path.endswith('/profile/update'):
+        # Direct profile update (for non-sensitive changes)
+        # Get user email from Cognito claims
+        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+        email = claims.get('email')
+        
+        if not email:
+            raise ValidationError('Email not found in token')
+        
+        # Get user by email
+        user = user_service.get_user_by_email(email)
+        if not user:
+            raise ResourceNotFoundError('User not found', details={'email': email})
+        
+        user_id = user.get('userId')
+        
+        # Get current profile for audit log
+        current_profile = user_service.get_user_profile(user_id)
+        
+        # Update profile
+        updates = body.get('updates', body)  # Support both formats
+        updated_profile = user_service.update_user_profile(user_id, updates)
+        
+        # Log data modification
+        audit_logger.log_data_modification(
+            user_id=user_id,
+            resource_type='USER',
+            resource_id=user_id,
+            modification_type='UPDATE',
+            previous_values=current_profile,
+            new_values=updates,
+            request_context=request_context
+        )
+        
+        return success_response({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'profile': updated_profile
+        })
     
     elif http_method == 'GET' and '/users/by-email' in path:
         # Get user by email using GSI (Phase 4 optimization)
@@ -708,10 +786,7 @@ def lambda_handler(event, context):
         if not user:
             raise ResourceNotFoundError('User not found', details={'email': email})
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps(user)
-        }
+        return success_response(user)
     
     elif http_method == 'GET' and '/users/by-organization' in path:
         # List users by organization using GSI (Phase 4 optimization)
@@ -743,10 +818,99 @@ def lambda_handler(event, context):
                 json.dumps(result['last_key']).encode()
             ).decode()
         
-        return {
-            'statusCode': 200,
-            'body': json.dumps(result)
+        return success_response(result)
+    
+    elif http_method == 'POST' and path.endswith('/profile/request-otp'):
+        # Request OTP for profile update
+        email = body.get('email')
+        changes = body.get('changes', {})
+        
+        if not email:
+            raise ValidationError('Email is required')
+        
+        # Validate that user exists
+        user = user_service.get_user_by_email(email)
+        if not user:
+            raise ResourceNotFoundError('User not found', details={'email': email})
+        
+        # Generate and store OTP
+        otp = _generate_otp()
+        cache = get_cache_service()
+        _store_otp(cache, email, otp, changes)
+        
+        # In production, send OTP via email using SES
+        # For now, log it (in dev, return it in response)
+        logger.info(f"OTP generated for {email}: {otp}")
+        
+        # TODO: Send OTP via SES email
+        # ses_client = boto3.client('ses', region_name=region)
+        # ses_client.send_email(...)
+        
+        response_data = {
+            'success': True,
+            'message': 'OTP sent to your email'
         }
+        
+        # In development, include OTP in response for testing
+        if os.environ.get('ENVIRONMENT', 'dev') == 'dev':
+            response_data['devOtp'] = otp
+        
+        return success_response(response_data)
+    
+    elif http_method == 'PUT' and path.endswith('/profile/verify-and-update'):
+        # Verify OTP and update profile
+        otp = body.get('otp')
+        updates = body.get('updates', {})
+        
+        # Get user email from request context or body
+        email = body.get('email')
+        if not email:
+            # Try to get from Cognito claims in the authorizer context
+            claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+            email = claims.get('email')
+        
+        if not email:
+            raise ValidationError('Email is required')
+        
+        if not otp:
+            raise ValidationError('OTP is required')
+        
+        # Verify OTP
+        cache = get_cache_service()
+        is_valid, stored_changes, error_msg = _verify_otp(cache, email, otp)
+        
+        if not is_valid:
+            raise ValidationError(error_msg)
+        
+        # Get user
+        user = user_service.get_user_by_email(email)
+        if not user:
+            raise ResourceNotFoundError('User not found', details={'email': email})
+        
+        user_id = user.get('userId')
+        
+        # Get current profile for audit log
+        current_profile = user_service.get_user_profile(user_id)
+        
+        # Update profile
+        updated_profile = user_service.update_user_profile(user_id, updates)
+        
+        # Log data modification
+        audit_logger.log_data_modification(
+            user_id=user_id,
+            resource_type='USER',
+            resource_id=user_id,
+            modification_type='UPDATE',
+            previous_values=current_profile,
+            new_values=updates,
+            request_context=request_context
+        )
+        
+        return success_response({
+            'success': True,
+            'message': 'Profile updated successfully',
+            'profile': updated_profile
+        })
     
     else:
         raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')

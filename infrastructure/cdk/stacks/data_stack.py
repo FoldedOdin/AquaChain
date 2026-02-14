@@ -469,6 +469,8 @@ class AquaChainDataStack(Stack):
     def _create_iot_resources(self) -> None:
         """
         Create IoT Core resources for device management
+        NOTE: IoT Topic Rules and Provisioning Templates will be created in Compute Stack
+        after Lambda functions exist to avoid circular dependencies
         """
         
         # IoT Thing Type for AquaChain devices
@@ -481,74 +483,8 @@ class AquaChainDataStack(Stack):
             )
         )
         
-        # IoT Topic Rule for data processing
-        self.data_processing_rule = iot.CfnTopicRule(
-            self, "DataProcessingRule",
-            rule_name=get_resource_name(self.config, "rule", "data_processing").replace("-", "_"),
-            topic_rule_payload=iot.CfnTopicRule.TopicRulePayloadProperty(
-                sql=f"SELECT *, timestamp() as serverTimestamp FROM 'aquachain/+/data'",
-                description="Route device data to processing Lambda",
-                rule_disabled=False,
-                actions=[
-                    iot.CfnTopicRule.ActionProperty(
-                        lambda_=iot.CfnTopicRule.LambdaActionProperty(
-                            function_arn=f"arn:aws:lambda:{self.region}:{self.account}:function:{get_resource_name(self.config, 'function', 'data-processing')}"
-                        )
-                    )
-                ],
-                error_action=iot.CfnTopicRule.ActionProperty(
-                    s3=iot.CfnTopicRule.S3ActionProperty(
-                        bucket_name=self.data_lake_bucket.bucket_name,
-                        key="iot-errors/${timestamp()}-${newuuid()}.json",
-                        role_arn=f"arn:aws:iam::{self.account}:role/{get_resource_name(self.config, 'role', 'iot-service')}"
-                    )
-                )
-            )
-        )
-        
-        # IoT Provisioning Template for device registration
-        # Simplified template - creates thing and certificate only
-        self.provisioning_template = iot.CfnProvisioningTemplate(
-            self, "DeviceProvisioningTemplate",
-            template_name=f"aquachain-dev-prov-{self.config['environment']}",
-            description="Template for provisioning AquaChain devices",
-            enabled=True,
-            provisioning_role_arn=f"arn:aws:iam::{self.account}:role/{get_resource_name(self.config, 'role', 'iot-provisioning')}",
-            template_body="""{
-                "Parameters": {
-                    "DeviceId": {
-                        "Type": "String"
-                    },
-                    "SerialNumber": {
-                        "Type": "String"
-                    }
-                },
-                "Resources": {
-                    "thing": {
-                        "Type": "AWS::IoT::Thing",
-                        "Properties": {
-                            "ThingName": {"Ref": "DeviceId"},
-                            "ThingTypeName": \"""" + self.device_thing_type.thing_type_name + """\",
-                            "AttributePayload": {
-                                "serialNumber": {"Ref": "SerialNumber"}
-                            }
-                        }
-                    },
-                    "certificate": {
-                        "Type": "AWS::IoT::Certificate",
-                        "Properties": {
-                            "CertificateId": {"Ref": "AWS::IoT::Certificate::Id"},
-                            "Status": "ACTIVE"
-                        }
-                    }
-                }
-            }"""
-        )
-        
         self.data_resources.update({
-            "device_thing_type": self.device_thing_type,
-            "data_processing_rule": self.data_processing_rule,
-            "provisioning_template": self.provisioning_template
+            "device_thing_type": self.device_thing_type
         })
         
         # Output important values

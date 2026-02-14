@@ -1,0 +1,1243 @@
+Deploying core stacks for environment: dev
+Core stacks configured successfully
+Stacks to be deployed:
+  1. AquaChain-Security-dev
+  2. AquaChain-Core-dev
+  3. AquaChain-Data-dev
+  4. AquaChain-Compute-dev
+  5. AquaChain-API-dev
+  6. AquaChain-Monitoring-dev
+{
+  "Description": "AquaChain Data Layer - dev",
+  "Resources": {
+    "ReadingsTableF7A46ABF": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "deviceId_month",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "deviceId",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "metric_type",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "alert_level",
+            "AttributeType": "S"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "DeviceIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "deviceId",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          },
+          {
+            "IndexName": "device_id-metric_type-index",
+            "KeySchema": [
+              {
+                "AttributeName": "deviceId",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "metric_type",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          },
+          {
+            "IndexName": "alert_level-timestamp-index",
+            "KeySchema": [
+              {
+                "AttributeName": "alert_level",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "deviceId_month",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "timestamp",
+            "KeyType": "RANGE"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": false
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES"
+        },
+        "TableName": "aquachain-table-readings-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/ReadingsTable/Resource"
+      }
+    },
+    "LedgerTable38A58B60": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "GLOBAL_SEQUENCE",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "sequenceNumber",
+            "AttributeType": "N"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "GLOBAL_SEQUENCE",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "sequenceNumber",
+            "KeyType": "RANGE"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": false
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES"
+        },
+        "TableName": "aquachain-table-ledger-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/LedgerTable/Resource"
+      }
+    },
+    "SequenceTable8A7EFAAD": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "sequenceType",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "sequenceType",
+            "KeyType": "HASH"
+          }
+        ],
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "TableName": "aquachain-table-sequence-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/SequenceTable/Resource"
+      }
+    },
+    "UsersTable9725E9C8": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "email",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "organization_id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "role",
+            "AttributeType": "S"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "email-index",
+            "KeySchema": [
+              {
+                "AttributeName": "email",
+                "KeyType": "HASH"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          },
+          {
+            "IndexName": "organization_id-role-index",
+            "KeySchema": [
+              {
+                "AttributeName": "organization_id",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "role",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": false
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "TableName": "aquachain-table-users-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/UsersTable/Resource"
+      }
+    },
+    "ServiceRequestsTable5933C500": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "requestId",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "technicianId",
+            "AttributeType": "S"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "TechnicianIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "technicianId",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "requestId",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "timestamp",
+            "KeyType": "RANGE"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": false
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "TableName": "aquachain-table-service-requests-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/ServiceRequestsTable/Resource"
+      }
+    },
+    "DevicesTableD0A940EE": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "device_id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "user_id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "created_at",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "last_seen",
+            "AttributeType": "S"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "user_id-created_at-index",
+            "KeySchema": [
+              {
+                "AttributeName": "user_id",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "created_at",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          },
+          {
+            "IndexName": "status-last_seen-index",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "last_seen",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "device_id",
+            "KeyType": "HASH"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": false
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES"
+        },
+        "TableName": "aquachain-table-devices-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/DevicesTable/Resource"
+      }
+    },
+    "AuditLogsTable7D096F6F": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "log_id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "timestamp",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "user_id",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "resource_type",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "action_type",
+            "AttributeType": "S"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "user_id-timestamp-index",
+            "KeySchema": [
+              {
+                "AttributeName": "user_id",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          },
+          {
+            "IndexName": "resource_type-timestamp-index",
+            "KeySchema": [
+              {
+                "AttributeName": "resource_type",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          },
+          {
+            "IndexName": "action_type-timestamp-index",
+            "KeySchema": [
+              {
+                "AttributeName": "action_type",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "timestamp",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            },
+            "ProvisionedThroughput": {
+              "ReadCapacityUnits": 5,
+              "WriteCapacityUnits": 5
+            }
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "log_id",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "timestamp",
+            "KeyType": "RANGE"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES"
+        },
+        "TableName": "aquachain-table-audit-logs-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/AuditLogsTable/Resource"
+      }
+    },
+    "SystemConfigTable5C3A8082": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "config_id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "config_id",
+            "KeyType": "HASH"
+          }
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": false
+        },
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "SSESpecification": {
+          "KMSMasterKeyId": {
+            "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+          },
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES"
+        },
+        "TableName": "aquachain-table-system-config-dev",
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ]
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/SystemConfigTable/Resource"
+      }
+    },
+    "DataLakeBucket0256EA8E": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+                },
+                "SSEAlgorithm": "aws:kms"
+              }
+            }
+          ]
+        },
+        "BucketName": "aquachain-bucket-data-lake-758346259059-dev",
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DataLakeLifecycle",
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "StorageClass": "STANDARD_IA",
+                  "TransitionInDays": 30
+                },
+                {
+                  "StorageClass": "GLACIER",
+                  "TransitionInDays": 90
+                },
+                {
+                  "StorageClass": "DEEP_ARCHIVE",
+                  "TransitionInDays": 365
+                }
+              ]
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "aws-cdk:auto-delete-objects",
+            "Value": "true"
+          },
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ],
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/DataLakeBucket/Resource"
+      }
+    },
+    "DataLakeBucketPolicy52869FB4": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "DataLakeBucket0256EA8E"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:DeleteObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:PutBucketPolicy"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+                    "Arn"
+                  ]
+                }
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "DataLakeBucket0256EA8E",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "DataLakeBucket0256EA8E",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/DataLakeBucket/Policy/Resource"
+      }
+    },
+    "DataLakeBucketAutoDeleteObjectsCustomResourceBA68F53A": {
+      "Type": "Custom::S3AutoDeleteObjects",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+            "Arn"
+          ]
+        },
+        "BucketName": {
+          "Ref": "DataLakeBucket0256EA8E"
+        }
+      },
+      "DependsOn": [
+        "DataLakeBucketPolicy52869FB4"
+      ],
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/DataLakeBucket/AutoDeleteObjectsCustomResource/Default"
+      }
+    },
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
+      }
+    },
+    "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-758346259059-ap-south-1",
+          "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip"
+        },
+        "Timeout": 900,
+        "MemorySize": 128,
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Description": {
+          "Fn::Join": [
+            "",
+            [
+              "Lambda function for auto-deleting objects in ",
+              {
+                "Ref": "DataLakeBucket0256EA8E"
+              },
+              " S3 bucket."
+            ]
+          ]
+        }
+      },
+      "DependsOn": [
+        "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+        "aws:asset:path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+        "aws:asset:property": "Code"
+      }
+    },
+    "AuditTrailBucket677225EC": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+                },
+                "SSEAlgorithm": "aws:kms"
+              }
+            }
+          ]
+        },
+        "BucketName": "aquachain-bucket-audit-trail-758346259059-dev",
+        "ObjectLockConfiguration": {
+          "ObjectLockEnabled": "Enabled",
+          "Rule": {
+            "DefaultRetention": {
+              "Days": 2555,
+              "Mode": "COMPLIANCE"
+            }
+          }
+        },
+        "ObjectLockEnabled": true,
+        "Tags": [
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ],
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/AuditTrailBucket/Resource"
+      }
+    },
+    "MLModelsBucket59721079": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "KMSMasterKeyID": {
+                  "Fn::ImportValue": "AquaChain-Security-dev:ExportsOutputFnGetAttDataEncryptionKey101796EEArn95D63FE8"
+                },
+                "SSEAlgorithm": "aws:kms"
+              }
+            }
+          ]
+        },
+        "BucketName": "aquachain-bucket-ml-models-758346259059-dev",
+        "Tags": [
+          {
+            "Key": "aws-cdk:auto-delete-objects",
+            "Value": "true"
+          },
+          {
+            "Key": "BackupEnabled",
+            "Value": "true"
+          },
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ],
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/MLModelsBucket/Resource"
+      }
+    },
+    "MLModelsBucketPolicy332FA248": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "MLModelsBucket59721079"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:DeleteObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:PutBucketPolicy"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+                    "Arn"
+                  ]
+                }
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MLModelsBucket59721079",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "MLModelsBucket59721079",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/MLModelsBucket/Policy/Resource"
+      }
+    },
+    "MLModelsBucketAutoDeleteObjectsCustomResource6F644614": {
+      "Type": "Custom::S3AutoDeleteObjects",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+            "Arn"
+          ]
+        },
+        "BucketName": {
+          "Ref": "MLModelsBucket59721079"
+        }
+      },
+      "DependsOn": [
+        "MLModelsBucketPolicy332FA248"
+      ],
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/MLModelsBucket/AutoDeleteObjectsCustomResource/Default"
+      }
+    },
+    "DeviceThingType": {
+      "Type": "AWS::IoT::ThingType",
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": "dev"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CDK"
+          },
+          {
+            "Key": "Project",
+            "Value": "AquaChain"
+          }
+        ],
+        "ThingTypeName": "aquachain-thing-type-device-dev",
+        "ThingTypeProperties": {
+          "SearchableAttributes": [
+            "deviceModel",
+            "firmwareVersion",
+            "location"
+          ],
+          "ThingTypeDescription": "ESP32-based water quality sensor"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/DeviceThingType"
+      }
+    },
+    "CDKMetadata": {
+      "Type": "AWS::CDK::Metadata",
+      "Properties": {
+        "Analytics": "v2:deflate64:H4sIAAAAAAAA/3WMwQ6CMBBEv4V7WQW+QPgAiXg3paywAq1ht5KG8O8GMfHkaWbeZCaFNE3gGOmZY9P08UA1LJVo0ys9821pgtWja2pYrroeUBV3+zGr4gyW3JseZYNft0vpBjLhh/e8KnIC20FHtr2GJ67qguz8ZFAVnsWNv3i3f6pyci9qcMo1ozoxo1SiW7Lttjl7eXpZVRmkc/aQQZJBGj2YKJ68FRoRLru+AQYpA8T4AAAA"
+      },
+      "Metadata": {
+        "aws:cdk:path": "AquaChain-Data-dev/CDKMetadata/Default"
+      }
+    }
+  },
+  "Outputs": {
+    "IoTEndpoint": {
+      "Description": "IoT Core endpoint for device connections",
+      "Value": "https://iot.ap-south-1.amazonaws.com"
+    },
+    "DataLakeBucketName": {
+      "Description": "S3 bucket for raw data storage",
+      "Value": {
+        "Ref": "DataLakeBucket0256EA8E"
+      }
+    },
+    "AuditBucket": {
+      "Description": "S3 bucket for audit trail with Object Lock",
+      "Value": {
+        "Ref": "AuditTrailBucket677225EC"
+      }
+    }
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Type": "AWS::SSM::Parameter::Value<String>",
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+    }
+  }
+}

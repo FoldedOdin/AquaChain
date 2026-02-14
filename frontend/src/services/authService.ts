@@ -3,14 +3,39 @@ import { LoginCredentials, SignupData } from '../components/LandingPage/AuthModa
 // AWS Amplify imports (loaded dynamically for production)
 let amplifyAuth: any = null;
 
-// Lazy load AWS Amplify Auth for production
+// Lazy load AWS Amplify Auth for production or AWS mode
 const loadAmplifyAuth = async () => {
-  if (!amplifyAuth && process.env.NODE_ENV === 'production') {
+  const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+  
+  if (!amplifyAuth && useAWS) {
     try {
-      const { signIn, signUp, confirmSignUp, getCurrentUser, signOut } = await import('aws-amplify/auth');
-      amplifyAuth = { signIn, signUp, confirmSignUp, getCurrentUser, signOut };
+      const authModule = await import('aws-amplify/auth');
+      const { Amplify } = await import('aws-amplify');
+      
+      const userPoolId = process.env.REACT_APP_USER_POOL_ID || '';
+      const userPoolClientId = process.env.REACT_APP_USER_POOL_CLIENT_ID || '';
+      
+      console.log('Configuring Amplify with:', {
+        userPoolId,
+        userPoolClientId,
+        hasUserPoolId: !!userPoolId,
+        hasClientId: !!userPoolClientId
+      });
+      
+      // Configure Amplify with v6 API
+      Amplify.configure({
+        Auth: {
+          Cognito: {
+            userPoolId,
+            userPoolClientId,
+          }
+        }
+      });
+      
+      amplifyAuth = authModule;
+      console.log('AWS Amplify configured successfully');
     } catch (error) {
-      console.warn('AWS Amplify not available:', error);
+      console.error('AWS Amplify configuration failed:', error);
     }
   }
   return amplifyAuth;
@@ -59,8 +84,11 @@ class AuthService {
    */
   async initialize(): Promise<void> {
     try {
-      if (process.env.NODE_ENV === 'production') {
-        // Load AWS Amplify for production
+      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (useAWS) {
+        // Load AWS Amplify for production or AWS mode
         await loadAmplifyAuth();
         
         // Try to get current authenticated user
@@ -75,7 +103,7 @@ class AuthService {
           }
         }
       } else {
-        // Development mode - no initialization needed
+        // Development mode with local backend - no initialization needed
         this.currentUser = null;
         this.currentSession = null;
       }
@@ -91,8 +119,11 @@ class AuthService {
    */
   async signIn(credentials: LoginCredentials): Promise<AuthResult> {
     try {
-      // In development, use the dev server
-      if (process.env.NODE_ENV === 'development') {
+      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (!useAWS) {
+        // Development mode with local backend
         const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signin`, {
           method: 'POST',
           headers: {
@@ -178,8 +209,11 @@ class AuthService {
    */
   async signUp(userData: SignupData): Promise<{ user: any; confirmationRequired: boolean }> {
     try {
-      // In development, use the dev server
-      if (process.env.NODE_ENV === 'development') {
+      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (!useAWS) {
+        // Development mode with local backend
         const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signup`, {
           method: 'POST',
           headers: {
@@ -203,7 +237,7 @@ class AuthService {
         };
       }
 
-      // Production: Use AWS Amplify Cognito
+      // Production or AWS mode: Use AWS Amplify Cognito
       const auth = await loadAmplifyAuth();
       if (auth) {
         try {

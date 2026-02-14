@@ -222,8 +222,11 @@ class AquaChainApiStack(Stack):
         
         # API Resources and Methods
         
+        # Create /api root resource once
+        api_root = self.rest_api.root.add_resource("api")
+        
         # /api/v1 root
-        api_v1 = self.rest_api.root.add_resource("api").add_resource("v1")
+        api_v1 = api_root.add_resource("v1")
         
         # /api/v1/readings
         readings_resource = api_v1.add_resource("readings")
@@ -257,6 +260,27 @@ class AquaChainApiStack(Stack):
         
         users_resource.add_method(
             "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["user_management"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/profile - Profile management endpoints
+        profile_resource = api_root.add_resource("profile")
+        
+        # /api/profile/request-otp - Request OTP for profile updates
+        request_otp_resource = profile_resource.add_resource("request-otp")
+        request_otp_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["user_management"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/profile/verify-and-update - Verify OTP and update profile
+        verify_update_resource = profile_resource.add_resource("verify-and-update")
+        verify_update_resource.add_method(
+            "PUT",
             apigateway.LambdaIntegration(self.lambda_functions["user_management"]),
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO
@@ -305,7 +329,7 @@ class AquaChainApiStack(Stack):
         )
         
         # /api/admin root - Admin endpoints
-        api_admin = self.rest_api.root.add_resource("api").add_resource("admin")
+        api_admin = api_root.add_resource("admin")
         
         # Admin Lambda integration (if admin service exists)
         if "admin_service" in self.lambda_functions:
@@ -449,7 +473,7 @@ class AquaChainApiStack(Stack):
             )
         
         # /api/webhooks - Webhook endpoints (no authentication required)
-        api_webhooks = self.rest_api.root.add_resource("api").add_resource("webhooks")
+        api_webhooks = api_root.add_resource("webhooks")
         
         # /api/webhooks/razorpay - Razorpay payment webhooks
         if "razorpay_webhook" in self.lambda_functions:
