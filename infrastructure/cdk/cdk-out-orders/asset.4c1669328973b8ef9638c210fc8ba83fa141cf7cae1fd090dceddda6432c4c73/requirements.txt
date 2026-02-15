@@ -1,0 +1,7 @@
+# Dependencies moved to common layer:
+# - boto3
+# - jsonschema
+# - aws-xray-sdk
+
+# Function-specific dependencies only
+# (none currently - all dependencies are in common layer)

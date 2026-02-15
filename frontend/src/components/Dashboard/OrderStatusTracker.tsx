@@ -67,7 +67,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   // Enhanced error notification
   const { showErrorNotification } = useErrorNotification();
 
-  // WebSocket subscription for real-time updates
+  // WebSocket subscription for real-time updates (disabled for now - no WebSocket endpoint deployed)
   const {
     latestUpdate,
     isConnected,
@@ -75,7 +75,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     reconnectAttempts,
     connect,
     disconnect
-  } = useRealTimeUpdates(`order-${orderId}`, { autoConnect: true });
+  } = useRealTimeUpdates(`order-${orderId}`, { autoConnect: false });
 
   // Handle real-time status updates with enhanced error handling
   useEffect(() => {

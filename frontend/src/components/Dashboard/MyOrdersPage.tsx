@@ -151,7 +151,8 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch('http://localhost:3002/api/orders/my', {
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      const response = await fetch(`${apiEndpoint}/api/orders/history`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
