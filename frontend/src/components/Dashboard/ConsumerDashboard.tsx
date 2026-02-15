@@ -41,7 +41,6 @@ import NotificationCenter from './NotificationCenter';
 import AddDeviceModal from './AddDeviceModal';
 import EditProfileModal from './EditProfileModal';
 import DataExportModal from './DataExportModal';
-import RequestDeviceModal from './RequestDeviceModal';
 import MyOrdersPage from './MyOrdersPage';
 import OrderingFlow from './OrderingFlow';
 import DemoDeviceModal from './DemoDeviceModal';
@@ -72,7 +71,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     }
   }, [showAddDevice]);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [showRequestDevice, setShowRequestDevice] = useState(false);
   const [showMyOrders, setShowMyOrders] = useState(false);
   const [showOrderingFlow, setShowOrderingFlow] = useState(false);
   const [showDemoDevice, setShowDemoDevice] = useState(false);
@@ -242,44 +240,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     return !!(hasAddress && hasPhone);
   }, [user]);
 
-  const toggleRequestDevice = useCallback(() => {
-    if (!isProfileComplete) {
-      // Show modal for incomplete profile
-      const address = user?.profile?.address;
-      
-      // Check if address exists and has content
-      const hasAddress = address && (
-        // String format
-        (typeof address === 'string' && (address as string).trim().length > 0) ||
-        // Object format - check for any of the common address fields
-        (typeof address === 'object' && (
-          !!(address as any)?.formatted ||
-          !!(address as any)?.flatHouse ||
-          !!(address as any)?.areaStreet ||
-          !!(address as any)?.street ||
-          !!(address as any)?.city
-        ))
-      );
-      
-      const phone = user?.profile?.phone;
-      const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
-      
-      const missing: string[] = [];
-      if (!hasAddress) missing.push('Address');
-      if (!hasPhone) missing.push('Phone Number');
-      
-      setMissingProfileFields(missing);
-      setShowProfileIncompleteModal(true);
-      return;
-    }
 
-    setShowRequestDevice(prev => !prev);
-  }, [user, isProfileComplete]);
-
-  const handleDeviceRequested = useCallback(() => {
-    // Refresh dashboard data after device request
-    refetch();
-  }, [refetch]);
 
   const toggleMyOrders = useCallback(() => {
     setShowMyOrders(prev => !prev);
@@ -1271,7 +1232,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button 
               onClick={(e) => {
                 e.preventDefault();
@@ -1291,25 +1252,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <span className="text-xs text-green-600">New water monitor</span>
               </div>
             </button>
-            <button 
-              onClick={toggleRequestDevice}
-              className={`relative flex items-center space-x-3 p-4 border-2 rounded-lg transition ${
-                isProfileComplete 
-                  ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50' 
-                  : 'border-amber-200 bg-amber-50 hover:border-amber-400'
-              }`}
-            >
-              <Plus className={`w-6 h-6 ${isProfileComplete ? 'text-blue-600' : 'text-amber-600'}`} />
-              <div className="flex flex-col items-start">
-                <span className="font-medium text-gray-700">Request Device</span>
-                {!isProfileComplete && (
-                  <span className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    Complete profile first
-                  </span>
-                )}
-              </div>
-            </button>
+
             <button 
               onClick={toggleDemoDevice}
               className="flex items-center space-x-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-400 hover:bg-blue-100 transition"
@@ -1854,16 +1797,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           isOpen={showDemoDevice}
           onClose={toggleDemoDevice}
           onDemoDeviceAdded={handleDemoDeviceAdded}
-        />,
-        document.body
-      )}
-
-      {/* Request Device Modal */}
-      {createPortal(
-        <RequestDeviceModal
-          isOpen={showRequestDevice}
-          onClose={toggleRequestDevice}
-          onSuccess={handleDeviceRequested}
         />,
         document.body
       )}
