@@ -175,7 +175,8 @@ class AuthService {
           
           // Extract token from Amplify session and store in localStorage
           // This ensures compatibility with the rest of the app
-          const session = await auth.fetchAuthSession();
+          // Don't fetch AWS credentials to avoid Identity Pool calls
+          const session = await auth.fetchAuthSession({ forceRefresh: false });
           const idToken = session.tokens?.idToken?.toString();
           
           const userRole: UserRole = user.attributes?.['custom:role'] || 'consumer';
@@ -421,7 +422,8 @@ class AuthService {
       
       // Get authenticated user
       const user = await getCurrentUser();
-      const session = await fetchAuthSession();
+      // Don't fetch AWS credentials to avoid Identity Pool calls
+      const session = await fetchAuthSession({ forceRefresh: false });
       
       const userRole: UserRole = user.signInDetails?.loginId?.includes('admin') 
         ? 'admin' 
@@ -511,7 +513,8 @@ class AuthService {
 
     try {
       const { fetchAuthSession } = await import('aws-amplify/auth');
-      const session = await fetchAuthSession();
+      // Don't fetch AWS credentials to avoid Identity Pool calls
+      const session = await fetchAuthSession({ forceRefresh: false });
       
       // Check if session is valid
       if (session.tokens?.accessToken) {
@@ -585,7 +588,8 @@ class AuthService {
       if (useAWS) {
         const auth = await loadAmplifyAuth();
         if (auth) {
-          const session = await auth.fetchAuthSession();
+          // Don't fetch AWS credentials to avoid Identity Pool calls
+          const session = await auth.fetchAuthSession({ forceRefresh: false });
           const idToken = session.tokens?.idToken?.toString();
           
           // Store it for next time

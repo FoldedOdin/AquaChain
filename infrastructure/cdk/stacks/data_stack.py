@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_iot as iot,
     aws_kms as kms,
+    aws_iam as iam,
     RemovalPolicy,
     Duration,
     CfnOutput
@@ -63,10 +64,8 @@ class AquaChainDataStack(Stack):
             write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: Protect IoT data from accidental deletion
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"
         )
@@ -130,10 +129,8 @@ class AquaChainDataStack(Stack):
             write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
-            removal_policy=RemovalPolicy.DESTROY,  # Always retain ledger
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: CRITICAL - Ledger must never be deleted
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         
@@ -150,7 +147,8 @@ class AquaChainDataStack(Stack):
         write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN  # ✅ SECURITY FIX: Protect sequence numbers
         )
         
         # Users table
@@ -166,10 +164,8 @@ class AquaChainDataStack(Stack):
         write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN  # ✅ SECURITY FIX: Protect user PII data
         )
         
         # GSI for email lookup (Phase 4 optimization)
@@ -213,10 +209,8 @@ class AquaChainDataStack(Stack):
         write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN  # ✅ SECURITY FIX: Protect service history
         )
         
         # Add GSI for technician queries
@@ -246,10 +240,8 @@ class AquaChainDataStack(Stack):
         write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: Protect device registry
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         
@@ -301,7 +293,7 @@ class AquaChainDataStack(Stack):
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True  # Always enabled for audit logs
             ),
-            removal_policy=RemovalPolicy.DESTROY,  # Always retain audit logs
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: CRITICAL - Audit logs must never be deleted
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"  # 7-year retention via TTL
         )
@@ -361,10 +353,8 @@ class AquaChainDataStack(Stack):
             write_capacity=5,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: Protect system configuration
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
         
@@ -387,54 +377,127 @@ class AquaChainDataStack(Stack):
     
     def _create_s3_buckets(self) -> None:
         """
-        Create S3 buckets for data lake and audit trail
+        Create S3 buckets for data lake and audit trail with security hardening
         """
         
-        # Data lake bucket
+        # ✅ SECURITY FIX: Create access logs bucket first
+        self.access_logs_bucket = s3.Bucket(
+            self, "AccessLogsBucket",
+            bucket_name=get_resource_name(self.config, "bucket", f"access-logs-{self.account}"),
+            encryption=s3.BucketEncryption.KMS,
+            encryption_key=self.kms_key,
+            versioned=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,  # ✅ SECURITY FIX
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: Protect access logs
+            auto_delete_objects=False,
+            lifecycle_rules=[
+                s3.LifecycleRule(
+                    id="AccessLogsLifecycle",
+                    enabled=True,
+                    transitions=[
+                        s3.Transition(
+                            storage_class=s3.StorageClass.INTELLIGENT_TIERING,
+                            transition_after=Duration.days(0)
+                        )
+                    ],
+                    expiration=Duration.days(90)  # Keep access logs for 90 days
+                )
+            ]
+        )
+        
+        # Data lake bucket with Intelligent-Tiering
         self.data_lake_bucket = s3.Bucket(
             self, "DataLakeBucket",
             bucket_name=get_resource_name(self.config, "bucket", f"data-lake-{self.account}"),
             encryption=s3.BucketEncryption.KMS,
             encryption_key=self.kms_key,
             versioned=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,  # ✅ SECURITY FIX
+            server_access_logs_bucket=self.access_logs_bucket,  # ✅ SECURITY FIX
+            server_access_logs_prefix="data-lake/",
             lifecycle_rules=[
                 s3.LifecycleRule(
-                    id="DataLakeLifecycle",
+                    id="DataLakeIntelligentTiering",  # ✅ SECURITY FIX: Use Intelligent-Tiering
                     enabled=True,
                     transitions=[
                         s3.Transition(
-                            storage_class=s3.StorageClass.INFREQUENT_ACCESS,
-                            transition_after=Duration.days(30)
-                        ),
-                        s3.Transition(
-                            storage_class=s3.StorageClass.GLACIER,
-                            transition_after=Duration.days(90)
-                        ),
-                        s3.Transition(
-                            storage_class=s3.StorageClass.DEEP_ARCHIVE,
-                            transition_after=Duration.days(365)
+                            storage_class=s3.StorageClass.INTELLIGENT_TIERING,
+                            transition_after=Duration.days(0)
                         )
                     ]
                 )
             ],
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
-            auto_delete_objects=False if self.config["environment"] == "prod" else True
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: Protect IoT data
+            auto_delete_objects=False
         )
         
-        # Audit trail bucket with Object Lock
+        # Audit trail bucket with Object Lock and cross-region replication
         self.audit_bucket = s3.Bucket(
             self, "AuditTrailBucket",
             bucket_name=get_resource_name(self.config, "bucket", f"audit-trail-{self.account}"),
             encryption=s3.BucketEncryption.KMS,
             encryption_key=self.kms_key,
             versioned=True,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,  # ✅ SECURITY FIX
+            server_access_logs_bucket=self.access_logs_bucket,  # ✅ SECURITY FIX
+            server_access_logs_prefix="audit-trail/",
             object_lock_enabled=True,
             object_lock_default_retention=s3.ObjectLockRetention.compliance(
                 Duration.days(self.config["retention_days"])
             ),
-            removal_policy=RemovalPolicy.DESTROY,  # Always retain audit data
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: CRITICAL - Never delete audit data
             auto_delete_objects=False
         )
+        
+        # ✅ SECURITY FIX: Add cross-region replication for audit bucket (DR requirement)
+        if self.config.get("replica_region"):
+            # Create replication role
+            replication_role = iam.Role(
+                self, "AuditBucketReplicationRole",
+                assumed_by=iam.ServicePrincipal("s3.amazonaws.com"),
+                description="Role for S3 cross-region replication of audit logs"
+            )
+            
+            # Grant read permissions on source bucket
+            self.audit_bucket.grant_read(replication_role)
+            
+            # Grant KMS permissions for replication
+            self.kms_key.grant_encrypt_decrypt(replication_role)
+            
+            # Note: Destination bucket must be created in replica region separately
+            # This is a placeholder for the replication configuration
+            # In production, you would create the replica bucket in a separate stack
+            replica_bucket_arn = f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'audit-replica-{self.account}')}"
+            
+            # Add replication configuration (requires CfnBucket for full control)
+            cfn_audit_bucket = self.audit_bucket.node.default_child
+            cfn_audit_bucket.replication_configuration = s3.CfnBucket.ReplicationConfigurationProperty(
+                role=replication_role.role_arn,
+                rules=[
+                    s3.CfnBucket.ReplicationRuleProperty(
+                        destination=s3.CfnBucket.ReplicationDestinationProperty(
+                            bucket=replica_bucket_arn,
+                            replication_time=s3.CfnBucket.ReplicationTimeProperty(
+                                status="Enabled",
+                                time=s3.CfnBucket.ReplicationTimeValueProperty(
+                                    minutes=15
+                                )
+                            ),
+                            metrics=s3.CfnBucket.MetricsProperty(
+                                status="Enabled",
+                                event_threshold=s3.CfnBucket.ReplicationTimeValueProperty(
+                                    minutes=15
+                                )
+                            )
+                        ),
+                        status="Enabled",
+                        priority=1,
+                        filter=s3.CfnBucket.ReplicationRuleFilterProperty(
+                            prefix=""
+                        )
+                    )
+                ]
+            )
         
         # ML models bucket
         self.ml_models_bucket = s3.Bucket(
@@ -443,28 +506,25 @@ class AquaChainDataStack(Stack):
             encryption=s3.BucketEncryption.KMS,
             encryption_key=self.kms_key,
             versioned=True,
-            removal_policy=RemovalPolicy.DESTROY if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
-            auto_delete_objects=False if self.config["environment"] == "prod" else True
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,  # ✅ SECURITY FIX
+            server_access_logs_bucket=self.access_logs_bucket,  # ✅ SECURITY FIX
+            server_access_logs_prefix="ml-models/",
+            removal_policy=RemovalPolicy.RETAIN,  # ✅ SECURITY FIX: Protect ML models
+            auto_delete_objects=False
         )
         
-        # Set up cross-account replication if replica account is configured
-        if self.config.get("replica_account_id"):
-            # Create replication bucket in replica account (this would be done separately)
-            # Here we just configure the replication rule
-            replica_bucket_arn = f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'audit-replica-{self.config['replica_account_id']}')}/*"
-            
-            # Note: Cross-account replication setup would require additional IAM roles
-            # and bucket policies in the replica account
-        
         self.data_resources.update({
+            "access_logs_bucket": self.access_logs_bucket,
             "data_lake_bucket": self.data_lake_bucket,
             "audit_bucket": self.audit_bucket,
             "ml_models_bucket": self.ml_models_bucket
         })
         
         # Tag all S3 buckets for AWS Backup
-        for bucket in [self.data_lake_bucket, self.audit_bucket, self.ml_models_bucket]:
+        for bucket in [self.access_logs_bucket, self.data_lake_bucket, self.audit_bucket, self.ml_models_bucket]:
             Tags.of(bucket).add("BackupEnabled", "true")
+            Tags.of(bucket).add("DataClassification", "Confidential")
+            Tags.of(bucket).add("ComplianceScope", "GDPR")
     
     def _create_iot_resources(self) -> None:
         """

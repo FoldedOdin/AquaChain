@@ -6,8 +6,10 @@ Implements comprehensive CloudWatch dashboards, alerts, incident response, and c
 from aws_cdk import (
     Stack,
     aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
     aws_logs as logs,
     aws_sns as sns,
+    aws_sns_subscriptions as sns_subscriptions,
     aws_lambda as lambda_,
     aws_events as events,
     aws_events_targets as targets,
@@ -101,22 +103,12 @@ class ProductionMonitoringStack(Stack):
         for email in notification_config.get("email", []):
             # Critical alerts go to all emails
             self.critical_alerts_topic.add_subscription(
-                sns.Subscription(
-                    self, f"CriticalEmail{hash(email)}",
-                    topic=self.critical_alerts_topic,
-                    endpoint=email,
-                    protocol=sns.SubscriptionProtocol.EMAIL
-                )
+                sns_subscriptions.EmailSubscription(email)
             )
             
             # Security alerts go to all emails
             self.security_alerts_topic.add_subscription(
-                sns.Subscription(
-                    self, f"SecurityEmail{hash(email)}",
-                    topic=self.security_alerts_topic,
-                    endpoint=email,
-                    protocol=sns.SubscriptionProtocol.EMAIL
-                )
+                sns_subscriptions.EmailSubscription(email)
             )
         
         # Add Slack webhook if configured
@@ -238,20 +230,9 @@ def main(event, context):
         # Subscribe Lambda to SNS topics
         for topic in [self.critical_alerts_topic, self.security_alerts_topic, self.warning_alerts_topic]:
             topic.add_subscription(
-                sns.Subscription(
-                    self, f"SlackSubscription{topic.node.id}",
-                    topic=topic,
-                    endpoint=self.slack_notification_lambda.function_arn,
-                    protocol=sns.SubscriptionProtocol.LAMBDA
-                )
+                sns_subscriptions.LambdaSubscription(self.slack_notification_lambda)
             )
-            
-            # Grant SNS permission to invoke Lambda
-            self.slack_notification_lambda.add_permission(
-                f"AllowSNS{topic.node.id}",
-                principal=iam.ServicePrincipal("sns.amazonaws.com"),
-                source_arn=topic.topic_arn
-            )
+
     
     def _create_pagerduty_integration_lambda(self, integration_key: str) -> None:
         """
@@ -339,19 +320,7 @@ def main(event, context):
         # Subscribe Lambda to critical and security alerts only
         for topic in [self.critical_alerts_topic, self.security_alerts_topic]:
             topic.add_subscription(
-                sns.Subscription(
-                    self, f"PagerDutySubscription{topic.node.id}",
-                    topic=topic,
-                    endpoint=self.pagerduty_lambda.function_arn,
-                    protocol=sns.SubscriptionProtocol.LAMBDA
-                )
-            )
-            
-            # Grant SNS permission to invoke Lambda
-            self.pagerduty_lambda.add_permission(
-                f"AllowSNSPagerDuty{topic.node.id}",
-                principal=iam.ServicePrincipal("sns.amazonaws.com"),
-                source_arn=topic.topic_arn
+                sns_subscriptions.LambdaSubscription(self.pagerduty_lambda)
             )
     
     def _create_cloudwatch_dashboards(self) -> None:
@@ -632,7 +601,7 @@ def main(event, context):
         )
         
         api_latency_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.warning_alerts_topic)
+            cw_actions.SnsAction(self.warning_alerts_topic)
         )
         
         # API Gateway error rate alarm
@@ -665,7 +634,7 @@ def main(event, context):
         )
         
         api_error_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.critical_alerts_topic)
+            cw_actions.SnsAction(self.critical_alerts_topic)
         )
         
         # Lambda error rate alarm
@@ -696,7 +665,7 @@ def main(event, context):
         )
         
         lambda_error_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.critical_alerts_topic)
+            cw_actions.SnsAction(self.critical_alerts_topic)
         )
         
         # DynamoDB throttling alarm
@@ -716,7 +685,7 @@ def main(event, context):
         )
         
         dynamodb_throttle_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.critical_alerts_topic)
+            cw_actions.SnsAction(self.critical_alerts_topic)
         )
         
         self.monitoring_resources.update({
@@ -748,7 +717,7 @@ def main(event, context):
         )
         
         auth_failure_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.security_alerts_topic)
+            cw_actions.SnsAction(self.security_alerts_topic)
         )
         
         # Authorization denied alarm
@@ -768,7 +737,7 @@ def main(event, context):
         )
         
         authz_denied_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.security_alerts_topic)
+            cw_actions.SnsAction(self.security_alerts_topic)
         )
         
         # Suspicious activity alarm
@@ -788,7 +757,7 @@ def main(event, context):
         )
         
         suspicious_activity_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.security_alerts_topic)
+            cw_actions.SnsAction(self.security_alerts_topic)
         )
         
         self.monitoring_resources.update({
@@ -819,7 +788,7 @@ def main(event, context):
         )
         
         budget_utilization_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.warning_alerts_topic)
+            cw_actions.SnsAction(self.warning_alerts_topic)
         )
         
         # Purchase order approval delay alarm
@@ -839,7 +808,7 @@ def main(event, context):
         )
         
         po_approval_delay_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.warning_alerts_topic)
+            cw_actions.SnsAction(self.warning_alerts_topic)
         )
         
         self.monitoring_resources.update({

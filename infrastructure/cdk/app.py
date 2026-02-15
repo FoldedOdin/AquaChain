@@ -212,13 +212,14 @@ def main():
     iot_security_stack.add_dependency(security_stack)
     
     # 14. ML Model Registry Stack (Model versioning and A/B testing)
-    ml_registry_stack = AquaChainMLModelRegistryStack(
-        app,
-        f"AquaChain-MLRegistry-{env_name}",
-        config=config,
-        env=aws_env,
-        description=f"AquaChain ML Model Registry - {env_name}"
-    )
+    # DISABLED: Requires services that may not be available in AWS Educate/limited accounts
+    # ml_registry_stack = AquaChainMLModelRegistryStack(
+    #     app,
+    #     f"AquaChain-MLRegistry-{env_name}",
+    #     config=config,
+    #     env=aws_env,
+    #     description=f"AquaChain ML Model Registry - {env_name}"
+    # )
     
     # 15. Phase 3 Infrastructure Stack (ML monitoring, certificate rotation, automation)
     phase3_stack = AquaChainPhase3InfrastructureStack(
@@ -310,13 +311,14 @@ def main():
     dashboard_overhaul_stack.add_dependency(security_stack)
     
     # 23. Deployment Pipeline Stack (Blue-green deployment, feature flags, canary deployment)
-    deployment_pipeline_stack = DeploymentPipelineStack(
-        app,
-        f"AquaChain-DeploymentPipeline-{env_name}",
-        config=config,
-        env=aws_env,
-        description=f"AquaChain Dashboard Deployment Pipeline - {env_name}"
-    )
+    # DISABLED: Requires AWS CodeDeploy which is not available in AWS Educate/limited accounts
+    # deployment_pipeline_stack = DeploymentPipelineStack(
+    #     app,
+    #     f"AquaChain-DeploymentPipeline-{env_name}",
+    #     config=config,
+    #     env=aws_env,
+    #     description=f"AquaChain Dashboard Deployment Pipeline - {env_name}"
+    # )
     # Deployment pipeline is independent infrastructure
     
     # 24. Production Monitoring Stack (Comprehensive monitoring, alerting, and incident response)

@@ -34,7 +34,7 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
             "domain_name": "dev.aquachain.io",
             "certificate_arn": None,  # Use default certificate
             "enable_deletion_protection": False,
-            "enable_point_in_time_recovery": False,
+            "enable_point_in_time_recovery": True,  # ✅ SECURITY FIX: Enable PITR for data recovery
             "dynamodb_billing_mode": "PAY_PER_REQUEST",
             "lambda_reserved_concurrency": 10,
             "api_throttle_rate_limit": 100,

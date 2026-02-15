@@ -47,6 +47,13 @@ class ApiClient {
    */
   private getAuthHeaders(): HeadersInit {
     const token = this.getAuthToken();
+    
+    if (!token) {
+      console.warn('⚠️ [apiClient] No auth token found in localStorage');
+    } else {
+      console.log('✅ [apiClient] Auth token present (length:', token.length, ')');
+    }
+    
     return {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` })

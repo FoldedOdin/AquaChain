@@ -5,6 +5,7 @@ Implements blue-green deployment, feature flags, canary deployment, and automate
 
 from aws_cdk import (
     Stack,
+    SecretValue,
     aws_codepipeline as codepipeline,
     aws_codepipeline_actions as codepipeline_actions,
     aws_codebuild as codebuild,
@@ -14,10 +15,14 @@ from aws_cdk import (
     aws_apigateway as apigateway,
     aws_appconfig as appconfig,
     aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cloudwatch_actions,
+    aws_events as events,
+    aws_events_targets as events_targets,
     aws_sns as sns,
     aws_sns_subscriptions as sns_subscriptions,
     aws_iam as iam,
     aws_s3 as s3,
+    aws_secretsmanager as secretsmanager,
     Duration,
     RemovalPolicy,
     CfnOutput,
@@ -619,11 +624,15 @@ class DeploymentPipelineStack(Stack):
     
     def _get_github_token(self):
         """
-        Get GitHub token from Secrets Manager (placeholder)
+        Get GitHub token from Secrets Manager
+        ✅ SECURITY FIX: Use SecretValue instead of plain string
         """
-        # In a real implementation, this would retrieve the token from Secrets Manager
-        # For now, return a placeholder that needs to be configured
-        return "github-token-placeholder"
+        # Return SecretValue that references Secrets Manager
+        # The secret must be created manually in AWS Secrets Manager with name: aquachain/github-token
+        return SecretValue.secrets_manager(
+            "aquachain/github-token",
+            json_field="token"  # Assumes secret is stored as JSON: {"token": "ghp_..."}
+        )
     
     def _create_deployment_lambda(self) -> lambda_.Function:
         """
@@ -936,7 +945,7 @@ def main(event, context):
         
         # Add SNS notification for pipeline failures
         pipeline_failure_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.deployment_notifications)
+            cloudwatch_actions.SnsAction(self.deployment_notifications)
         )
         
         # Deployment duration alarm
@@ -959,7 +968,7 @@ def main(event, context):
         )
         
         deployment_duration_alarm.add_alarm_action(
-            cloudwatch.SnsAction(self.deployment_notifications)
+            cloudwatch_actions.SnsAction(self.deployment_notifications)
         )
         
         self.deployment_resources.update({
@@ -1118,11 +1127,11 @@ def main(event, context):
         )
         
         # Create CloudWatch Event Rule to trigger rollback on high error rates
-        rollback_rule = cloudwatch.Rule(
+        rollback_rule = events.Rule(
             self, "AutoRollbackRule",
             rule_name=get_resource_name(self.config, "rule", "auto-rollback"),
             description="Trigger automated rollback on high error rates",
-            event_pattern=cloudwatch.EventPattern(
+            event_pattern=events.EventPattern(
                 source=["aws.cloudwatch"],
                 detail_type=["CloudWatch Alarm State Change"],
                 detail={
@@ -1137,7 +1146,7 @@ def main(event, context):
         )
         
         rollback_rule.add_target(
-            cloudwatch.LambdaFunction(self.rollback_lambda)
+            events_targets.LambdaFunction(self.rollback_lambda)
         )
         
         self.deployment_resources.update({

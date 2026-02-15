@@ -3,12 +3,34 @@ import { Amplify } from 'aws-amplify';
 import { signOut, fetchAuthSession } from 'aws-amplify/auth';
 import { UserProfile } from '../types';
 
+// Clear any cached AWS credentials from previous sessions
+// This prevents Amplify from trying to use Identity Pool
+if (typeof window !== 'undefined') {
+  // Clear Amplify-specific storage keys
+  const keysToRemove = Object.keys(localStorage).filter(key => 
+    key.includes('amplify') || 
+    key.includes('CognitoIdentity') || 
+    key.includes('aws.cognito')
+  );
+  keysToRemove.forEach(key => {
+    if (!key.includes('aquachain')) { // Keep our app-specific keys
+      localStorage.removeItem(key);
+    }
+  });
+}
+
 // Configure Amplify (this would be loaded from environment variables)
 const amplifyConfig: any = {
   Auth: {
     Cognito: {
       userPoolId: process.env.REACT_APP_USER_POOL_ID || 'us-east-1_example',
       userPoolClientId: process.env.REACT_APP_USER_POOL_CLIENT_ID || 'example',
+      // Explicitly disable Identity Pool to prevent automatic credential fetching
+      // Only add identityPoolId if explicitly provided
+      ...(process.env.REACT_APP_IDENTITY_POOL_ID && process.env.REACT_APP_IDENTITY_POOL_ID.trim() !== '' 
+        ? { identityPoolId: process.env.REACT_APP_IDENTITY_POOL_ID }
+        : {}
+      )
     }
   },
   API: {
@@ -21,12 +43,10 @@ const amplifyConfig: any = {
   }
 };
 
-// Add Identity Pool ID only if provided (optional for basic auth)
-if (process.env.REACT_APP_IDENTITY_POOL_ID) {
-  amplifyConfig.Auth.Cognito.identityPoolId = process.env.REACT_APP_IDENTITY_POOL_ID;
-}
-
-Amplify.configure(amplifyConfig);
+Amplify.configure(amplifyConfig, {
+  // Disable automatic credential refresh to prevent Identity Pool calls
+  ssr: false
+});
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -105,7 +125,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       } else {
         // Production mode with AWS Cognito
         try {
-          const session = await fetchAuthSession();
+          // Fetch session without AWS credentials to avoid Identity Pool calls
+          const session = await fetchAuthSession({ 
+            forceRefresh: false
+          });
           if (session.tokens?.accessToken) {
             // Get user attributes from Cognito
             const { getCurrentUser } = await import('aws-amplify/auth');
@@ -199,13 +222,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setIsAuthenticated(true);
       } else {
         // Production mode with AWS Cognito
-        const { signIn } = await import('aws-amplify/auth');
+        const { signIn, fetchAuthSession, getCurrentUser } = await import('aws-amplify/auth');
         const signInResult = await signIn({ username: email, password });
 
         if (signInResult.isSignedIn) {
-          // Get user details and create profile
-          const { getCurrentUser } = await import('aws-amplify/auth');
+          // Get user details and session
           const currentUser = await getCurrentUser();
+          
+          // CRITICAL: Get the ID token and store it in localStorage
+          const session = await fetchAuthSession({ 
+            forceRefresh: false
+          });
+          const idToken = session.tokens?.idToken?.toString();
+          
+          if (!idToken) {
+            throw new Error('Failed to get authentication token');
+          }
+          
+          // Store token in localStorage for API calls
+          localStorage.setItem('aquachain_token', idToken);
+          console.log('✅ Token stored in localStorage after login');
           
           const userProfile: UserProfile = {
             userId: currentUser.userId,
@@ -238,6 +274,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
           };
 
+          localStorage.setItem('aquachain_user', JSON.stringify(userProfile));
           setUser(userProfile);
           setIsAuthenticated(true);
         } else {
@@ -278,11 +315,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const getAuthToken = async (): Promise<string | null> => {
     try {
-      const session = await fetchAuthSession();
-      return session.tokens?.idToken?.toString() || null;
+      // First, try to get token from localStorage (works for both dev and prod)
+      const storedToken = localStorage.getItem('aquachain_token');
+      if (storedToken) {
+        console.log('✅ Using stored token from localStorage');
+        return storedToken;
+      }
+
+      // If not in localStorage, fetch from Amplify session (AWS mode only)
+      if (process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production') {
+        console.log('🔄 Fetching fresh token from Amplify session');
+        const session = await fetchAuthSession({ 
+          forceRefresh: false
+        });
+        const idToken = session.tokens?.idToken?.toString();
+        
+        // Store it for next time
+        if (idToken) {
+          localStorage.setItem('aquachain_token', idToken);
+          console.log('✅ Token fetched and stored');
+        }
+        
+        return idToken || null;
+      }
+
+      console.warn('⚠️ No token found in localStorage or Amplify session');
+      return null;
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error('Error getting auth token:', error);
+      console.error('❌ Error getting auth token:', error);
       return null;
     }
   };
