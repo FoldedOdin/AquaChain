@@ -43,7 +43,11 @@ def lambda_handler(event, context):
         query_params = event.get('queryStringParameters') or {}
         path_params = event.get('pathParameters') or {}
         
-        # Verify admin authorization
+        # Allow /api/devices for all authenticated users (not just admins)
+        if path.startswith('/api/devices') and not path.startswith('/api/admin'):
+            return _handle_user_device_management(event, http_method, path, query_params)
+        
+        # Verify admin authorization for admin endpoints
         if not _verify_admin_access(event):
             return _create_response(403, {'error': 'Admin access required'})
         
@@ -56,7 +60,7 @@ def lambda_handler(event, context):
             return _handle_incident_management(http_method, path, body, query_params, path_params)
         elif path.startswith('/api/admin/audit'):
             return _handle_audit_management(http_method, path, query_params)
-        elif path.startswith('/api/admin/devices') or path.startswith('/api/devices'):
+        elif path.startswith('/api/admin/devices'):
             return _handle_device_management(http_method, path, query_params)
         else:
             return _create_response(404, {'error': 'Endpoint not found'})
@@ -441,6 +445,70 @@ def _handle_device_management(method: str, path: str, query_params: Dict):
         return _get_all_devices(query_params)
     else:
         return _create_response(404, {'error': 'Device management endpoint not found'})
+
+def _handle_user_device_management(event, method: str, path: str, query_params: Dict):
+    """
+    Handle device operations for regular users (non-admin)
+    Users can only see their own devices
+    """
+    try:
+        # Get user ID from Cognito authorizer
+        request_context = event.get('requestContext', {})
+        authorizer = request_context.get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        user_id = claims.get('sub') or claims.get('cognito:username')
+        
+        if not user_id:
+            return _create_response(401, {'error': 'User not authenticated'})
+        
+        if method == 'GET' and path == '/api/devices':
+            return _get_user_devices(user_id)
+        else:
+            return _create_response(404, {'error': 'Endpoint not found'})
+            
+    except Exception as e:
+        logger.error(f"User device management error: {str(e)}")
+        return _create_response(500, {'error': 'Failed to fetch devices'})
+
+def _get_user_devices(user_id: str):
+    """
+    Get devices for a specific user
+    """
+    try:
+        table = dynamodb.Table(DEVICES_TABLE)
+        
+        # Query by userId using GSI
+        response = table.query(
+            IndexName='UserIndex',
+            KeyConditionExpression='userId = :userId',
+            ExpressionAttributeValues={':userId': user_id}
+        )
+        
+        devices = []
+        for item in response.get('Items', []):
+            device = {
+                'deviceId': item.get('deviceId', ''),
+                'deviceName': item.get('deviceName', ''),
+                'status': item.get('status', 'offline'),
+                'lastSeen': item.get('lastSeen', ''),
+                'location': item.get('location', 'Unknown'),
+                'deviceType': item.get('deviceType', 'ESP32'),
+                'firmwareVersion': item.get('firmwareVersion', ''),
+                'isOnline': item.get('isOnline', False),
+                'createdAt': item.get('createdAt', ''),
+                'updatedAt': item.get('updatedAt', '')
+            }
+            devices.append(device)
+        
+        logger.info(f"Found {len(devices)} devices for user {user_id}")
+        response_body = {'success': True, 'data': devices}
+        logger.info(f"Returning response: {json.dumps(response_body)[:200]}...")  # Log first 200 chars
+        # Return in format expected by frontend dataService
+        return _create_response(200, response_body)
+        
+    except Exception as e:
+        logger.error(f"Error fetching user devices: {str(e)}")
+        return _create_response(500, {'error': 'Failed to fetch devices'})
 
 def _get_all_devices(query_params: Dict):
     """

@@ -3,7 +3,7 @@
 
 param(
     [string]$Region = "ap-south-1",
-    [string[]]$Functions = @("data_processing", "alert_detection", "notification_service")
+    [string[]]$Functions = @("data_processing", "alert_detection", "notification_service", "user_management")
 )
 
 Write-Host "=== Deploying Lambda Functions ===" -ForegroundColor Cyan

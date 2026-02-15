@@ -477,3 +477,21 @@ def validate_and_handle_input(validator_func: callable, input_data: Dict[str, An
 
 # Global error handler instance
 default_error_handler = ErrorHandler('aquachain-service')
+
+
+def handle_errors(func):
+    """
+    Decorator to handle errors in Lambda functions
+    Wraps the function and catches exceptions, returning proper error responses
+    """
+    def wrapper(event, context):
+        try:
+            return func(event, context)
+        except AquaChainError as e:
+            # Handle known AquaChain errors
+            return default_error_handler.handle_error(e)
+        except Exception as e:
+            # Handle unknown errors
+            return default_error_handler.handle_error(e)
+    
+    return wrapper
