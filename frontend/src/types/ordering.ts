@@ -187,6 +187,8 @@ export interface OrderStatusTrackerProps {
   currentStatus: OrderStatus | string;
   statusHistory: StatusUpdate[];
   estimatedDelivery?: Date;
+  demoMode?: boolean; // Enable auto-progression for demo purposes
+  progressInterval?: number; // Interval in seconds (default: 20)
 }
 
 // Service interfaces for backend integration

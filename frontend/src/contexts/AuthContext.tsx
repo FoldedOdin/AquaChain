@@ -134,11 +134,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const { getCurrentUser } = await import('aws-amplify/auth');
             const currentUser = await getCurrentUser();
             
+            // Extract groups from ID token to determine role
+            const idToken = session.tokens?.idToken;
+            const groups = idToken?.payload['cognito:groups'] as string[] || [];
+            
+            // Determine role from Cognito groups
+            let role: 'admin' | 'technician' | 'consumer' = 'consumer';
+            if (groups.includes('administrators') || groups.includes('admin')) {
+              role = 'admin';
+            } else if (groups.includes('technicians')) {
+              role = 'technician';
+            } else if (groups.includes('consumers')) {
+              role = 'consumer';
+            }
+            
             // Create user profile from Cognito data
             const userProfile: UserProfile = {
               userId: currentUser.userId,
               email: currentUser.signInDetails?.loginId || '',
-              role: 'consumer', // Default role, should be set from Cognito groups
+              role: role,
               profile: {
                 firstName: 'User',
                 lastName: '',
@@ -243,10 +257,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           localStorage.setItem('aquachain_token', idToken);
           console.log('✅ Token stored in localStorage after login');
           
+          // Extract groups from ID token to determine role
+          const groups = session.tokens?.idToken?.payload['cognito:groups'] as string[] || [];
+          
+          // Determine role from Cognito groups
+          let role: 'admin' | 'technician' | 'consumer' = 'consumer';
+          if (groups.includes('administrators') || groups.includes('admin')) {
+            role = 'admin';
+          } else if (groups.includes('technicians')) {
+            role = 'technician';
+          } else if (groups.includes('consumers')) {
+            role = 'consumer';
+          }
+          
+          console.log('👤 User groups:', groups, '→ Role:', role);
+          
           const userProfile: UserProfile = {
             userId: currentUser.userId,
             email: email,
-            role: 'consumer', // Should be determined from Cognito groups
+            role: role,
             profile: {
               firstName: 'User',
               lastName: '',

@@ -455,5 +455,69 @@ def lambda_handler(event, context):
             })
         }
     
+    elif http_method == 'DELETE' and '/devices/' in path:
+        # Delete device
+        device_id = path_params.get('deviceId')
+        user_id = event.get('requestContext', {}).get('authorizer', {}).get('claims', {}).get('sub')
+        
+        if not device_id:
+            raise ValidationError('deviceId parameter required')
+        
+        if not user_id:
+            raise ValidationError('User ID not found in request context')
+        
+        # Get device to verify ownership and for audit log
+        device = device_service.get_device(device_id)
+        
+        if not device:
+            raise ResourceNotFoundError('Device not found', details={'device_id': device_id})
+        
+        # Verify user owns the device
+        if device.get('user_id') != user_id:
+            raise ValidationError('You do not have permission to delete this device', 
+                                error_code='PERMISSION_DENIED')
+        
+        try:
+            # Delete from DynamoDB
+            dynamodb = boto3.resource('dynamodb')
+            devices_table = dynamodb.Table('aquachain-devices')
+            devices_table.delete_item(Key={'device_id': device_id})
+            
+            # Invalidate cache
+            cache_key = f"device:{device_id}"
+            device_service.cache.delete(cache_key)
+            
+            # Log device deletion
+            audit_logger.log_data_modification(
+                user_id=user_id,
+                resource_type='DEVICE',
+                resource_id=device_id,
+                modification_type='DELETE',
+                previous_values=device,
+                new_values={},
+                request_context=request_context
+            )
+            
+            logger.info(f"Device deleted: {device_id}", 
+                       device_id=device_id, user_id=user_id)
+            
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+                },
+                'body': json.dumps({
+                    'success': True,
+                    'message': 'Device deleted successfully'
+                })
+            }
+            
+        except Exception as e:
+            logger.error(f"Error deleting device: {e}", device_id=device_id, user_id=user_id)
+            raise DatabaseError("Failed to delete device", details={'device_id': device_id})
+    
     else:
         raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')

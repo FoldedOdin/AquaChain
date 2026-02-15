@@ -269,7 +269,8 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     setIsCancelling(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/orders/${orderId}`, {
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      const response = await fetch(`${apiEndpoint}/api/orders/${orderId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -300,8 +301,9 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     setIsCancelling(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
       const cancelPromises = orderIds.map(orderId =>
-        fetch(`http://localhost:3002/api/orders/${orderId}`, {
+        fetch(`${apiEndpoint}/api/orders/${orderId}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${token}`,

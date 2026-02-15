@@ -54,6 +54,8 @@ def lambda_handler(event, context):
         # Route requests
         if path.startswith('/api/admin/users'):
             return _handle_user_management(http_method, path, body, query_params, path_params)
+        elif path.startswith('/api/admin/system/metrics'):
+            return _handle_system_metrics(http_method)
         elif path.startswith('/api/admin/system'):
             return _handle_system_management(http_method, path, body, query_params)
         elif path.startswith('/api/admin/incidents'):
@@ -755,3 +757,39 @@ def _create_response(status_code: int, body: Dict) -> Dict:
         },
         'body': json.dumps(body)
     }
+
+
+def _handle_system_metrics(method: str):
+    """
+    Handle system metrics requests - fetch real-time data from AWS services
+    """
+    if method != 'GET':
+        return _create_response(405, {'error': 'Method not allowed'})
+    
+    try:
+        # Import the metrics function
+        from get_system_metrics import get_cognito_user_count, get_api_metrics, get_system_uptime
+        
+        # Fetch all metrics
+        user_count = get_cognito_user_count()
+        api_metrics = get_api_metrics()
+        uptime_metrics = get_system_uptime()
+        
+        # Compile response
+        metrics = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'users': {
+                'total': user_count
+            },
+            'api': api_metrics,
+            'system': uptime_metrics
+        }
+        
+        return _create_response(200, metrics)
+        
+    except Exception as e:
+        logger.error(f"Error fetching system metrics: {str(e)}")
+        return _create_response(500, {
+            'error': 'Failed to fetch system metrics',
+            'message': str(e)
+        })
