@@ -50,8 +50,11 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
       }));
       setNotifications(processedData);
     } catch (err: any) {
-      console.error('Failed to load notifications:', err);
-      setError(err.message || 'Failed to load notifications');
+      // Service returns empty array on errors, so this shouldn't happen
+      // But just in case, handle gracefully
+      console.warn('Notifications unavailable');
+      setNotifications([]);
+      setError(null);
     } finally {
       setIsLoading(false);
     }

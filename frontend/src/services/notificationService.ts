@@ -51,16 +51,24 @@ class NotificationService {
         headers: this.getAuthHeaders()
       });
 
+      // If endpoint doesn't exist (404) or service unavailable, return empty array
+      if (response.status === 404 || response.status === 503 || response.status === 500) {
+        console.warn('Notification service not available (status:', response.status, ')');
+        return [];
+      }
+
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch notifications');
+        console.warn('Notification service error:', result.error || 'Unknown error');
+        return [];
       }
 
       return result.notifications || [];
     } catch (error: any) {
-      console.error('Fetch notifications error:', error);
-      throw error;
+      // Network errors or CORS issues - fail silently
+      console.warn('Notification service unavailable:', error.message);
+      return [];
     }
   }
 
@@ -161,15 +169,20 @@ class NotificationService {
         headers: this.getAuthHeaders()
       });
 
+      // If endpoint doesn't exist or has errors, return 0
+      if (response.status === 404 || response.status === 503 || response.status === 500) {
+        return 0;
+      }
+
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to get unread count');
+        return 0;
       }
 
       return result.count || 0;
     } catch (error: any) {
-      console.error('Get unread count error:', error);
+      // Fail silently for any errors
       return 0;
     }
   }
