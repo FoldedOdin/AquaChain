@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   XMarkIcon, 
@@ -73,17 +73,32 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   // Track if we've initialized the form for this modal session
   const initializedRef = useRef(false);
 
+  // Memoize stable values from currentProfile to prevent unnecessary re-renders
+  const stableProfile = useMemo(() => ({
+    firstName: currentProfile.firstName || '',
+    lastName: currentProfile.lastName || '',
+    email: currentProfile.email || '',
+    phone: currentProfile.phone || '',
+    address: currentProfile.address
+  }), [
+    currentProfile.firstName,
+    currentProfile.lastName,
+    currentProfile.email,
+    currentProfile.phone,
+    currentProfile.address
+  ]);
+
   // Update form when modal opens (only once per open)
   useEffect(() => {
     if (isOpen && !initializedRef.current) {
       // Initialize form with current profile data
-      setFirstName(currentProfile.firstName || '');
-      setLastName(currentProfile.lastName || '');
-      setEmail(currentProfile.email || '');
-      setPhone(currentProfile.phone || '');
+      setFirstName(stableProfile.firstName);
+      setLastName(stableProfile.lastName);
+      setEmail(stableProfile.email);
+      setPhone(stableProfile.phone);
       
       // Parse existing address - handle both object and string formats
-      const addr = currentProfile.address;
+      const addr = stableProfile.address;
       if (addr) {
         if (typeof addr === 'object' && !Array.isArray(addr)) {
           // Address is already an object
@@ -128,7 +143,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       // Reset the flag when modal closes so it reinitializes on next open
       initializedRef.current = false;
     }
-  }, [isOpen, currentProfile]);
+  }, [isOpen, stableProfile]);
 
   // Resend timer countdown
   useEffect(() => {
@@ -140,8 +155,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   // Check if sensitive fields changed
   const hasSensitiveChanges = () => {
-    return email !== currentProfile.email || 
-           phone !== currentProfile.phone;
+    return email !== stableProfile.email || 
+           phone !== stableProfile.phone;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -414,8 +429,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
     'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'
   ];
-
-  console.log('EditProfileModal render - isOpen:', isOpen);
   
   if (!isOpen) return null;
 

@@ -286,15 +286,17 @@ class ErrorHandler:
         """Handle unknown/unexpected errors"""
         
         # Log full error details for debugging
-        logger.error(
-            "Unexpected error occurred",
-            service=self.service_name,
-            error_type=type(error).__name__,
-            error_message=str(error),
-            correlation_id=correlation_id,
-            user_id=user_id,
-            stack_trace=traceback.format_exc() if self.enable_debug else None
-        )
+        error_details = {
+            'service': self.service_name,
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'correlation_id': correlation_id,
+            'user_id': user_id
+        }
+        if self.enable_debug:
+            error_details['stack_trace'] = traceback.format_exc()
+        
+        logger.error(f"Unexpected error occurred: {json.dumps(error_details)}")
         
         # Create generic response (don't expose internal details)
         response = {

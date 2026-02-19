@@ -27,7 +27,17 @@ from error_handler import handle_errors
 from structured_logger import get_logger
 
 # Import cache service
-from cache_service import get_cache_service
+try:
+    from cache_service import get_cache_service
+    CACHE_AVAILABLE = True
+except ImportError:
+    # Fallback if Redis/cache_service not available
+    CACHE_AVAILABLE = False
+    class MockCache:
+        def get(self, key): return None
+        def set(self, key, value, ttl=None): return True
+        def delete(self, key): return True
+    def get_cache_service(): return MockCache()
 
 # Import audit logging
 from audit_logger import audit_logger
@@ -50,7 +60,7 @@ class UserManagementService:
         self.region = region
         self.cognito_client = boto3.client('cognito-idp', region_name=region)
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
-        self.users_table = self.dynamodb.Table('aquachain-users')
+        self.users_table = self.dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))
         self.cache = get_cache_service()
     
     def register_user(self, email: str, password: str, first_name: str, 
@@ -501,21 +511,25 @@ class UserManagementService:
     
     def get_user_by_email(self, email: str) -> Optional[Dict]:
         """
-        Get user by email using email-index GSI (Phase 4 optimization).
-        Replaces scan operations with efficient GSI query.
+        Get user by email.
+        Falls back to table scan if GSI not available.
         """
         try:
-            # Import optimized query function
-            from dynamodb_queries import query_user_by_email
+            # Try to query using email as a filter (scan operation)
+            # Note: This is not optimal but works without GSI
+            response = self.users_table.scan(
+                FilterExpression='email = :email',
+                ExpressionAttributeValues={':email': email},
+                Limit=1
+            )
             
-            user = query_user_by_email(email, table_name='aquachain-users')
-            
-            if user:
+            items = response.get('Items', [])
+            if items:
                 logger.info(f"User found by email: {email}")
+                return items[0]
             else:
                 logger.info(f"User not found by email: {email}")
-            
-            return user
+                return None
             
         except Exception as e:
             logger.error(f"Error querying user by email: {e}")
@@ -735,9 +749,29 @@ def lambda_handler(event, context):
     
     elif http_method == 'PUT' and path.endswith('/profile/update'):
         # Direct profile update (for non-sensitive changes)
-        # Get user email from Cognito claims
+        # Get user email from Cognito claims or JWT token
         claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
         email = claims.get('email')
+        
+        # If no claims (authorizer not configured), try to decode JWT token
+        if not email:
+            auth_header = event.get('headers', {}).get('Authorization') or event.get('headers', {}).get('authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                try:
+                    import base64
+                    # Decode JWT payload (middle part)
+                    parts = token.split('.')
+                    if len(parts) == 3:
+                        # Add padding if needed
+                        payload = parts[1]
+                        payload += '=' * (4 - len(payload) % 4)
+                        decoded = base64.b64decode(payload)
+                        token_data = json.loads(decoded)
+                        email = token_data.get('email')
+                        logger.info(f"Extracted email from JWT: {email}")
+                except Exception as e:
+                    logger.error(f"Error decoding JWT: {e}")
         
         if not email:
             raise ValidationError('Email not found in token')
@@ -752,8 +786,28 @@ def lambda_handler(event, context):
         # Get current profile for audit log
         current_profile = user_service.get_user_profile(user_id)
         
+        # Transform flat structure from frontend to nested structure for service
+        # Frontend sends: {firstName, lastName, email, phone, address}
+        # Service expects: {profile: {firstName, lastName, phone, address}}
+        raw_updates = body.get('updates', body)
+        
+        updates = {}
+        if any(key in raw_updates for key in ['firstName', 'lastName', 'phone', 'address']):
+            updates['profile'] = {}
+            if 'firstName' in raw_updates:
+                updates['profile']['firstName'] = raw_updates['firstName']
+            if 'lastName' in raw_updates:
+                updates['profile']['lastName'] = raw_updates['lastName']
+            if 'phone' in raw_updates:
+                updates['profile']['phone'] = raw_updates['phone']
+            if 'address' in raw_updates:
+                updates['profile']['address'] = raw_updates['address']
+        
+        # Handle preferences if provided
+        if 'preferences' in raw_updates:
+            updates['preferences'] = raw_updates['preferences']
+        
         # Update profile
-        updates = body.get('updates', body)  # Support both formats
         updated_profile = user_service.update_user_profile(user_id, updates)
         
         # Log data modification

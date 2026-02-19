@@ -232,66 +232,43 @@ class AuthService {
    */
   async signUp(userData: SignupData): Promise<{ user: any; confirmationRequired: boolean }> {
     try {
-      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
-      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      // Always use custom OTP registration endpoint
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
       
-      if (!useAWS) {
-        // Development mode with local backend
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signup`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(userData),
-        });
+      const response = await fetch(`${apiEndpoint}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: userData.email,
+          password: userData.password,
+          firstName: userData.name.split(' ')[0] || userData.name,
+          lastName: userData.name.split(' ').slice(1).join(' ') || '',
+          phone: userData.phone || '',
+          role: userData.role || 'consumer'
+        }),
+      });
 
-        const result = await response.json();
-        
-        if (!response.ok) {
-          throw new AuthError(result.error || 'Signup failed', 'SIGNUP_FAILED');
-        }
-
-        // Track signup event
-        await this.trackAuthEvent('signup', userData.role);
-
-        return {
-          user: { email: userData.email, userId: result.userId },
-          confirmationRequired: result.confirmationRequired
-        };
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new AuthError(
+          result.error || 'Registration failed', 
+          result.code || 'SIGNUP_FAILED'
+        );
       }
 
-      // Production or AWS mode: Use AWS Amplify Cognito
-      const auth = await loadAmplifyAuth();
-      if (auth) {
-        try {
-          const result = await auth.signUp({
-            username: userData.email,
-            password: userData.password,
-            attributes: {
-              email: userData.email,
-              name: userData.name,
-              'custom:role': userData.role
-            }
-          });
+      // Track signup event
+      await this.trackAuthEvent('signup', userData.role);
 
-          // Track signup event
-          await this.trackAuthEvent('signup', userData.role);
-
-          return {
-            user: result.user,
-            confirmationRequired: !result.isSignUpComplete
-          };
-        } catch (error: any) {
-          throw new AuthError(
-            error.message || 'Signup failed',
-            error.code || 'SIGNUP_FAILED',
-            error
-          );
-        }
-      }
-
-      // Fallback if Amplify not available
-      throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
+      return {
+        user: { 
+          email: result.email, 
+          userId: result.userId 
+        },
+        confirmationRequired: true // Always require OTP confirmation
+      };
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -302,35 +279,49 @@ class AuthService {
    */
   async confirmSignUp(email: string, confirmationCode: string): Promise<void> {
     try {
-      // Check if using mock auth (local development)
-      const useMockAuth = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
-      const localOtpCode = process.env.REACT_APP_LOCAL_OTP_CODE || '123456';
+      // Always use custom OTP verification endpoint
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      const response = await fetch(`${apiEndpoint}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email,
+          otp: confirmationCode
+        }),
+      });
 
-      if (useMockAuth) {
-        // Local development mode - validate against hardcoded OTP
-        console.log(`Local Dev: Validating OTP for ${email}`);
-        
-        if (confirmationCode === localOtpCode) {
-          console.log(`✅ Local Dev: OTP verified successfully for ${email}`);
-          return;
+      const result = await response.json();
+      
+      if (!response.ok) {
+        // Handle specific error codes
+        if (result.code === 'INVALID_OTP') {
+          throw new AuthError(
+            result.error || 'Invalid verification code',
+            'CodeMismatchException',
+            { remainingAttempts: result.remainingAttempts }
+          );
+        } else if (result.code === 'OTP_EXPIRED') {
+          throw new AuthError(
+            'Verification code expired. Please request a new one.',
+            'ExpiredCodeException'
+          );
+        } else if (result.code === 'MAX_ATTEMPTS_EXCEEDED') {
+          throw new AuthError(
+            'Too many failed attempts. Please request a new code.',
+            'LimitExceededException'
+          );
         } else {
           throw new AuthError(
-            `Invalid verification code. Use ${localOtpCode} for local development.`,
-            'CodeMismatchException'
+            result.error || 'Verification failed',
+            result.code || 'VERIFICATION_FAILED'
           );
         }
       }
 
-      // Production: Use AWS Amplify Cognito
-      const auth = await loadAmplifyAuth();
-      if (auth) {
-        await auth.confirmSignUp({
-          username: email,
-          confirmationCode
-        });
-      } else {
-        throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
-      }
+      console.log('✅ Email verified successfully');
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -341,24 +332,45 @@ class AuthService {
    */
   async resendConfirmationCode(email: string): Promise<void> {
     try {
-      // Check if using mock auth (local development)
-      const useMockAuth = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
-      const localOtpCode = process.env.REACT_APP_LOCAL_OTP_CODE || '123456';
+      // Always use custom OTP request endpoint
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      const response = await fetch(`${apiEndpoint}/api/auth/request-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
 
-      if (useMockAuth) {
-        // Local development mode - show hardcoded OTP in console
-        console.log(`📧 Local Dev: Verification code for ${email}: ${localOtpCode}`);
-        console.log(`💡 Tip: Use code "${localOtpCode}" to verify your email`);
-        return;
+      const result = await response.json();
+      
+      if (!response.ok) {
+        // Handle specific error codes
+        if (result.code === 'RATE_LIMITED') {
+          throw new AuthError(
+            'Please wait 2 minutes before requesting a new code',
+            'TooManyRequestsException'
+          );
+        } else if (result.code === 'USER_NOT_FOUND') {
+          throw new AuthError(
+            'User not found. Please register first.',
+            'UserNotFoundException'
+          );
+        } else if (result.code === 'ALREADY_VERIFIED') {
+          throw new AuthError(
+            'Email already verified. You can log in now.',
+            'InvalidParameterException'
+          );
+        } else {
+          throw new AuthError(
+            result.error || 'Failed to resend code',
+            result.code || 'RESEND_FAILED'
+          );
+        }
       }
 
-      // Production: Use AWS Amplify Cognito
-      const auth = await loadAmplifyAuth();
-      if (auth) {
-        await auth.resendSignUp({ username: email });
-      } else {
-        throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
-      }
+      console.log('📧 Verification code sent successfully');
     } catch (error: any) {
       throw this.handleAuthError(error);
     }

@@ -126,8 +126,14 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
   // ✅ Auto-select first device when devices load
   useEffect(() => {
+    console.log('📊 Devices loaded:', devices.length, 'devices');
+    console.log('📊 Device IDs:', devices.map((d: any) => d.device_id || d.deviceId || 'NO_ID'));
+    console.log('📊 Current selectedDeviceId:', selectedDeviceId);
+    
     if (devices.length > 0 && !selectedDeviceId) {
-      setSelectedDeviceId(devices[0].device_id);
+      const firstDeviceId = devices[0].device_id || devices[0].deviceId;
+      console.log('✅ Auto-selecting first device:', firstDeviceId);
+      setSelectedDeviceId(firstDeviceId);
     }
   }, [devices, selectedDeviceId]);
 
@@ -292,10 +298,20 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const handleConfirmRemoveDevice = useCallback(async () => {
     if (!deviceToRemove) return;
 
+    // Get device ID with fallback
+    const deviceId = deviceToRemove.device_id || deviceToRemove.deviceId;
+    if (!deviceId) {
+      console.error('❌ Cannot remove device: No device ID found', deviceToRemove);
+      alert('Error: Device ID not found');
+      setIsRemovingDevice(false);
+      return;
+    }
+
+    console.log('🗑️ Removing device:', deviceId);
     setIsRemovingDevice(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/devices/${deviceToRemove.device_id}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev'}/api/devices/${deviceId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -355,7 +371,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
       // Call API to submit issue
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch('http://localhost:3002/api/issues', {
+      const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev'}/api/issues`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -818,24 +834,41 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
               {devices.map((device: any) => {
-                const isSelected = device.device_id === selectedDeviceId;
+                const deviceId = device.device_id || device.deviceId;
+                const isSelected = deviceId === selectedDeviceId;
                 const isOnline = device.status === 'active' || device.status === 'online';
+                
+                // Debug logging
+                console.log('🔍 Device Render:', {
+                  deviceId: deviceId,
+                  deviceName: device.name,
+                  selectedDeviceId: selectedDeviceId,
+                  isSelected: isSelected,
+                  comparison: `"${deviceId}" === "${selectedDeviceId}"`
+                });
                 
                 return (
                   <div
-                    key={device.device_id}
+                    key={deviceId || `device-${device.name}`}
                     className={`
-                      flex-shrink-0 rounded-lg border-2 transition-all min-w-[200px] relative
+                      flex-shrink-0 rounded-lg border-2 transition-all min-w-[200px] relative cursor-pointer
                       ${isSelected 
                         ? 'border-cyan-500 bg-cyan-50 shadow-md' 
-                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-cyan-300 hover:shadow-sm'
                       }
                     `}
+                    onClick={() => {
+                      console.log('🖱️ Device clicked:', deviceId);
+                      if (deviceId) {
+                        setSelectedDeviceId(deviceId);
+                        console.log('✅ Set selected device to:', deviceId);
+                      } else {
+                        console.error('❌ Device has no ID!', device);
+                      }
+                    }}
+                    style={{ pointerEvents: 'auto' }}
                   >
-                    <button
-                      onClick={() => setSelectedDeviceId(device.device_id)}
-                      className="w-full px-4 py-3 text-left"
-                    >
+                    <div className="w-full px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className={`
                           w-10 h-10 rounded-full flex items-center justify-center
@@ -858,14 +891,15 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                           </div>
                         </div>
                       </div>
-                    </button>
+                    </div>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleRemoveDeviceClick(device);
                       }}
-                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors"
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors z-10"
                       title="Remove device"
+                      style={{ pointerEvents: 'auto' }}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1052,7 +1086,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               {Object.entries(waterQualityMetrics.metrics).map(([key, param]: [string, any]) => {
                 const Icon = param.icon;
                 return (
-                  <div key={key} className={`border-2 rounded-lg p-4 ${getParamColor(param.status)}`}>
+                  <div key={`param-${key}`} className={`border-2 rounded-lg p-4 ${getParamColor(param.status)}`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center space-x-2">
                         <Icon className="w-5 h-5 text-gray-700" />
@@ -1599,7 +1633,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                       {Object.entries(waterQualityMetrics.metrics).map(([key, param]: [string, any]) => {
                         const Icon = param.icon;
                         return (
-                          <div key={key} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <div key={`report-param-${key}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center space-x-2">
                                 <Icon className="w-5 h-5 text-gray-700" />

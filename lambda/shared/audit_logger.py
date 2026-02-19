@@ -1,398 +1,205 @@
 """
-AuditLogger - Comprehensive audit logging for compliance
-Logs all user actions, data access, and administrative operations
+Audit Logger for Authentication Events
+Logs security-relevant events for compliance and fraud detection
 """
 
-import os
-import json
-import uuid
 import boto3
-from datetime import datetime, timedelta
+import json
+from datetime import datetime
 from typing import Dict, Any, Optional
 from botocore.exceptions import ClientError
 
 
 class AuditLogger:
-    """
-    Comprehensive audit logger for tracking all system actions
-    Logs to DynamoDB and streams to Kinesis Firehose for S3 archival
-    """
+    """Handles audit logging for authentication events"""
     
-    def __init__(self):
-        """Initialize AuditLogger with DynamoDB and Firehose clients"""
-        self.dynamodb = boto3.resource('dynamodb')
-        self.firehose = boto3.client('firehose')
-        
-        # Get table and stream names from environment
-        self.table_name = os.environ.get('AUDIT_LOGS_TABLE', 'aquachain-dev-audit-logs')
-        self.stream_name = os.environ.get('AUDIT_LOG_STREAM', 'AuditLogStream')
-        
-        self.table = self.dynamodb.Table(self.table_name)
-        
-        # TTL for 7 years (2555 days)
-        self.ttl_days = 2555
-    
-    def log_action(
-        self,
-        action_type: str,
-        user_id: str,
-        resource_type: str,
-        resource_id: str,
-        details: Dict[str, Any],
-        request_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def __init__(self, table_name: str = 'AquaChain-AuthEvents', region: str = 'ap-south-1'):
         """
-        Log an auditable action
+        Initialize audit logger
         
         Args:
-            action_type: Type of action (CREATE, READ, UPDATE, DELETE, LOGIN, LOGOUT, etc.)
-            user_id: ID of user performing the action
-            resource_type: Type of resource (USER, DEVICE, READING, ALERT, etc.)
-            resource_id: ID of the resource being acted upon
-            details: Additional details about the action
-            request_context: Request context (IP, user agent, request ID, etc.)
-        
-        Returns:
-            The created audit log entry
-        
-        Raises:
-            ClientError: If DynamoDB or Firehose operations fail
+            table_name: DynamoDB table name for audit logs
+            region: AWS region
         """
-        timestamp = datetime.utcnow().isoformat()
-        log_id = str(uuid.uuid4())
-        
-        # Calculate TTL (7 years from now)
-        ttl_timestamp = int((datetime.utcnow() + timedelta(days=self.ttl_days)).timestamp())
-        
-        # Create structured log entry
-        log_entry = {
-            'log_id': log_id,
-            'timestamp': timestamp,
-            'action_type': action_type,
-            'user_id': user_id,
-            'resource_type': resource_type,
-            'resource_id': resource_id,
-            'details': details,
-            'request_context': {
-                'ip_address': request_context.get('ip_address', 'unknown'),
-                'user_agent': request_context.get('user_agent', 'unknown'),
-                'request_id': request_context.get('request_id', 'unknown'),
-                'source': request_context.get('source', 'api')
-            },
-            'ttl': ttl_timestamp
-        }
-        
-        try:
-            # Write to DynamoDB for queryable audit trail
-            self.table.put_item(Item=log_entry)
-            
-            # Stream to Kinesis Firehose for long-term S3 archival
-            self._stream_to_firehose(log_entry)
-            
-            return log_entry
-            
-        except ClientError as e:
-            # Log error but don't fail the operation
-            print(f"Error logging audit entry: {e}")
-            # Re-raise to allow caller to handle
-            raise
+        self.dynamodb = boto3.resource('dynamodb', region_name=region)
+        self.table = self.dynamodb.Table(table_name)
     
-    def log_authentication_event(
+    def log_event(
         self,
+        email: str,
         event_type: str,
-        user_id: str,
-        success: bool,
-        request_context: Dict[str, Any],
-        details: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        status: str,
+        ip_address: str,
+        user_agent: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
         """
-        Log authentication events (login, logout, password reset, etc.)
+        Log an authentication event
         
         Args:
-            event_type: Type of auth event (LOGIN, LOGOUT, PASSWORD_RESET, etc.)
-            user_id: ID of user
-            success: Whether the authentication was successful
-            request_context: Request context
-            details: Additional details
+            email: User email
+            event_type: Type of event (OTP_REQUESTED, OTP_VERIFIED, etc.)
+            status: Event status (SUCCESS, FAILURE, RATE_LIMITED, etc.)
+            ip_address: Client IP address
+            user_agent: Client User-Agent
+            metadata: Additional event metadata
         
         Returns:
-            The created audit log entry
-        """
-        action_details = details or {}
-        action_details['success'] = success
-        
-        return self.log_action(
-            action_type=f'AUTH_{event_type}',
-            user_id=user_id,
-            resource_type='USER',
-            resource_id=user_id,
-            details=action_details,
-            request_context=request_context
-        )
-    
-    def log_data_access(
-        self,
-        user_id: str,
-        resource_type: str,
-        resource_id: str,
-        operation: str,
-        request_context: Dict[str, Any],
-        details: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Log data access events (read operations)
-        
-        Args:
-            user_id: ID of user accessing data
-            resource_type: Type of resource being accessed
-            resource_id: ID of resource
-            operation: Specific operation (GET, LIST, QUERY, etc.)
-            request_context: Request context
-            details: Additional details
-        
-        Returns:
-            The created audit log entry
-        """
-        action_details = details or {}
-        action_details['operation'] = operation
-        
-        return self.log_action(
-            action_type='READ',
-            user_id=user_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            details=action_details,
-            request_context=request_context
-        )
-    
-    def log_data_modification(
-        self,
-        user_id: str,
-        resource_type: str,
-        resource_id: str,
-        modification_type: str,
-        previous_values: Optional[Dict[str, Any]],
-        new_values: Dict[str, Any],
-        request_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Log data modification events (create, update, delete)
-        
-        Args:
-            user_id: ID of user modifying data
-            resource_type: Type of resource being modified
-            resource_id: ID of resource
-            modification_type: Type of modification (CREATE, UPDATE, DELETE)
-            previous_values: Previous values (for UPDATE/DELETE)
-            new_values: New values (for CREATE/UPDATE)
-            request_context: Request context
-        
-        Returns:
-            The created audit log entry
-        """
-        details = {
-            'modification_type': modification_type,
-            'previous_values': previous_values,
-            'new_values': new_values,
-            'changed_fields': list(new_values.keys()) if new_values else []
-        }
-        
-        return self.log_action(
-            action_type=modification_type,
-            user_id=user_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            details=details,
-            request_context=request_context
-        )
-    
-    def log_administrative_action(
-        self,
-        user_id: str,
-        action: str,
-        target_resource_type: str,
-        target_resource_id: str,
-        request_context: Dict[str, Any],
-        details: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Log administrative actions (user management, config changes, etc.)
-        
-        Args:
-            user_id: ID of admin user
-            action: Administrative action performed
-            target_resource_type: Type of resource being administered
-            target_resource_id: ID of target resource
-            request_context: Request context
-            details: Additional details
-        
-        Returns:
-            The created audit log entry
-        """
-        action_details = details or {}
-        action_details['administrative_action'] = action
-        
-        return self.log_action(
-            action_type=f'ADMIN_{action}',
-            user_id=user_id,
-            resource_type=target_resource_type,
-            resource_id=target_resource_id,
-            details=action_details,
-            request_context=request_context
-        )
-    
-    def _stream_to_firehose(self, log_entry: Dict[str, Any]) -> None:
-        """
-        Stream audit log to Kinesis Firehose for S3 archival
-        
-        Args:
-            log_entry: The audit log entry to stream
+            True if logged successfully, False otherwise
         """
         try:
-            # Convert to JSON with newline for Firehose
-            record_data = json.dumps(log_entry) + '\n'
+            timestamp = datetime.utcnow().isoformat()
             
-            self.firehose.put_record(
-                DeliveryStreamName=self.stream_name,
-                Record={'Data': record_data.encode('utf-8')}
-            )
+            item = {
+                'email': email,
+                'timestamp': timestamp,
+                'eventType': event_type,
+                'status': status,
+                'ipAddress': ip_address,
+                'userAgent': user_agent,
+                'ttl': int(datetime.utcnow().timestamp()) + (90 * 24 * 60 * 60)  # 90 days retention
+            }
+            
+            if metadata:
+                item['metadata'] = metadata
+            
+            self.table.put_item(Item=item)
+            return True
+            
         except ClientError as e:
-            # Log error but don't fail the audit logging
-            print(f"Error streaming to Firehose: {e}")
-            # Don't re-raise - DynamoDB write is primary, Firehose is backup
+            print(f"Failed to log audit event: {e}")
+            return False
     
-    def query_logs_by_user(
+    def log_otp_request(
         self,
-        user_id: str,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        limit: int = 100
-    ) -> Dict[str, Any]:
+        email: str,
+        ip_address: str,
+        user_agent: str,
+        success: bool,
+        reason: Optional[str] = None
+    ) -> bool:
+        """Log OTP request event"""
+        return self.log_event(
+            email=email,
+            event_type='OTP_REQUESTED',
+            status='SUCCESS' if success else 'FAILURE',
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={'reason': reason} if reason else None
+        )
+    
+    def log_otp_verification(
+        self,
+        email: str,
+        ip_address: str,
+        user_agent: str,
+        success: bool,
+        attempts: int,
+        reason: Optional[str] = None
+    ) -> bool:
+        """Log OTP verification event"""
+        return self.log_event(
+            email=email,
+            event_type='OTP_VERIFIED',
+            status='SUCCESS' if success else 'FAILURE',
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={
+                'attempts': attempts,
+                'reason': reason
+            }
+        )
+    
+    def log_registration(
+        self,
+        email: str,
+        ip_address: str,
+        user_agent: str,
+        success: bool,
+        role: str,
+        reason: Optional[str] = None
+    ) -> bool:
+        """Log user registration event"""
+        return self.log_event(
+            email=email,
+            event_type='USER_REGISTERED',
+            status='SUCCESS' if success else 'FAILURE',
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={
+                'role': role,
+                'reason': reason
+            }
+        )
+    
+    def log_rate_limit(
+        self,
+        email: str,
+        ip_address: str,
+        user_agent: str,
+        event_type: str,
+        remaining_seconds: int
+    ) -> bool:
+        """Log rate limiting event"""
+        return self.log_event(
+            email=email,
+            event_type=event_type,
+            status='RATE_LIMITED',
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={'remainingSeconds': remaining_seconds}
+        )
+    
+    def log_lockout(
+        self,
+        email: str,
+        ip_address: str,
+        user_agent: str,
+        failed_attempts: int,
+        lock_duration_minutes: int
+    ) -> bool:
+        """Log account lockout event"""
+        return self.log_event(
+            email=email,
+            event_type='ACCOUNT_LOCKED',
+            status='LOCKED',
+            ip_address=ip_address,
+            user_agent=user_agent,
+            metadata={
+                'failedAttempts': failed_attempts,
+                'lockDurationMinutes': lock_duration_minutes
+            }
+        )
+    
+    def get_recent_events(
+        self,
+        email: str,
+        limit: int = 10
+    ) -> list:
         """
-        Query audit logs for a specific user
+        Get recent events for a user
         
         Args:
-            user_id: ID of user to query logs for
-            start_time: Start timestamp (ISO format)
-            end_time: End timestamp (ISO format)
-            limit: Maximum number of results
+            email: User email
+            limit: Maximum number of events to return
         
         Returns:
-            Dictionary with items and pagination info
+            List of recent events
         """
-        from boto3.dynamodb.conditions import Key
-        
-        query_params = {
-            'IndexName': 'user_id-timestamp-index',
-            'KeyConditionExpression': Key('user_id').eq(user_id),
-            'Limit': limit,
-            'ScanIndexForward': False  # Newest first
-        }
-        
-        # Add time range if specified
-        if start_time and end_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').between(start_time, end_time)
-        elif start_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').gte(start_time)
-        elif end_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').lte(end_time)
-        
-        response = self.table.query(**query_params)
-        
-        return {
-            'items': response.get('Items', []),
-            'count': len(response.get('Items', [])),
-            'last_evaluated_key': response.get('LastEvaluatedKey')
-        }
-    
-    def query_logs_by_resource(
-        self,
-        resource_type: str,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        limit: int = 100
-    ) -> Dict[str, Any]:
-        """
-        Query audit logs for a specific resource type
-        
-        Args:
-            resource_type: Type of resource to query logs for
-            start_time: Start timestamp (ISO format)
-            end_time: End timestamp (ISO format)
-            limit: Maximum number of results
-        
-        Returns:
-            Dictionary with items and pagination info
-        """
-        from boto3.dynamodb.conditions import Key
-        
-        query_params = {
-            'IndexName': 'resource_type-timestamp-index',
-            'KeyConditionExpression': Key('resource_type').eq(resource_type),
-            'Limit': limit,
-            'ScanIndexForward': False  # Newest first
-        }
-        
-        # Add time range if specified
-        if start_time and end_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').between(start_time, end_time)
-        elif start_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').gte(start_time)
-        elif end_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').lte(end_time)
-        
-        response = self.table.query(**query_params)
-        
-        return {
-            'items': response.get('Items', []),
-            'count': len(response.get('Items', [])),
-            'last_evaluated_key': response.get('LastEvaluatedKey')
-        }
-    
-    def query_logs_by_action_type(
-        self,
-        action_type: str,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        limit: int = 100
-    ) -> Dict[str, Any]:
-        """
-        Query audit logs for a specific action type
-        
-        Args:
-            action_type: Type of action to query logs for
-            start_time: Start timestamp (ISO format)
-            end_time: End timestamp (ISO format)
-            limit: Maximum number of results
-        
-        Returns:
-            Dictionary with items and pagination info
-        """
-        from boto3.dynamodb.conditions import Key
-        
-        query_params = {
-            'IndexName': 'action_type-timestamp-index',
-            'KeyConditionExpression': Key('action_type').eq(action_type),
-            'Limit': limit,
-            'ScanIndexForward': False  # Newest first
-        }
-        
-        # Add time range if specified
-        if start_time and end_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').between(start_time, end_time)
-        elif start_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').gte(start_time)
-        elif end_time:
-            query_params['KeyConditionExpression'] &= Key('timestamp').lte(end_time)
-        
-        response = self.table.query(**query_params)
-        
-        return {
-            'items': response.get('Items', []),
-            'count': len(response.get('Items', [])),
-            'last_evaluated_key': response.get('LastEvaluatedKey')
-        }
+        try:
+            response = self.table.query(
+                KeyConditionExpression='email = :email',
+                ExpressionAttributeValues={':email': email},
+                ScanIndexForward=False,  # Most recent first
+                Limit=limit
+            )
+            
+            return response.get('Items', [])
+            
+        except ClientError as e:
+            print(f"Failed to query audit events: {e}")
+            return []
 
 
-# Singleton instance for easy import
+# Create default instance for easy importing
 audit_logger = AuditLogger()

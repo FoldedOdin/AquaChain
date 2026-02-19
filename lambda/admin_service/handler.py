@@ -463,14 +463,20 @@ def _handle_user_device_management(event, method: str, path: str, query_params: 
         if not user_id:
             return _create_response(401, {'error': 'User not authenticated'})
         
+        # Extract path parameters
+        path_params = event.get('pathParameters') or {}
+        
         if method == 'GET' and path == '/api/devices':
             return _get_user_devices(user_id)
+        elif method == 'DELETE' and 'deviceId' in path_params:
+            device_id = path_params['deviceId']
+            return _delete_user_device(user_id, device_id)
         else:
             return _create_response(404, {'error': 'Endpoint not found'})
             
     except Exception as e:
         logger.error(f"User device management error: {str(e)}")
-        return _create_response(500, {'error': 'Failed to fetch devices'})
+        return _create_response(500, {'error': 'Failed to process request'})
 
 def _get_user_devices(user_id: str):
     """
@@ -511,6 +517,46 @@ def _get_user_devices(user_id: str):
     except Exception as e:
         logger.error(f"Error fetching user devices: {str(e)}")
         return _create_response(500, {'error': 'Failed to fetch devices'})
+
+def _delete_user_device(user_id: str, device_id: str):
+    """
+    Delete a device owned by the user
+    Verifies ownership before deletion for security
+    """
+    try:
+        table = dynamodb.Table(DEVICES_TABLE)
+        
+        # First, verify the device exists and belongs to the user
+        response = table.get_item(Key={'deviceId': device_id})
+        
+        if 'Item' not in response:
+            logger.warning(f"Device not found: {device_id}")
+            return _create_response(404, {'error': 'Device not found'})
+        
+        device = response['Item']
+        device_owner = device.get('userId', '')
+        
+        # Verify ownership
+        if device_owner != user_id:
+            logger.warning(f"User {user_id} attempted to delete device {device_id} owned by {device_owner}")
+            return _create_response(403, {'error': 'You do not have permission to delete this device'})
+        
+        # Delete the device
+        table.delete_item(Key={'deviceId': device_id})
+        
+        logger.info(f"Device {device_id} deleted by user {user_id}")
+        
+        return _create_response(200, {
+            'success': True,
+            'message': 'Device deleted successfully'
+        })
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error deleting device: {str(e)}")
+        return _create_response(500, {'error': 'Database error occurred'})
+    except Exception as e:
+        logger.error(f"Error deleting device: {str(e)}")
+        return _create_response(500, {'error': 'Failed to delete device'})
 
 def _get_all_devices(query_params: Dict):
     """
