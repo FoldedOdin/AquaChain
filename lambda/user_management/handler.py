@@ -566,10 +566,15 @@ class UserManagementService:
 
 def _get_request_context(event: Dict) -> Dict:
     """Extract request context for audit logging"""
+    # Safely extract headers - API Gateway might send headers as None or in different case
+    headers = event.get('headers') or event.get('Headers') or {}
+    request_context = event.get('requestContext') or {}
+    identity = request_context.get('identity') or {}
+    
     return {
-        'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
-        'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
-        'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+        'ip_address': identity.get('sourceIp', 'unknown'),
+        'user_agent': headers.get('User-Agent') or headers.get('user-agent', 'unknown'),
+        'request_id': request_context.get('requestId', 'unknown'),
         'source': 'api'
     }
 
@@ -578,48 +583,104 @@ def _generate_otp() -> str:
     return str(random.randint(100000, 999999))
 
 def _store_otp(cache, email: str, otp: str, changes: Dict) -> None:
-    """Store OTP in cache with 5-minute expiration"""
+    """Store OTP in DynamoDB with 5-minute expiration"""
+    dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+    users_table = dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))
+    
     otp_data = {
         'otp': otp,
         'changes': changes,
         'expires_at': (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
         'attempts': 0
     }
-    cache.set(f'otp:{email}', json.dumps(otp_data), ttl=300)  # 5 minutes
+    
+    # Store in DynamoDB with TTL
+    try:
+        users_table.put_item(
+            Item={
+                'userId': f'OTP#{email}',  # Temporary OTP record
+                'otp_data': json.dumps(otp_data),
+                'ttl': int((datetime.utcnow() + timedelta(minutes=5)).timestamp())
+            }
+        )
+        logger.info(f"OTP stored in DynamoDB for {email}")
+    except Exception as e:
+        logger.error(f"Failed to store OTP in DynamoDB: {str(e)}")
+        # Fallback to cache
+        cache.set(f'otp:{email}', json.dumps(otp_data), ttl=300)
 
 def _verify_otp(cache, email: str, provided_otp: str) -> tuple[bool, Optional[Dict], Optional[str]]:
     """
-    Verify OTP and return (is_valid, changes, error_message)
+    Verify OTP from DynamoDB and return (is_valid, changes, error_message)
     """
-    otp_key = f'otp:{email}'
-    otp_data_str = cache.get(otp_key)
+    dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+    users_table = dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))
     
-    if not otp_data_str:
-        return False, None, 'No OTP request found. Please request a new OTP.'
+    otp_key = f'OTP#{email}'
     
-    otp_data = json.loads(otp_data_str)
-    
-    # Check expiration
-    expires_at = datetime.fromisoformat(otp_data['expires_at'])
-    if datetime.utcnow() > expires_at:
-        cache.delete(otp_key)
-        return False, None, 'OTP expired. Please request a new one.'
-    
-    # Check attempts
-    if otp_data['attempts'] >= 3:
-        cache.delete(otp_key)
-        return False, None, 'Too many failed attempts. Please request a new OTP.'
-    
-    # Verify OTP
-    if otp_data['otp'] != provided_otp:
-        otp_data['attempts'] += 1
-        cache.set(otp_key, json.dumps(otp_data), ttl=300)
-        attempts_remaining = 3 - otp_data['attempts']
-        return False, None, f'Invalid OTP. {attempts_remaining} attempts remaining.'
-    
-    # OTP is valid
-    cache.delete(otp_key)
-    return True, otp_data['changes'], None
+    try:
+        # Try DynamoDB first
+        response = users_table.get_item(Key={'userId': otp_key})
+        
+        if 'Item' not in response:
+            # Fallback to cache
+            otp_data_str = cache.get(f'otp:{email}')
+            if not otp_data_str:
+                return False, None, 'No OTP request found. Please request a new OTP.'
+            otp_data = json.loads(otp_data_str)
+        else:
+            otp_data = json.loads(response['Item']['otp_data'])
+        
+        # Check expiration
+        expires_at = datetime.fromisoformat(otp_data['expires_at'])
+        if datetime.utcnow() > expires_at:
+            # Delete expired OTP
+            try:
+                users_table.delete_item(Key={'userId': otp_key})
+            except:
+                pass
+            cache.delete(f'otp:{email}')
+            return False, None, 'OTP expired. Please request a new one.'
+        
+        # Check attempts
+        if otp_data['attempts'] >= 3:
+            # Delete after too many attempts
+            try:
+                users_table.delete_item(Key={'userId': otp_key})
+            except:
+                pass
+            cache.delete(f'otp:{email}')
+            return False, None, 'Too many failed attempts. Please request a new OTP.'
+        
+        # Verify OTP
+        if otp_data['otp'] != provided_otp:
+            otp_data['attempts'] += 1
+            # Update attempts in DynamoDB
+            try:
+                users_table.put_item(
+                    Item={
+                        'userId': otp_key,
+                        'otp_data': json.dumps(otp_data),
+                        'ttl': int((datetime.utcnow() + timedelta(minutes=5)).timestamp())
+                    }
+                )
+            except:
+                cache.set(f'otp:{email}', json.dumps(otp_data), ttl=300)
+            
+            attempts_remaining = 3 - otp_data['attempts']
+            return False, None, f'Invalid OTP. {attempts_remaining} attempts remaining.'
+        
+        # OTP is valid - delete it
+        try:
+            users_table.delete_item(Key={'userId': otp_key})
+        except:
+            pass
+        cache.delete(f'otp:{email}')
+        return True, otp_data['changes'], None
+        
+    except Exception as e:
+        logger.error(f"Error verifying OTP: {str(e)}")
+        return False, None, 'Error verifying OTP. Please try again.'
 
 def _send_otp_email(email: str, otp: str, change_type: str = 'profile') -> None:
     """Send OTP via AWS SES email"""
@@ -747,6 +808,12 @@ def lambda_handler(event, context):
     """
     Main Lambda handler for user management operations.
     """
+    # DEBUG: Log event structure at the very beginning
+    logger.info(f"=== LAMBDA INVOCATION START ===")
+    logger.info(f"Event keys: {list(event.keys()) if event else 'EVENT IS NONE'}")
+    logger.info(f"HTTP Method: {event.get('httpMethod') if event else 'N/A'}")
+    logger.info(f"Path: {event.get('path') if event else 'N/A'}")
+    
     # Handle OPTIONS preflight requests for CORS
     if event.get('httpMethod') == 'OPTIONS':
         return handle_options()
@@ -760,13 +827,21 @@ def lambda_handler(event, context):
         raise ValidationError('Missing Cognito configuration')
     
     user_service = UserManagementService(user_pool_id, client_id, region)
-    request_context = _get_request_context(event)
+    
+    # DEBUG: Log before calling _get_request_context
+    logger.info(f"About to call _get_request_context")
+    try:
+        request_context = _get_request_context(event)
+        logger.info(f"Successfully got request_context: {request_context}")
+    except Exception as e:
+        logger.error(f"Error in _get_request_context: {e}")
+        raise
     
     # Route based on HTTP method and path
     http_method = event.get('httpMethod')
     path = event.get('path', '')
     body = json.loads(event.get('body', '{}'))
-    path_params = event.get('pathParameters', {})
+    path_params = event.get('pathParameters') or {}  # Handle None from API Gateway
         
     if http_method == 'POST' and path.endswith('/register'):
         # User registration
@@ -815,8 +890,9 @@ def lambda_handler(event, context):
         
         return success_response(profile)
     
-    elif http_method == 'PUT' and '/profile/' in path:
-        # Update user profile
+    elif http_method == 'PUT' and '/profile/' in path and 'verify-and-update' not in path and 'update' not in path:
+        # Update user profile (for paths like /profile/{userId})
+        # NOTE: Exclude verify-and-update and update endpoints
         user_id = path_params.get('userId')
         
         # Get current profile for audit log
@@ -867,8 +943,9 @@ def lambda_handler(event, context):
         
         return success_response(result)
     
-    elif http_method == 'PUT' and path.endswith('/profile/update'):
+    elif http_method == 'PUT' and path == '/api/profile/update':
         # Direct profile update (for non-sensitive changes)
+        # NOTE: Use exact match to avoid conflicting with /api/profile/verify-and-update
         # Get user email from Cognito claims or JWT token
         claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
         email = claims.get('email')
@@ -1049,19 +1126,62 @@ def lambda_handler(event, context):
         return success_response(response_data)
     
     elif http_method == 'PUT' and path.endswith('/profile/verify-and-update'):
-        # Verify OTP and update profile
+        # Verify OTP and update profile (CHECK THIS FIRST - more specific than /profile/update)
         otp = body.get('otp')
         updates = body.get('updates', {})
         
-        # Get user email from request context or body
-        email = body.get('email')
+        # Get user email from JWT token
+        email = None
+        
+        # DEBUG: Log entire event structure
+        logger.info(f"=== DEBUG EVENT STRUCTURE ===")
+        logger.info(f"Event keys: {list(event.keys())}")
+        logger.info(f"Event type: {type(event)}")
+        
+        # Try to get from Cognito claims in the authorizer context
+        request_context = event.get('requestContext')
+        logger.info(f"requestContext: {request_context}")
+        if request_context:
+            authorizer = request_context.get('authorizer')
+            logger.info(f"authorizer: {authorizer}")
+            if authorizer:
+                claims = authorizer.get('claims')
+                logger.info(f"claims: {claims}")
+                if claims:
+                    email = claims.get('email')
+                    logger.info(f"Email from Cognito claims: {email}")
+        
+        # Fallback: decode JWT token manually
         if not email:
-            # Try to get from Cognito claims in the authorizer context
-            claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-            email = claims.get('email')
+            # Try multiple header variations
+            headers = event.get('headers') or event.get('Headers') or {}
+            logger.info(f"headers object: {headers}")
+            logger.info(f"headers type: {type(headers)}")
+            
+            auth_header = headers.get('Authorization') or headers.get('authorization') if headers else None
+            logger.info(f"auth_header: {auth_header}")
+            
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                try:
+                    import base64
+                    # Decode JWT payload (middle part)
+                    parts = token.split('.')
+                    if len(parts) == 3:
+                        # Add padding if needed
+                        payload = parts[1]
+                        payload += '=' * (4 - len(payload) % 4)
+                        decoded = base64.b64decode(payload)
+                        token_data = json.loads(decoded)
+                        email = token_data.get('email')
+                        logger.info(f"Extracted email from JWT: {email}")
+                except Exception as e:
+                    logger.error(f"Error decoding JWT: {e}")
         
         if not email:
-            raise ValidationError('Email is required')
+            logger.error(f"=== FAILED TO EXTRACT EMAIL ===")
+            logger.error(f"Event structure: {json.dumps(event, default=str)}")
+            raise ValidationError('Email not found in token')
         
         if not otp:
             raise ValidationError('OTP is required')
@@ -1079,12 +1199,39 @@ def lambda_handler(event, context):
             raise ResourceNotFoundError('User not found', details={'email': email})
         
         user_id = user.get('userId')
+        logger.info(f"=== DEBUG: Extracted userId: {user_id} from user: {user.keys()}")
+        
+        if not user_id:
+            logger.error(f"userId is None! User object: {user}")
+            raise ValidationError('User ID not found in user record')
         
         # Get current profile for audit log
+        logger.info(f"About to call get_user_profile with userId: {user_id}")
         current_profile = user_service.get_user_profile(user_id)
         
+        # Transform flat structure from frontend to nested structure for service
+        # Frontend sends: {firstName, lastName, email, phone, address}
+        # Service expects: {profile: {firstName, lastName, phone, address}}
+        raw_updates = updates
+        
+        service_updates = {}
+        if any(key in raw_updates for key in ['firstName', 'lastName', 'phone', 'address']):
+            service_updates['profile'] = {}
+            if 'firstName' in raw_updates:
+                service_updates['profile']['firstName'] = raw_updates['firstName']
+            if 'lastName' in raw_updates:
+                service_updates['profile']['lastName'] = raw_updates['lastName']
+            if 'phone' in raw_updates:
+                service_updates['profile']['phone'] = raw_updates['phone']
+            if 'address' in raw_updates:
+                service_updates['profile']['address'] = raw_updates['address']
+        
+        # Handle preferences if provided
+        if 'preferences' in raw_updates:
+            service_updates['preferences'] = raw_updates['preferences']
+        
         # Update profile
-        updated_profile = user_service.update_user_profile(user_id, updates)
+        updated_profile = user_service.update_user_profile(user_id, service_updates)
         
         # Log data modification
         audit_logger.log_data_modification(

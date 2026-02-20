@@ -54,8 +54,8 @@ Write-Host ""
 Write-Host "[3/4] Deploying CDK stack with updated IAM permissions..." -ForegroundColor Yellow
 Push-Location infrastructure/cdk
 try {
-    Write-Host "Running: cdk deploy AquaChain-Compute-dev --require-approval never" -ForegroundColor Cyan
-    cdk deploy AquaChain-Compute-dev --require-approval never
+    Write-Host "Running: cdk deploy AquaChain-Compute-dev --require-approval never --exclusively" -ForegroundColor Cyan
+    cdk deploy AquaChain-Compute-dev --require-approval never --exclusively
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: CDK deployment failed" -ForegroundColor Red
