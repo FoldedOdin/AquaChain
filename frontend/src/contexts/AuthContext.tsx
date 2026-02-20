@@ -272,40 +272,88 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           
           console.log('👤 User groups:', groups, '→ Role:', role);
           
-          const userProfile: UserProfile = {
-            userId: currentUser.userId,
-            email: email,
-            role: role,
-            profile: {
-              firstName: 'User',
-              lastName: '',
-              phone: '+1234567890',
-              address: {
-                street: '123 Main St',
-                city: 'Anytown',
-                state: 'CA',
-                zipCode: '12345',
-                coordinates: {
-                  latitude: 37.7749,
-                  longitude: -122.4194
-                }
-              }
-            },
-            deviceIds: [],
-            preferences: {
-              notifications: {
-                push: true,
-                sms: true,
-                email: true
+          // Check if we already have profile data in localStorage
+          const existingUser = localStorage.getItem('aquachain_user');
+          let userProfile: UserProfile;
+          
+          if (existingUser) {
+            // Use existing profile data
+            const existing = JSON.parse(existingUser);
+            console.log('✅ Using existing profile from localStorage:', existing);
+            userProfile = {
+              ...existing,
+              userId: currentUser.userId,
+              email: email,
+              role: role
+            };
+          } else {
+            // Create basic user profile for first-time login
+            console.log('ℹ️ Creating new basic profile (first login)');
+            userProfile = {
+              userId: currentUser.userId,
+              email: email,
+              role: role,
+              profile: {
+                firstName: 'User',
+                lastName: '',
+                phone: '',
+                address: null
               },
-              theme: 'auto',
-              language: 'en'
-            }
-          };
+              deviceIds: [],
+              preferences: {
+                notifications: {
+                  push: true,
+                  sms: true,
+                  email: true
+                },
+                theme: 'auto',
+                language: 'en'
+              }
+            };
+          }
 
           localStorage.setItem('aquachain_user', JSON.stringify(userProfile));
           setUser(userProfile);
           setIsAuthenticated(true);
+          
+          // Attempt to load fresh profile from DynamoDB in background (optional)
+          setTimeout(async () => {
+            try {
+              console.log('🔄 Attempting to load fresh profile from DynamoDB...');
+              const profileResponse = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${idToken}`
+                }
+              });
+
+              if (profileResponse.ok) {
+                const result = await profileResponse.json();
+                if (result.success && result.profile) {
+                  console.log('✅ Fresh profile loaded from DynamoDB:', result.profile);
+                  const loadedProfile: UserProfile = {
+                    ...userProfile,
+                    profile: {
+                      firstName: result.profile.profile?.firstName || result.profile.firstName || userProfile.profile.firstName,
+                      lastName: result.profile.profile?.lastName || result.profile.lastName || userProfile.profile.lastName,
+                      phone: result.profile.profile?.phone || result.profile.phone || userProfile.profile.phone,
+                      address: result.profile.profile?.address || result.profile.address || userProfile.profile.address
+                    },
+                    deviceIds: result.profile.deviceIds || userProfile.deviceIds,
+                    preferences: result.profile.preferences || userProfile.preferences
+                  };
+                  localStorage.setItem('aquachain_user', JSON.stringify(loadedProfile));
+                  setUser(loadedProfile);
+                  console.log('✅ Profile updated with fresh data from DynamoDB');
+                }
+              } else {
+                console.log('ℹ️ Could not load fresh profile (using cached data)');
+              }
+            } catch (error) {
+              console.log('ℹ️ Background profile load failed (using cached data):', error);
+            }
+          }, 500);
         } else {
           throw new Error('Sign in not completed');
         }
@@ -379,38 +427,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const refreshUser = async (): Promise<void> => {
     try {
-      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
-        const storedToken = localStorage.getItem('aquachain_token');
-        const storedUser = localStorage.getItem('aquachain_user');
-        
-        if (storedToken && storedUser) {
-          const userData = JSON.parse(storedUser);
-          
-          console.log('🔄 Refreshing user data for:', userData.email);
-          
-          const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/validate`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${storedToken}`
-            },
-            body: JSON.stringify({ email: userData.email })
-          });
+      const storedToken = localStorage.getItem('aquachain_token');
+      const storedUser = localStorage.getItem('aquachain_user');
+      
+      if (!storedToken || !storedUser) {
+        console.log('ℹ️ No token or user data to refresh');
+        return;
+      }
 
-          if (response.ok) {
-            const validatedUser = await response.json();
-            console.log('📥 Fresh user data received:', validatedUser.user);
-            setUser(validatedUser.user);
-            localStorage.setItem('aquachain_user', JSON.stringify(validatedUser.user));
-            console.log('✅ User data refreshed and state updated');
-          } else {
-            console.error('❌ Failed to refresh user data:', response.status);
+      const userData = JSON.parse(storedUser);
+      
+      // Try to fetch fresh profile from API
+      try {
+        console.log('🔄 Refreshing profile from API...');
+        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${storedToken}`
+          }
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.profile) {
+            console.log('✅ Fresh profile received:', result.profile);
+            const refreshedProfile: UserProfile = {
+              ...userData,
+              profile: {
+                firstName: result.profile.profile?.firstName || result.profile.firstName || userData.profile?.firstName || 'User',
+                lastName: result.profile.profile?.lastName || result.profile.lastName || userData.profile?.lastName || '',
+                phone: result.profile.profile?.phone || result.profile.phone || userData.profile?.phone || '',
+                address: result.profile.profile?.address || result.profile.address || userData.profile?.address || null
+              },
+              deviceIds: result.profile.deviceIds || userData.deviceIds || [],
+              preferences: result.profile.preferences || userData.preferences
+            };
+            localStorage.setItem('aquachain_user', JSON.stringify(refreshedProfile));
+            setUser(refreshedProfile);
+            console.log('✅ Profile refreshed successfully');
+            return;
           }
         }
-      } else {
-        // Production: re-validate with Cognito
-        await checkAuthState();
+      } catch (apiError) {
+        console.log('ℹ️ API refresh failed, using localStorage:', apiError);
       }
+
+      // Fallback: just reload from localStorage
+      setUser(userData);
+      console.log('✅ User data refreshed from localStorage');
     } catch (error) {
       console.error('Error refreshing user data:', error);
     }

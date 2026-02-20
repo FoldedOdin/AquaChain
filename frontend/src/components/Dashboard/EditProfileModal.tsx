@@ -6,8 +6,7 @@ import {
   ExclamationTriangleIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import { User, Mail, Phone, MapPin, Lock, Map } from 'lucide-react';
-import AddressMapPicker from './AddressMapPicker';
+import { User, Mail, Phone, MapPin, Lock } from 'lucide-react';
 
 interface AddressObject {
   country?: string;
@@ -17,7 +16,6 @@ interface AddressObject {
   landmark?: string;
   city?: string;
   state?: string;
-  isDefault?: boolean;
   formatted?: string;
 }
 
@@ -61,14 +59,13 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [landmark, setLandmark] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
-  const [isDefaultAddress, setIsDefaultAddress] = useState(true);
+  const [countryCode, setCountryCode] = useState('+91'); // Default to India
 
   // OTP state
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [otpError, setOtpError] = useState('');
   const [resendTimer, setResendTimer] = useState(0);
   const [otpSentTo, setOtpSentTo] = useState('');
-  const [showMapPicker, setShowMapPicker] = useState(false);
 
   // Track if we've initialized the form for this modal session
   const initializedRef = useRef(false);
@@ -95,7 +92,26 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       setFirstName(stableProfile.firstName);
       setLastName(stableProfile.lastName);
       setEmail(stableProfile.email);
-      setPhone(stableProfile.phone);
+      
+      // Parse phone number to extract country code
+      const currentPhone = stableProfile.phone || '';
+      if (currentPhone.startsWith('+')) {
+        // Extract country code (e.g., +91 from +919876543210)
+        const commonCodes = ['+91', '+1', '+44', '+61', '+81', '+86', '+33', '+49', '+39', '+34', '+7', '+55', '+27', '+971', '+65', '+60', '+62', '+63', '+66', '+84', '+92', '+880', '+94', '+977'];
+        const matchedCode = commonCodes.find(code => currentPhone.startsWith(code));
+        if (matchedCode) {
+          setCountryCode(matchedCode);
+          setPhone(currentPhone.substring(matchedCode.length));
+        } else {
+          // Default to +91 if no match
+          setCountryCode('+91');
+          setPhone(currentPhone.substring(1)); // Remove the +
+        }
+      } else {
+        // No country code, assume it's just the number
+        setCountryCode('+91');
+        setPhone(currentPhone);
+      }
       
       // Parse existing address - handle both object and string formats
       const addr = stableProfile.address;
@@ -110,7 +126,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
           setLandmark(addressObj.landmark || '');
           setCity(addressObj.city || '');
           setState(addressObj.state || '');
-          setIsDefaultAddress(addressObj.isDefault !== undefined ? addressObj.isDefault : true);
         } else if (typeof addr === 'string' && addr) {
           // Legacy string format - try to parse comma-separated address
           const parts = addr.split(',').map(p => p.trim());
@@ -130,12 +145,10 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         setLandmark('');
         setCity('');
         setState('');
-        setIsDefaultAddress(true);
       }
       
       // Reset other states
       setStep('form');
-      setShowMapPicker(false);
       setErrorMessage('');
       
       initializedRef.current = true;
@@ -186,7 +199,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         landmark: landmark.trim(),
         city: city.trim(),
         state: state.trim(),
-        isDefault: isDefaultAddress,
         // Also create formatted string for backward compatibility
         formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
           .map(p => p ? p.trim() : '')
@@ -194,11 +206,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
           .join(', ')
       };
 
+      // Format phone with country code (E.164 format)
+      const formattedPhone = phone.trim() ? `${countryCode}${phone.trim()}` : '';
+
       const updates = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
-        phone: phone.trim(),
+        phone: formattedPhone,
         address: addressObj
       };
 
@@ -244,6 +259,21 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
         if (!response.ok) {
           throw new Error(result.error || 'Failed to update profile');
+        }
+
+        // Update localStorage with new profile data
+        const storedUser = localStorage.getItem('aquachain_user');
+        if (storedUser) {
+          const userData = JSON.parse(storedUser);
+          userData.profile = {
+            ...userData.profile,
+            firstName: updates.firstName,
+            lastName: updates.lastName,
+            phone: updates.phone,
+            address: updates.address
+          };
+          localStorage.setItem('aquachain_user', JSON.stringify(userData));
+          console.log('✅ Updated profile in localStorage');
         }
 
         setStep('success');
@@ -305,18 +335,20 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         landmark: landmark.trim(),
         city: city.trim(),
         state: state.trim(),
-        isDefault: isDefaultAddress,
         formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
           .map(p => p ? p.trim() : '')
           .filter(p => p && p !== 'undefined')
           .join(', ')
       };
 
+      // Format phone with country code (E.164 format)
+      const formattedPhone = phone.trim() ? `${countryCode}${phone.trim()}` : '';
+
       const updates = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
-        phone: phone.trim(),
+        phone: formattedPhone,
         address: addressObj
       };
 
@@ -336,6 +368,21 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
       if (!response.ok) {
         throw new Error(result.error || 'Invalid OTP');
+      }
+
+      // Update localStorage with new profile data
+      const storedUser = localStorage.getItem('aquachain_user');
+      if (storedUser) {
+        const userData = JSON.parse(storedUser);
+        userData.profile = {
+          ...userData.profile,
+          firstName: updates.firstName,
+          lastName: updates.lastName,
+          phone: updates.phone,
+          address: updates.address
+        };
+        localStorage.setItem('aquachain_user', JSON.stringify(userData));
+        console.log('✅ Updated profile in localStorage after OTP verification');
       }
 
       setStep('success');
@@ -368,7 +415,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         landmark: landmark.trim(),
         city: city.trim(),
         state: state.trim(),
-        isDefault: isDefaultAddress,
         formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
           .map(p => p ? p.trim() : '')
           .filter(p => p && p !== 'undefined')
@@ -387,7 +433,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
             firstName: firstName.trim(),
             lastName: lastName.trim(),
             email: email.trim(),
-            phone: phone.trim(),
+            phone: phone.trim() ? `${countryCode}${phone.trim()}` : '',
             address: addressObj
           }
         })
@@ -659,18 +705,57 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     />
                   </div>
 
-                  {/* Mobile Number */}
+                  {/* Mobile Number with Country Code */}
                   <div className="mb-4">
                     <label className="block text-sm font-semibold text-gray-900 mb-2">
                       Mobile number
                     </label>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">May be used to assist delivery</p>
+                    <div className="flex gap-2">
+                      <select
+                        value={countryCode}
+                        onChange={(e) => setCountryCode(e.target.value)}
+                        className="w-32 px-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      >
+                        <option value="+91">🇮🇳 +91</option>
+                        <option value="+1">🇺🇸 +1</option>
+                        <option value="+44">🇬🇧 +44</option>
+                        <option value="+61">🇦🇺 +61</option>
+                        <option value="+81">🇯🇵 +81</option>
+                        <option value="+86">🇨🇳 +86</option>
+                        <option value="+33">🇫🇷 +33</option>
+                        <option value="+49">🇩🇪 +49</option>
+                        <option value="+39">🇮🇹 +39</option>
+                        <option value="+34">🇪🇸 +34</option>
+                        <option value="+7">🇷🇺 +7</option>
+                        <option value="+55">🇧🇷 +55</option>
+                        <option value="+27">🇿🇦 +27</option>
+                        <option value="+971">🇦🇪 +971</option>
+                        <option value="+65">🇸🇬 +65</option>
+                        <option value="+60">🇲🇾 +60</option>
+                        <option value="+62">🇮🇩 +62</option>
+                        <option value="+63">🇵🇭 +63</option>
+                        <option value="+66">🇹🇭 +66</option>
+                        <option value="+84">🇻🇳 +84</option>
+                        <option value="+92">🇵🇰 +92</option>
+                        <option value="+880">🇧🇩 +880</option>
+                        <option value="+94">🇱🇰 +94</option>
+                        <option value="+977">🇳🇵 +977</option>
+                      </select>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => {
+                          // Remove non-numeric characters
+                          const cleaned = e.target.value.replace(/\D/g, '');
+                          setPhone(cleaned);
+                        }}
+                        placeholder="9876543210"
+                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Enter number without country code. Used for OTP verification and delivery updates.
+                    </p>
                   </div>
 
                   {/* Pincode */}
@@ -760,57 +845,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Make this my default address */}
-                  <div className="mb-4">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isDefaultAddress}
-                        onChange={(e) => setIsDefaultAddress(e.target.checked)}
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700">Make this my default address</span>
-                    </label>
-                  </div>
-
-                  {/* Map Picker Option */}
-                  {!showMapPicker ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowMapPicker(true)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 border-2 border-blue-500 text-blue-600 rounded-lg hover:bg-blue-50 transition"
-                    >
-                      <Map className="w-4 h-4" />
-                      Pick Address on Map
-                    </button>
-                  ) : (
-                    <div className="space-y-3">
-                      <AddressMapPicker
-                        onAddressSelect={(selectedAddress) => {
-                          // Parse the selected address into fields
-                          const formatted = selectedAddress.formatted;
-                          const parts = formatted.split(',').map(p => p.trim());
-                          
-                          if (parts.length >= 3) {
-                            setFlatHouse(parts[0] || '');
-                            setAreaStreet(parts[1] || '');
-                            setCity(parts[parts.length - 2] || '');
-                            setState(parts[parts.length - 1] || '');
-                          }
-                          
-                          setShowMapPicker(false);
-                        }}
-                        initialAddress={`${flatHouse}, ${areaStreet}, ${city}, ${state}`.replace(/,\s*,/g, ',').trim()}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowMapPicker(false)}
-                        className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-                      >
-                        Cancel Map Selection
-                      </button>
-                    </div>
-                  )}
                 </div>
 
                 {/* Security Notice */}

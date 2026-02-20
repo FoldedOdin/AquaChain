@@ -666,22 +666,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               </div>
             </div>
 
-            {/* Dashboard Preferences */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Dashboard Preferences</h2>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">Real-time Updates</h3>
-                    <p className="text-sm text-gray-600">Receive live water quality updates</p>
-                  </div>
-                  <div className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent ${isConnected ? 'bg-aqua-600' : 'bg-gray-200'} transition-colors duration-200 ease-in-out`}>
-                    <span className={`${isConnected ? 'translate-x-5' : 'translate-x-0'} pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* Quick Actions */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>

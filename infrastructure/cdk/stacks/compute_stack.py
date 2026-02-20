@@ -194,6 +194,18 @@ class AquaChainComputeStack(Stack):
             )
         )
         
+        # Grant SES permissions for sending OTP emails
+        self.user_management_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ses:SendEmail",
+                    "ses:SendRawEmail"
+                ],
+                resources=["*"]  # SES doesn't support resource-level permissions for SendEmail
+            )
+        )
+        
         # Service Request Management Lambda
         self.service_request_function = lambda_python.PythonFunction(
             self, "ServiceRequestFunction",

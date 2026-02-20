@@ -621,6 +621,126 @@ def _verify_otp(cache, email: str, provided_otp: str) -> tuple[bool, Optional[Di
     cache.delete(otp_key)
     return True, otp_data['changes'], None
 
+def _send_otp_email(email: str, otp: str, change_type: str = 'profile') -> None:
+    """Send OTP via AWS SES email"""
+    region = os.environ.get('AWS_REGION', 'ap-south-1')
+    ses_client = boto3.client('ses', region_name=region)
+    
+    # Determine email subject and body based on change type
+    if change_type == 'email':
+        subject = 'AquaChain - Verify Email Change'
+        body_text = f'''
+Hello,
+
+You requested to change your email address on AquaChain.
+
+Your verification code is: {otp}
+
+This code will expire in 5 minutes.
+
+If you didn't request this change, please ignore this email and contact support immediately.
+
+Best regards,
+AquaChain Team
+'''
+        body_html = f'''
+<html>
+<body>
+<h2>Verify Your Email Change</h2>
+<p>You requested to change your email address on AquaChain.</p>
+<p>Your verification code is: <strong style="font-size: 24px; color: #0066cc;">{otp}</strong></p>
+<p>This code will expire in 5 minutes.</p>
+<p>If you didn't request this change, please ignore this email and contact support immediately.</p>
+<br>
+<p>Best regards,<br>AquaChain Team</p>
+</body>
+</html>
+'''
+    elif change_type == 'phone':
+        subject = 'AquaChain - Verify Phone Change'
+        body_text = f'''
+Hello,
+
+You requested to change your phone number on AquaChain.
+
+Your verification code is: {otp}
+
+This code will expire in 5 minutes.
+
+If you didn't request this change, please ignore this email and contact support immediately.
+
+Best regards,
+AquaChain Team
+'''
+        body_html = f'''
+<html>
+<body>
+<h2>Verify Your Phone Change</h2>
+<p>You requested to change your phone number on AquaChain.</p>
+<p>Your verification code is: <strong style="font-size: 24px; color: #0066cc;">{otp}</strong></p>
+<p>This code will expire in 5 minutes.</p>
+<p>If you didn't request this change, please ignore this email and contact support immediately.</p>
+<br>
+<p>Best regards,<br>AquaChain Team</p>
+</body>
+</html>
+'''
+    else:
+        subject = 'AquaChain - Verify Profile Update'
+        body_text = f'''
+Hello,
+
+You requested to update your profile on AquaChain.
+
+Your verification code is: {otp}
+
+This code will expire in 5 minutes.
+
+If you didn't request this change, please ignore this email and contact support immediately.
+
+Best regards,
+AquaChain Team
+'''
+        body_html = f'''
+<html>
+<body>
+<h2>Verify Your Profile Update</h2>
+<p>You requested to update your profile on AquaChain.</p>
+<p>Your verification code is: <strong style="font-size: 24px; color: #0066cc;">{otp}</strong></p>
+<p>This code will expire in 5 minutes.</p>
+<p>If you didn't request this change, please ignore this email and contact support immediately.</p>
+<br>
+<p>Best regards,<br>AquaChain Team</p>
+</body>
+</html>
+'''
+    
+    try:
+        response = ses_client.send_email(
+            Source='contact.aquachain@gmail.com',  # Must be verified in SES
+            Destination={'ToAddresses': [email]},
+            Message={
+                'Subject': {'Data': subject, 'Charset': 'UTF-8'},
+                'Body': {
+                    'Text': {'Data': body_text, 'Charset': 'UTF-8'},
+                    'Html': {'Data': body_html, 'Charset': 'UTF-8'}
+                }
+            }
+        )
+        logger.info(f"OTP email sent successfully to {email}, MessageId: {response['MessageId']}")
+    except ClientError as e:
+        logger.error(f"Failed to send OTP email to {email}: {str(e)}")
+        raise
+
+def _mask_email(email: str) -> str:
+    """Mask email for privacy: user@example.com -> u***@example.com"""
+    if '@' not in email:
+        return email
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        return f"{local[0]}***@{domain}"
+    return f"{local[0]}***{local[-1]}@{domain}"
+
 # Lambda handler
 @handle_errors
 def lambda_handler(event, context):
@@ -776,15 +896,15 @@ def lambda_handler(event, context):
         if not email:
             raise ValidationError('Email not found in token')
         
-        # Get user by email
+        # Get user by email (this already returns the full profile)
         user = user_service.get_user_by_email(email)
         if not user:
             raise ResourceNotFoundError('User not found', details={'email': email})
         
         user_id = user.get('userId')
         
-        # Get current profile for audit log
-        current_profile = user_service.get_user_profile(user_id)
+        # Use the user object as current profile (it already has all the data)
+        current_profile = user
         
         # Transform flat structure from frontend to nested structure for service
         # Frontend sends: {firstName, lastName, email, phone, address}
@@ -892,22 +1012,39 @@ def lambda_handler(event, context):
         cache = get_cache_service()
         _store_otp(cache, email, otp, changes)
         
-        # In production, send OTP via email using SES
-        # For now, log it (in dev, return it in response)
-        logger.info(f"OTP generated for {email}: {otp}")
+        # Determine email template based on what's being changed
+        email_changing = 'email' in changes and changes['email'] != email
+        phone_changing = 'phone' in changes and changes.get('phone') != user.get('profile', {}).get('phone')
         
-        # TODO: Send OTP via SES email
-        # ses_client = boto3.client('ses', region_name=region)
-        # ses_client.send_email(...)
+        if email_changing:
+            change_type = 'email'
+        elif phone_changing:
+            change_type = 'phone'
+        else:
+            change_type = 'profile'
+        
+        try:
+            # Send OTP via email
+            _send_otp_email(email, otp, change_type)
+            logger.info(f"OTP sent via email to {_mask_email(email)} for user {email}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send OTP: {str(e)}")
+            # In development, continue anyway
+            if os.environ.get('ENVIRONMENT', 'dev') != 'dev':
+                raise ValidationError('Failed to send OTP. Please try again.')
         
         response_data = {
             'success': True,
-            'message': 'OTP sent to your email'
+            'message': 'OTP sent to your email',
+            'deliveryMethod': 'email',
+            'deliveryTarget': _mask_email(email)
         }
         
         # In development, include OTP in response for testing
         if os.environ.get('ENVIRONMENT', 'dev') == 'dev':
             response_data['devOtp'] = otp
+            logger.info(f"[DEV] OTP for {email}: {otp}")
         
         return success_response(response_data)
     
