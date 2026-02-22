@@ -128,7 +128,8 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     
     // Then apply filters
     return uniqueOrders.filter(order => {
-      if (!showCancelledOrders && order.status === 'cancelled') {
+      // Filter out cancelled orders if checkbox is unchecked (handle both lowercase and uppercase)
+      if (!showCancelledOrders && (order.status === 'cancelled' || order.status === 'CANCELLED')) {
         return false;
       }
       if (statusFilter === 'all') {

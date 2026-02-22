@@ -871,8 +871,9 @@ def lambda_handler(event, context):
         
         return cors_response(201, result)
     
-    elif http_method == 'GET' and '/profile/' in path:
-        # Get user profile
+    elif http_method == 'GET' and '/profile/' in path and '/profile/update' not in path:
+        # Get user profile (for paths like /profile/{userId})
+        # NOTE: Exclude /profile/update endpoint
         user_id = path_params.get('userId')
         profile = user_service.get_user_profile(user_id)
         
@@ -942,6 +943,48 @@ def lambda_handler(event, context):
         )
         
         return success_response(result)
+    
+    elif http_method == 'GET' and path == '/api/profile/update':
+        # Get current user's profile
+        # Extract email from JWT token to identify the user
+        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+        email = claims.get('email')
+        
+        # If no claims (authorizer not configured), try to decode JWT token
+        if not email:
+            auth_header = event.get('headers', {}).get('Authorization') or event.get('headers', {}).get('authorization')
+            if auth_header and auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                try:
+                    import base64
+                    # Decode JWT payload (middle part)
+                    parts = token.split('.')
+                    if len(parts) == 3:
+                        # Add padding if needed
+                        payload = parts[1]
+                        payload += '=' * (4 - len(payload) % 4)
+                        decoded = base64.b64decode(payload)
+                        token_data = json.loads(decoded)
+                        email = token_data.get('email')
+                        logger.info(f"Extracted email from JWT for profile GET: {email}")
+                except Exception as e:
+                    logger.error(f"Error decoding JWT: {e}")
+        
+        if not email:
+            raise ValidationError('Email not found in token')
+        
+        # Get user by email (this returns the full profile)
+        user = user_service.get_user_by_email(email)
+        if not user:
+            raise ResourceNotFoundError('User not found', details={'email': email})
+        
+        logger.info(f"Retrieved profile for user: {email}")
+        
+        # Return the profile in the expected format
+        return success_response({
+            'success': True,
+            'profile': user
+        })
     
     elif http_method == 'PUT' and path == '/api/profile/update':
         # Direct profile update (for non-sensitive changes)
