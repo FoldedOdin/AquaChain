@@ -211,21 +211,16 @@ class EnhancedConsumerOrderingStack(Stack):
     
     def _create_secrets(self) -> None:
         """
-        Create Secrets Manager secrets for external service credentials
+        Import existing Secrets Manager secrets for external service credentials
         """
         
-        # Razorpay API credentials secret
-        self.razorpay_secret = secretsmanager.Secret(
+        # Import existing Razorpay API credentials secret
+        # The secret was created manually or by a previous deployment
+        secret_name = get_resource_name(self.config, "secret", "razorpay-credentials")
+        
+        self.razorpay_secret = secretsmanager.Secret.from_secret_name_v2(
             self, "RazorpaySecret",
-            secret_name=get_resource_name(self.config, "secret", "razorpay-credentials"),
-            description="Razorpay API credentials for payment processing",
-            encryption_key=self.kms_key,
-            generate_secret_string=secretsmanager.SecretStringGenerator(
-                secret_string_template='{"key_id": ""}',
-                generate_string_key="key_secret",
-                exclude_characters=' "%@\\\'',
-                password_length=32
-            )
+            secret_name=secret_name
         )
         
         # Update Lambda environment variables with secret ARN

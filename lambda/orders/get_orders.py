@@ -82,6 +82,23 @@ def handler(event, context):
             contact_info = json.loads(order.get('contactInfo', '{}')) if isinstance(order.get('contactInfo'), str) else order.get('contactInfo', {})
             status_history = order.get('statusHistory', [])
             
+            # Format address as a string for frontend display
+            address_str = ''
+            if delivery_address:
+                address_parts = []
+                if delivery_address.get('street'):
+                    address_parts.append(delivery_address['street'])
+                if delivery_address.get('city'):
+                    address_parts.append(delivery_address['city'])
+                if delivery_address.get('state'):
+                    address_parts.append(delivery_address['state'])
+                if delivery_address.get('pincode'):
+                    address_parts.append(delivery_address['pincode'])
+                address_str = ', '.join(address_parts) if address_parts else ''
+            
+            # Extract phone from contactInfo
+            phone = contact_info.get('phone', '') if contact_info else ''
+            
             transformed_order = {
                 'orderId': order.get('orderId'),  # Keep as orderId for frontend
                 'id': order.get('orderId'),  # Also include id for compatibility
@@ -94,6 +111,9 @@ def handler(event, context):
                 'amount': int(order.get('amount', 0)) if isinstance(order.get('amount'), Decimal) else order.get('amount', 0),
                 'deliveryAddress': delivery_address,
                 'contactInfo': contact_info,
+                # Add flattened fields for frontend compatibility
+                'address': address_str,
+                'phone': phone,
                 'paymentId': order.get('paymentId', ''),
                 'createdAt': order.get('createdAt'),
                 'updatedAt': order.get('updatedAt'),

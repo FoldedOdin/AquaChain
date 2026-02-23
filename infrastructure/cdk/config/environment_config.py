@@ -171,6 +171,16 @@ def get_resource_name(config: Dict[str, Any], resource_type: str, resource_name:
     Returns:
         Standardized resource name
     """
+    # Import legacy table names
+    from .legacy_table_names import get_legacy_table_name
+    
+    # For DynamoDB tables, check if legacy name exists
+    if resource_type == "table":
+        legacy_name = get_legacy_table_name(resource_name)
+        if legacy_name:
+            return legacy_name
+    
+    # Standard naming for new resources
     project = config["project_name"]
     env = config["environment"]
     

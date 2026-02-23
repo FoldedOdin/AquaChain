@@ -1,0 +1,8 @@
+ReadingsTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-Readings
+LedgerTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-Ledger
+SequenceTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-Sequence
+UsersTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-Users
+ServiceRequestsTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-ServiceRequests
+DevicesTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-Devices
+AuditLogsTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-AuditLogs
+SystemConfigTable|arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-SystemConfig

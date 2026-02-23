@@ -1,0 +1,58 @@
+[
+  {
+    "LogicalResourceId": "ReadingsTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-Readings"
+    }
+  },
+  {
+    "LogicalResourceId": "LedgerTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-Ledger"
+    }
+  },
+  {
+    "LogicalResourceId": "SequenceTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-Sequence"
+    }
+  },
+  {
+    "LogicalResourceId": "UsersTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-Users"
+    }
+  },
+  {
+    "LogicalResourceId": "ServiceRequestsTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-ServiceRequests"
+    }
+  },
+  {
+    "LogicalResourceId": "DevicesTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-Devices"
+    }
+  },
+  {
+    "LogicalResourceId": "AuditLogsTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-AuditLogs"
+    }
+  },
+  {
+    "LogicalResourceId": "SystemConfigTable",
+    "ResourceType": "AWS::DynamoDB::Table",
+    "ResourceIdentifier": {
+      "TableName": "AquaChain-SystemConfig"
+    }
+  }
+]

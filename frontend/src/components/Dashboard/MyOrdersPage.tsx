@@ -18,7 +18,8 @@ import {
   Lock,
   Loader2,
   HelpCircle,
-  Info
+  Info,
+  X
 } from 'lucide-react';
 import Toast from '../Toast/Toast';
 import ShipmentTracking from './ShipmentTracking';
@@ -69,6 +70,12 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   // Filtering state
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showCancelledOrders, setShowCancelledOrders] = useState(true);
+  
+  // Cancellation reason modal state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [otherReason, setOtherReason] = useState('');
   
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info'; visible: boolean }>({
@@ -263,26 +270,46 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     }
   };
 
-  // Handle cancel order
-  const handleCancelOrder = async (orderId: string) => {
-    if (!confirm('Are you sure you want to cancel this order? This action cannot be undone.')) return;
+  // Handle cancel order - show modal first
+  const handleCancelOrder = (orderId: string) => {
+    setCancelOrderId(orderId);
+    setCancellationReason('');
+    setOtherReason('');
+    setShowCancelModal(true);
+  };
+
+  // Confirm cancellation with reason
+  const confirmCancellation = async () => {
+    if (!cancelOrderId) return;
+    
+    // Validate reason
+    const finalReason = cancellationReason === 'other' ? otherReason.trim() : cancellationReason;
+    if (!finalReason) {
+      showToast('Please select or enter a cancellation reason', 'error');
+      return;
+    }
 
     setIsCancelling(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
-      const response = await fetch(`${apiEndpoint}/api/orders/${orderId}`, {
+      const response = await fetch(`${apiEndpoint}/api/orders/${cancelOrderId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          cancellationReason: finalReason
+        })
       });
 
       if (response.ok) {
         showToast('Order cancelled successfully', 'success');
         fetchOrders(); // Refresh the orders list
         setShowDetailsModal(false);
+        setShowCancelModal(false);
+        setCancelOrderId(null);
       } else {
         const error = await response.json();
         showToast(error.error || 'Failed to cancel order', 'error');
@@ -1180,6 +1207,131 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       )}
                     </button>
                   </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Cancellation Reason Modal */}
+      <AnimatePresence>
+        {showCancelModal && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowCancelModal(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 rounded-t-2xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-white bg-opacity-20 p-2 rounded-lg">
+                        <AlertCircle className="w-6 h-6 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-white">Cancel Order</h2>
+                    </div>
+                    <button
+                      onClick={() => setShowCancelModal(false)}
+                      className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-6 space-y-6">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="text-sm text-red-800">
+                      <strong>Warning:</strong> This action cannot be undone. Please provide a reason for cancellation.
+                    </p>
+                  </div>
+
+                  {/* Cancellation Reasons */}
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Select Cancellation Reason *
+                    </label>
+                    
+                    {[
+                      { value: 'changed_mind', label: 'Changed my mind' },
+                      { value: 'found_better_price', label: 'Found a better price elsewhere' },
+                      { value: 'ordered_by_mistake', label: 'Ordered by mistake' },
+                      { value: 'delivery_time_too_long', label: 'Delivery time is too long' },
+                      { value: 'payment_issues', label: 'Payment issues' },
+                      { value: 'other', label: 'Other (please specify)' }
+                    ].map((reason) => (
+                      <label
+                        key={reason.value}
+                        className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all ${
+                          cancellationReason === reason.value
+                            ? 'border-red-500 bg-red-50'
+                            : 'border-gray-200 hover:border-red-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="cancellationReason"
+                          value={reason.value}
+                          checked={cancellationReason === reason.value}
+                          onChange={(e) => setCancellationReason(e.target.value)}
+                          className="w-4 h-4 text-red-500 focus:ring-red-500"
+                        />
+                        <span className="text-sm text-gray-700">{reason.label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Other Reason Text Area */}
+                  {cancellationReason === 'other' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Please specify your reason *
+                      </label>
+                      <textarea
+                        value={otherReason}
+                        onChange={(e) => setOtherReason(e.target.value)}
+                        placeholder="Enter your reason for cancellation..."
+                        rows={4}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                        maxLength={500}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {otherReason.length}/500 characters
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="bg-gray-50 px-6 py-4 rounded-b-2xl flex gap-3">
+                  <button
+                    onClick={() => setShowCancelModal(false)}
+                    disabled={isCancelling}
+                    className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={confirmCancellation}
+                    disabled={isCancelling || !cancellationReason || (cancellationReason === 'other' && !otherReason.trim())}
+                    className="flex-1 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isCancelling ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Cancelling...
+                      </>
+                    ) : (
+                      'Confirm Cancellation'
+                    )}
+                  </button>
                 </div>
               </div>
             </motion.div>

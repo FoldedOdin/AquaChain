@@ -12,6 +12,7 @@ from aws_cdk import (
     aws_certificatemanager as acm,
     aws_route53 as route53,
     aws_iam as iam,
+    aws_lambda as lambda_,
     Duration,
     CfnOutput
 )
@@ -35,6 +36,28 @@ class AquaChainApiStack(Stack):
         self.lambda_functions = lambda_functions or compute_resources or {}
         self.security_resources = security_resources or {}
         self.api_resources = {}
+        
+        # Import payment Lambda from Enhanced Ordering stack (if it exists)
+        try:
+            payment_lambda = lambda_.Function.from_function_name(
+                self, "PaymentServiceLambda",
+                function_name=get_resource_name(self.config, "function", "payment-service")
+            )
+            self.lambda_functions["payment_service"] = payment_lambda
+        except Exception as e:
+            # Payment Lambda doesn't exist yet, skip
+            pass
+        
+        # Import razorpay webhook Lambda from Enhanced Ordering stack (if it exists)
+        try:
+            razorpay_webhook_lambda = lambda_.Function.from_function_name(
+                self, "RazorpayWebhookLambda",
+                function_name=get_resource_name(self.config, "function", "razorpay-webhook")
+            )
+            self.lambda_functions["razorpay_webhook"] = razorpay_webhook_lambda
+        except Exception as e:
+            # Razorpay webhook Lambda doesn't exist yet, skip
+            pass
         
         # Create Cognito User Pool
         self._create_cognito_resources()
@@ -468,6 +491,50 @@ class AquaChainApiStack(Stack):
             admin_compliance_report_resource.add_method(
                 "GET",
                 admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+        
+        # /api/payments - Payment endpoints (authenticated)
+        if "payment_service" in self.lambda_functions:
+            api_payments = api_root.add_resource("payments")
+            payment_integration = apigateway.LambdaIntegration(
+                self.lambda_functions["payment_service"],
+                proxy=True
+            )
+            
+            # /api/payments/create-razorpay-order
+            create_razorpay_order_resource = api_payments.add_resource("create-razorpay-order")
+            create_razorpay_order_resource.add_method(
+                "POST",
+                payment_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/payments/verify-payment
+            verify_payment_resource = api_payments.add_resource("verify-payment")
+            verify_payment_resource.add_method(
+                "POST",
+                payment_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/payments/create-cod-payment
+            create_cod_payment_resource = api_payments.add_resource("create-cod-payment")
+            create_cod_payment_resource.add_method(
+                "POST",
+                payment_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/payments/payment-status
+            payment_status_resource = api_payments.add_resource("payment-status")
+            payment_status_resource.add_method(
+                "GET",
+                payment_integration,
                 authorizer=self.cognito_authorizer,
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )

@@ -84,9 +84,22 @@ def lambda_handler(event, context):
         
         # Handle GET request - return current profile
         if event.get('httpMethod') == 'GET':
+            # Return user data with profile properly structured
             return cors_response(200, {
                 'success': True,
-                'profile': user
+                'profile': {
+                    'userId': user.get('userId'),
+                    'email': user.get('email'),
+                    'role': user.get('role'),
+                    'firstName': user.get('profile', {}).get('firstName', ''),
+                    'lastName': user.get('profile', {}).get('lastName', ''),
+                    'phone': user.get('profile', {}).get('phone', ''),
+                    'address': user.get('profile', {}).get('address'),
+                    'deviceIds': user.get('deviceIds', []),
+                    'preferences': user.get('preferences', {}),
+                    'createdAt': user.get('createdAt'),
+                    'updatedAt': user.get('updatedAt')
+                }
             })
         
         # Handle PUT request - update profile

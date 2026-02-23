@@ -35,6 +35,16 @@ def handler(event, context):
         # Get order ID from path parameters
         order_id = event['pathParameters']['orderId']
         
+        # Parse request body for cancellation reason
+        body = {}
+        if event.get('body'):
+            try:
+                body = json.loads(event['body'])
+            except json.JSONDecodeError:
+                pass
+        
+        cancellation_reason = body.get('cancellationReason', 'No reason provided')
+        
         # Get consumer ID from Cognito authorizer
         try:
             consumer_id = event['requestContext']['authorizer']['claims']['sub']
@@ -115,20 +125,21 @@ def handler(event, context):
         status_history.append({
             'status': 'CANCELLED',
             'timestamp': timestamp,
-            'message': 'Order cancelled by customer'
+            'message': f'Order cancelled by customer. Reason: {cancellation_reason}'
         })
         
-        # Update the order
+        # Update the order with cancellation reason
         orders_table.update_item(
             Key={'orderId': order_id},
-            UpdateExpression='SET #status = :status, updatedAt = :timestamp, statusHistory = :history',
+            UpdateExpression='SET #status = :status, updatedAt = :timestamp, statusHistory = :history, cancellationReason = :reason',
             ExpressionAttributeNames={
                 '#status': 'status'
             },
             ExpressionAttributeValues={
                 ':status': 'CANCELLED',
                 ':timestamp': timestamp,
-                ':history': status_history
+                ':history': status_history,
+                ':reason': cancellation_reason
             }
         )
         

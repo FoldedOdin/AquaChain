@@ -232,6 +232,7 @@ class UserManagementService:
             # Prepare update expression
             update_expression = "SET updatedAt = :updated_at"
             expression_values = {':updated_at': datetime.utcnow().isoformat()}
+            has_updates = False
             
             # Handle profile updates
             if 'profile' in updates:
@@ -240,6 +241,7 @@ class UserManagementService:
                     if key in ['firstName', 'lastName', 'phone', 'address']:
                         update_expression += f", profile.{key} = :{key}"
                         expression_values[f':{key}'] = value
+                        has_updates = True
             
             # Handle preferences updates
             if 'preferences' in updates:
@@ -247,6 +249,7 @@ class UserManagementService:
                 for key, value in pref_updates.items():
                     update_expression += f", preferences.{key} = :pref_{key}"
                     expression_values[f':pref_{key}'] = value
+                    has_updates = True
             
             # Handle work schedule updates (technicians only)
             if 'workSchedule' in updates and current_profile.get('role') == 'technician':
@@ -254,6 +257,7 @@ class UserManagementService:
                 if self._validate_work_schedule(work_schedule):
                     update_expression += ", workSchedule = :work_schedule"
                     expression_values[':work_schedule'] = work_schedule
+                    has_updates = True
             
             # Handle availability status (technicians only)
             if 'availabilityStatus' in updates and current_profile.get('role') == 'technician':
@@ -261,8 +265,17 @@ class UserManagementService:
                 if status in ['available', 'unavailable', 'available_overtime']:
                     update_expression += ", availabilityStatus = :availability_status"
                     expression_values[':availability_status'] = status
+                    has_updates = True
+            
+            # If no updates were made, just return current profile
+            if not has_updates:
+                logger.info(f"No profile updates needed for user: {user_id}")
+                return current_profile
             
             # Update DynamoDB
+            logger.info(f"Updating profile for user {user_id} with expression: {update_expression}")
+            logger.info(f"Expression values: {expression_values}")
+            
             response = self.users_table.update_item(
                 Key={'userId': user_id},
                 UpdateExpression=update_expression,
@@ -276,18 +289,26 @@ class UserManagementService:
             
             # Update Cognito attributes if needed
             if 'profile' in updates:
-                self._update_cognito_attributes(user_id, updates['profile'])
+                try:
+                    self._update_cognito_attributes(user_id, updates['profile'])
+                except Exception as e:
+                    # Log but don't fail the request if Cognito update fails
+                    logger.warning(f"Failed to update Cognito attributes: {e}")
             
-            logger.info(f"User profile updated: {user_id}", cache_invalidated=True)
+            logger.info(f"User profile updated successfully: {user_id}", cache_invalidated=True)
             return response['Attributes']
             
         except ClientError as e:
-            logger.error(f"Error updating user profile: {e}")
-            raise DatabaseError("Failed to update profile", details={'user_id': user_id})
+            logger.error(f"DynamoDB ClientError updating user profile: {e}")
+            logger.error(f"Error response: {e.response}")
+            raise DatabaseError("Failed to update profile", details={'user_id': user_id, 'error': str(e)})
         except (ResourceNotFoundError, DatabaseError):
             raise
         except Exception as e:
-            logger.error(f"Profile update error: {e}")
+            logger.error(f"Unexpected profile update error: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise DatabaseError(f"Profile update failed: {str(e)}")
     
     def associate_device(self, user_id: str, device_id: str) -> bool:
@@ -840,7 +861,11 @@ def lambda_handler(event, context):
     # Route based on HTTP method and path
     http_method = event.get('httpMethod')
     path = event.get('path', '')
-    body = json.loads(event.get('body', '{}'))
+    
+    # Parse body - handle None for GET requests
+    body_str = event.get('body') or '{}'
+    body = json.loads(body_str) if body_str else {}
+    
     path_params = event.get('pathParameters') or {}  # Handle None from API Gateway
         
     if http_method == 'POST' and path.endswith('/register'):

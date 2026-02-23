@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { CreditCard, Loader2, AlertCircle, CheckCircle, Shield } from 'lucide-react';
 import { RazorpayCheckoutProps, RazorpayError } from '../../types/ordering';
-import { apiClient } from '../../services/apiClient';
+import { PaymentService } from '../../services/paymentService';
 import { MockPaymentService } from '../../services/mockPaymentService';
 
 // Razorpay script URL
@@ -97,25 +97,15 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   const createRazorpayOrder = useCallback(async () => {
     const result = await makeRequest(
       async () => {
-        interface CreateRazorpayOrderResponse {
-          razorpayOrderId: string;
-          amount: number;
-          currency: string;
-        }
-
         try {
           // Try real API first
-          const response = await apiClient.post<CreateRazorpayOrderResponse>('/api/payments/create-razorpay-order', {
-            amount: amount * 100,
-            orderId,
-            currency: 'INR'
-          });
+          const response = await PaymentService.createRazorpayOrder(amount, orderId);
 
-          if (response.data?.razorpayOrderId) {
-            setRazorpayOrderId(response.data.razorpayOrderId);
-            return response.data.razorpayOrderId;
+          if (response.success && response.data?.razorpayOrder?.id) {
+            setRazorpayOrderId(response.data.razorpayOrder.id);
+            return response.data.razorpayOrder.id;
           } else {
-            throw new Error('Failed to create payment order');
+            throw new Error(response.error || 'Failed to create payment order');
           }
         } catch (apiError: any) {
           // Fallback to mock service if API is not available
@@ -147,26 +137,19 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   const handlePaymentSuccess = useCallback(async (response: any) => {
     const result = await makeRequest(
       async () => {
-        interface VerifyPaymentResponse {
-          verified: boolean;
-          paymentId?: string;
-          orderId?: string;
-        }
-
         try {
           // Try real API first
-          const verificationResponse = await apiClient.post<VerifyPaymentResponse>('/api/payments/verify-payment', {
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_signature: response.razorpay_signature,
-            orderId
-          });
+          const verificationResponse = await PaymentService.verifyPayment(
+            response.razorpay_payment_id,
+            response.razorpay_order_id,
+            response.razorpay_signature
+          );
 
-          if (verificationResponse.data?.verified) {
+          if (verificationResponse.success && verificationResponse.data?.verified) {
             onSuccess(response.razorpay_payment_id);
             return verificationResponse.data;
           } else {
-            throw new Error('Payment verification failed');
+            throw new Error(verificationResponse.error || 'Payment verification failed');
           }
         } catch (apiError: any) {
           // Fallback to mock verification if API is not available

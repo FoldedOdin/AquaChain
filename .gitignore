@@ -471,3 +471,5 @@ DOCS/
 !*.example
 !*.template
 !*.sample 
+
+backups/*
