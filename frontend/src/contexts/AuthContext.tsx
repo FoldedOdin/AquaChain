@@ -87,42 +87,47 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const checkAuthState = async () => {
     try {
-      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
-        // Development mode with local dev server
-        const storedUser = localStorage.getItem('aquachain_user');
-        const storedToken = localStorage.getItem('aquachain_token');
+      // ALWAYS check localStorage first (both dev and prod)
+      const storedUser = localStorage.getItem('aquachain_user');
+      const storedToken = localStorage.getItem('aquachain_token');
 
-        if (storedUser && storedToken) {
+      if (storedUser && storedToken) {
+        try {
           const userData = JSON.parse(storedUser);
-
-          try {
-            const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/validate`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${storedToken}`
-              },
-              body: JSON.stringify({ email: userData.email })
-            });
-
-            if (response.ok) {
-              const validatedUser = await response.json();
-              setUser(validatedUser.user);
-              setIsAuthenticated(true);
-            } else {
-              localStorage.removeItem('aquachain_user');
-              localStorage.removeItem('aquachain_token');
-              setIsAuthenticated(false);
+          
+          // Validate token with backend
+          const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${storedToken}`
             }
-          } catch (error) {
-            console.warn('Dev server not available, using stored user data');
+          });
+
+          if (response.ok) {
+            // Token is valid, restore user session
             setUser(userData);
             setIsAuthenticated(true);
+            setIsLoading(false);
+            return;
+          } else {
+            // Token invalid, clear storage
+            localStorage.removeItem('aquachain_user');
+            localStorage.removeItem('aquachain_token');
           }
-        } else {
-          setIsAuthenticated(false);
+        } catch (error) {
+          console.warn('Token validation failed:', error);
+          // Keep stored data if backend is unreachable
+          const userData = JSON.parse(storedUser);
+          setUser(userData);
+          setIsAuthenticated(true);
+          setIsLoading(false);
+          return;
         }
-      } else {
+      }
+
+      // If no localStorage data, try Cognito (production only)
+      if (process.env.NODE_ENV !== 'development' || !process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
         // Production mode with AWS Cognito
         try {
           // Fetch session without AWS credentials to avoid Identity Pool calls
@@ -189,6 +194,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log('No authenticated user found');
           setIsAuthenticated(false);
         }
+      } else {
+        // No stored data and not production Cognito
+        setIsAuthenticated(false);
       }
     } catch (error) {
       console.log('Authentication check failed:', error);
