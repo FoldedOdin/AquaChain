@@ -47,15 +47,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Use GSI if available, otherwise scan with filter
         try:
             response = devices_table.query(
-                IndexName='UserIdIndex',
-                KeyConditionExpression=Key('user_id').eq(user_id)
+                IndexName='UserIndex',  # Correct GSI name
+                KeyConditionExpression=Key('userId').eq(user_id)  # Correct attribute name (camelCase)
             )
             devices = response.get('Items', [])
         except Exception as e:
             logger.warning(f'GSI query failed, falling back to scan: {str(e)}')
             # Fallback to scan if GSI doesn't exist
             response = devices_table.scan(
-                FilterExpression=Key('user_id').eq(user_id)
+                FilterExpression=Key('userId').eq(user_id)  # Correct attribute name
             )
             devices = response.get('Items', [])
         
