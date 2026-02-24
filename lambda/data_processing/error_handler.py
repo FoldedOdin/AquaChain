@@ -14,8 +14,12 @@ from typing import Dict, Any, Optional, List, Union
 from enum import Enum
 import logging
 
-# Initialize logger
-logger = logging.getLogger(__name__)
+# Try to use structured logger, fall back to standard logging
+try:
+    from structured_logger import get_logger
+    logger = get_logger(__name__, service='error-handler')
+except ImportError:
+    logger = logging.getLogger(__name__)
 
 
 class ErrorCode(Enum):
@@ -276,7 +280,11 @@ class ErrorHandler:
             'headers': {
                 'Content-Type': 'application/json',
                 'X-Correlation-ID': correlation_id,
-                'X-Error-Code': error.code.value
+                'X-Error-Code': error.code.value,
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD',
+                'Access-Control-Allow-Credentials': 'false'
             },
             'body': json.dumps(response)
         }
@@ -317,7 +325,11 @@ class ErrorHandler:
             'headers': {
                 'Content-Type': 'application/json',
                 'X-Correlation-ID': correlation_id,
-                'X-Error-Code': ErrorCode.INTERNAL_ERROR.value
+                'X-Error-Code': ErrorCode.INTERNAL_ERROR.value,
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD',
+                'Access-Control-Allow-Credentials': 'false'
             },
             'body': json.dumps(response)
         }

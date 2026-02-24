@@ -291,6 +291,21 @@ class AquaChainApiStack(Stack):
         # /api/profile - Profile management endpoints
         profile_resource = api_root.add_resource("profile")
         
+        # /api/profile/update - Direct profile operations (GET and PUT)
+        update_resource = profile_resource.add_resource("update")
+        update_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["user_management"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        update_resource.add_method(
+            "PUT",
+            apigateway.LambdaIntegration(self.lambda_functions["user_management"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
         # /api/profile/request-otp - Request OTP for profile updates
         request_otp_resource = profile_resource.add_resource("request-otp")
         request_otp_resource.add_method(

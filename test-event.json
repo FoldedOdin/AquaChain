@@ -1,0 +1,10 @@
+{
+  "httpMethod": "GET",
+  "path": "/water-quality/latest",
+  "headers": {
+    "Authorization": "Bearer test-token"
+  },
+  "queryStringParameters": {
+    "deviceId": "DEV-0001"
+  }
+}
