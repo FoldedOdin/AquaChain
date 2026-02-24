@@ -238,7 +238,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.error || 'Failed to send OTP');
+          throw new Error(result.message || result.error || 'Failed to send OTP');
         }
 
         setOtpSentTo(currentProfile.email);
@@ -258,7 +258,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.error || 'Failed to update profile');
+          throw new Error(result.message || result.error || 'Failed to update profile');
         }
 
         // Update localStorage with new profile data
@@ -367,7 +367,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Invalid OTP');
+        throw new Error(result.message || result.error || 'Invalid OTP');
       }
 
       // Update localStorage with new profile data
@@ -442,7 +442,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to resend OTP');
+        throw new Error(result.message || result.error || 'Failed to resend OTP');
       }
 
       setResendTimer(60);

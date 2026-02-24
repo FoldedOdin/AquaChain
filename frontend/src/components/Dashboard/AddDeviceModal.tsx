@@ -57,7 +57,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onDevi
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to register device');
+        throw new Error(result.message || result.error || 'Failed to register device');
       }
 
       setStep('success');
