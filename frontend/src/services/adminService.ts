@@ -538,3 +538,90 @@ export const updateSystemConfiguration = async (config: Partial<SystemConfigurat
     };
   }
 };
+
+export const updateProfile = async (updates: { profile: { firstName: string; lastName: string; phone: string } }): Promise<void> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    // Transform nested structure to flat structure expected by Lambda
+    // Frontend component sends: {profile: {firstName, lastName, phone}}
+    // Lambda expects: {firstName, lastName, phone}
+    const flatUpdates = {
+      firstName: updates.profile.firstName,
+      lastName: updates.profile.lastName,
+      phone: updates.profile.phone
+    };
+
+    console.log('Sending profile update request:', flatUpdates);
+
+    const response = await fetch(`${API_BASE_URL}/api/profile/update`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(flatUpdates)
+    });
+
+    console.log('Profile update response status:', response.status);
+
+    // Try to parse response as JSON
+    let data;
+    try {
+      const text = await response.text();
+      console.log('Profile update response text:', text);
+      data = text ? JSON.parse(text) : {};
+    } catch (parseError) {
+      console.error('Failed to parse response:', parseError);
+      throw new Error('Invalid response from server');
+    }
+
+    if (!response.ok) {
+      const errorMessage = data.error || data.message || `Server error: ${response.status}`;
+      console.error('Profile update failed:', errorMessage, data);
+      throw new Error(errorMessage);
+    }
+
+    // Update localStorage with new profile data
+    const storedUser = localStorage.getItem('aquachain_user');
+    if (storedUser) {
+      const userData = JSON.parse(storedUser);
+      userData.profile = {
+        ...userData.profile,
+        ...updates.profile
+      };
+      localStorage.setItem('aquachain_user', JSON.stringify(userData));
+    }
+    
+    console.log('Profile updated successfully:', data);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    throw error;
+  }
+};
+
+export default {
+  getSystemHealthMetrics,
+  getDeviceFleetStatus,
+  getPerformanceMetrics,
+  getAlertAnalytics,
+  getAllUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  getAllDevices,
+  registerDevice,
+  updateDevice,
+  getAllTechnicians,
+  updateTechnician,
+  generateComplianceReport,
+  getAuditTrail,
+  verifyHashChain,
+  getSystemConfiguration,
+  updateSystemConfiguration,
+  updateProfile
+};

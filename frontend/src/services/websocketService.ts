@@ -159,10 +159,9 @@ class WebSocketService {
    * Reuses existing connection if available
    */
   connect(topic: string, onMessage: (data: unknown) => void): void {
-    // TEMPORARY: Disable WebSocket for initial deployment
-    // WebSocket API needs separate configuration and handlers
-    // This will be re-enabled in Phase 3 of the roadmap
-    const WEBSOCKET_DISABLED = true;
+    // WebSocket is now enabled for real-time updates
+    // Ensure API Gateway WebSocket endpoint is configured
+    const WEBSOCKET_DISABLED = false;
     
     if (WEBSOCKET_DISABLED) {
       console.log(`🔌 WebSocket temporarily disabled for topic: ${topic}`);

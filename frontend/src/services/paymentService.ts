@@ -9,13 +9,11 @@ export interface RazorpayOrderResponse {
   success: boolean;
   data: {
     paymentId: string;
-    razorpayOrder: {
-      id: string;
-      amount: number;
-      currency: string;
-      receipt: string;
-      status: string;
-    };
+    orderId: string;  // Backend-generated order ID
+    razorpayOrderId: string;  // Razorpay's order ID
+    amount: number;  // Amount in paise
+    currency: string;
+    key: string;  // Razorpay key_id for frontend
   };
   error?: string;
 }
@@ -58,17 +56,15 @@ export interface PaymentStatusResponse {
 export class PaymentService {
   /**
    * Create a Razorpay order for online payment
-   * @param amount - Amount in INR (will be converted to paise internally)
-   * @param orderId - Your order ID
-   * @returns Razorpay order details
+   * @param amount - Amount in INR
+   * @returns Razorpay order details including generated order ID
    */
-  static async createRazorpayOrder(amount: number, orderId: string): Promise<RazorpayOrderResponse> {
+  static async createRazorpayOrder(amount: number): Promise<RazorpayOrderResponse> {
     try {
       const response = await apiClient.post<RazorpayOrderResponse>(
         '/api/payments/create-razorpay-order',
         {
           amount: amount,
-          orderId: orderId,
           currency: 'INR'
         }
       );

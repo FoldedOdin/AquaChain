@@ -80,10 +80,81 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isMFAVerified, setIsMFAVerified] = useState(false);
+  const [tokenRefreshTimer, setTokenRefreshTimer] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     checkAuthState();
+    
+    // Cleanup timer on unmount
+    return () => {
+      if (tokenRefreshTimer) {
+        clearTimeout(tokenRefreshTimer);
+      }
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Schedule automatic token refresh before expiration
+   * Tokens expire after 60 minutes, refresh at 50 minutes
+   */
+  const scheduleTokenRefresh = () => {
+    // Clear existing timer
+    if (tokenRefreshTimer) {
+      clearTimeout(tokenRefreshTimer);
+    }
+
+    // Schedule refresh for 50 minutes (3000 seconds)
+    const refreshInterval = 50 * 60 * 1000; // 50 minutes in milliseconds
+    const timer = setTimeout(async () => {
+      console.log('🔄 Auto-refreshing token...');
+      const refreshed = await refreshAuthToken();
+      if (refreshed) {
+        console.log('✅ Token auto-refreshed successfully');
+        // Schedule next refresh
+        scheduleTokenRefresh();
+      } else {
+        console.warn('⚠️ Token auto-refresh failed, user may need to re-login');
+      }
+    }, refreshInterval);
+
+    setTokenRefreshTimer(timer);
+    console.log(`⏰ Token refresh scheduled in ${refreshInterval / 1000 / 60} minutes`);
+  };
+
+  /**
+   * Refresh authentication token using Cognito refresh token
+   */
+  const refreshAuthToken = async (): Promise<boolean> => {
+    try {
+      // Only refresh in AWS/production mode
+      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
+        console.log('ℹ️ Token refresh skipped in local dev mode');
+        return true;
+      }
+
+      console.log('🔄 Refreshing authentication token...');
+      
+      // Force refresh the session to get new tokens
+      const session = await fetchAuthSession({ 
+        forceRefresh: true  // This uses the refresh token automatically
+      });
+      
+      const newIdToken = session.tokens?.idToken?.toString();
+      
+      if (newIdToken) {
+        // Update stored token
+        localStorage.setItem('aquachain_token', newIdToken);
+        console.log('✅ Token refreshed and stored');
+        return true;
+      } else {
+        console.error('❌ Failed to get new token from refresh');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Token refresh error:', error);
+      return false;
+    }
+  };
 
   const checkAuthState = async () => {
     try {
@@ -95,34 +166,47 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
           const userData = JSON.parse(storedUser);
           
-          // Validate token with backend
-          const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${storedToken}`
-            }
-          });
-
-          if (response.ok) {
-            // Token is valid, restore user session
-            setUser(userData);
-            setIsAuthenticated(true);
-            setIsLoading(false);
-            return;
-          } else {
-            // Token invalid, clear storage
-            localStorage.removeItem('aquachain_user');
-            localStorage.removeItem('aquachain_token');
-          }
-        } catch (error) {
-          console.warn('Token validation failed:', error);
-          // Keep stored data if backend is unreachable
-          const userData = JSON.parse(storedUser);
+          // ALWAYS restore user session from localStorage first
+          // This prevents redirect to landing page on refresh
           setUser(userData);
           setIsAuthenticated(true);
           setIsLoading(false);
+          
+          // Validate token in background (non-blocking)
+          // This avoids unnecessary 401 errors and uses Cognito's built-in validation
+          (async () => {
+            try {
+              const session = await fetchAuthSession({ forceRefresh: false });
+              
+              if (session.tokens?.idToken) {
+                // Token is valid, schedule automatic token refresh
+                scheduleTokenRefresh();
+                console.log('✅ Session validated successfully');
+                return;
+              }
+            } catch (sessionError) {
+              // Session check failed, try to refresh in background
+              console.log('🔄 Session validation failed, attempting background refresh...');
+              const refreshed = await refreshAuthToken();
+              
+              if (refreshed) {
+                scheduleTokenRefresh();
+                console.log('✅ Token refreshed successfully in background');
+                return;
+              }
+              
+              // Refresh failed - user can continue with cached session
+              // They'll be prompted to re-login when they try to make API calls
+              console.warn('⚠️ Token refresh failed, user may need to re-login for API calls');
+            }
+          })();
+          
           return;
+        } catch (error) {
+          console.warn('Error parsing stored user data:', error);
+          // Clear invalid data
+          localStorage.removeItem('aquachain_user');
+          localStorage.removeItem('aquachain_token');
         }
       }
 
@@ -324,6 +408,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setUser(userProfile);
           setIsAuthenticated(true);
           
+          // Schedule automatic token refresh
+          scheduleTokenRefresh();
+          
           // Attempt to load fresh profile from DynamoDB in background (optional)
           setTimeout(async () => {
             try {
@@ -376,6 +463,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Clear token refresh timer
+      if (tokenRefreshTimer) {
+        clearTimeout(tokenRefreshTimer);
+        setTokenRefreshTimer(null);
+      }
+
       // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
       const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
       
@@ -392,6 +485,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const { signOut } = await import('aws-amplify/auth');
         await signOut();
       }
+      
+      console.log('✅ Logged out successfully');
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Logout error:', error);
@@ -403,6 +498,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // First, try to get token from localStorage (works for both dev and prod)
       const storedToken = localStorage.getItem('aquachain_token');
       if (storedToken) {
+        // In production/AWS mode, check if token needs refresh
+        if (process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production') {
+          try {
+            // Try to decode token to check expiration (JWT tokens have exp claim)
+            const tokenParts = storedToken.split('.');
+            if (tokenParts.length === 3) {
+              const payload = JSON.parse(atob(tokenParts[1]));
+              const expirationTime = payload.exp * 1000; // Convert to milliseconds
+              const currentTime = Date.now();
+              const timeUntilExpiry = expirationTime - currentTime;
+              
+              // If token expires in less than 5 minutes, refresh it
+              if (timeUntilExpiry < 5 * 60 * 1000) {
+                console.log('🔄 Token expiring soon, refreshing...');
+                const refreshed = await refreshAuthToken();
+                if (refreshed) {
+                  const newToken = localStorage.getItem('aquachain_token');
+                  console.log('✅ Token refreshed proactively');
+                  return newToken;
+                }
+              }
+            }
+          } catch (decodeError) {
+            console.warn('⚠️ Could not decode token for expiration check:', decodeError);
+          }
+        }
+        
         console.log('✅ Using stored token from localStorage');
         return storedToken;
       }
@@ -419,6 +541,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (idToken) {
           localStorage.setItem('aquachain_token', idToken);
           console.log('✅ Token fetched and stored');
+          
+          // Schedule refresh
+          scheduleTokenRefresh();
         }
         
         return idToken || null;

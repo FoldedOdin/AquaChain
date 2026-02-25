@@ -536,24 +536,34 @@ class UserManagementService:
         Falls back to table scan if GSI not available.
         """
         try:
+            from boto3.dynamodb.conditions import Attr
+            
+            logger.info(f"Scanning for user with email: {email}")
+            logger.info(f"Table name: {self.users_table.table_name}")
+            
             # Try to query using email as a filter (scan operation)
             # Note: This is not optimal but works without GSI
             response = self.users_table.scan(
-                FilterExpression='email = :email',
-                ExpressionAttributeValues={':email': email},
-                Limit=1
+                FilterExpression=Attr('email').eq(email),
+                Limit=10  # Increased limit to see if there are multiple results
             )
+            
+            logger.info(f"Scan response: Count={response.get('Count')}, ScannedCount={response.get('ScannedCount')}")
             
             items = response.get('Items', [])
             if items:
-                logger.info(f"User found by email: {email}")
+                logger.info(f"User found by email: {email}, userId: {items[0].get('userId')}")
                 return items[0]
             else:
                 logger.info(f"User not found by email: {email}")
+                logger.info(f"Scanned {response.get('ScannedCount')} items, found {response.get('Count')} matches")
                 return None
             
         except Exception as e:
             logger.error(f"Error querying user by email: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise DatabaseError("Failed to query user by email", details={'email': email})
     
     def list_users_by_organization(self, organization_id: str, role: Optional[str] = None,

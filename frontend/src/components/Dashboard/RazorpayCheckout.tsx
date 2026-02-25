@@ -98,12 +98,12 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     const result = await makeRequest(
       async () => {
         try {
-          // Try real API first
-          const response = await PaymentService.createRazorpayOrder(amount, orderId);
+          // Call backend to create Razorpay order (backend generates order ID)
+          const response = await PaymentService.createRazorpayOrder(amount);
 
-          if (response.success && response.data?.razorpayOrder?.id) {
-            setRazorpayOrderId(response.data.razorpayOrder.id);
-            return response.data.razorpayOrder.id;
+          if (response.success && response.data?.razorpayOrderId) {
+            setRazorpayOrderId(response.data.razorpayOrderId);
+            return response.data;  // Return full data including razorpayOrderId and key
           } else {
             throw new Error(response.error || 'Failed to create payment order');
           }
@@ -113,7 +113,12 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           
           const mockOrder = await MockPaymentService.createRazorpayOrder(amount, orderId);
           setRazorpayOrderId(mockOrder.razorpayOrderId);
-          return mockOrder.razorpayOrderId;
+          return {
+            razorpayOrderId: mockOrder.razorpayOrderId,
+            amount: amount * 100,
+            currency: 'INR',
+            key: process.env.REACT_APP_RAZORPAY_KEY_ID
+          };
         }
       },
       {
@@ -207,19 +212,19 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     }
 
     try {
-      const razorpayOrderId = await createRazorpayOrder();
+      const orderData = await createRazorpayOrder();
       
-      if (!razorpayOrderId) {
+      if (!orderData || !orderData.razorpayOrderId) {
         return;
       }
       
       const options = {
-        key: process.env.REACT_APP_RAZORPAY_KEY_ID,
-        amount: amount * 100,
-        currency: 'INR',
+        key: orderData.key || process.env.REACT_APP_RAZORPAY_KEY_ID,  // Use key from backend
+        amount: orderData.amount,  // Amount in paise from backend
+        currency: orderData.currency || 'INR',
         name: 'AquaChain',
-        description: `Water Quality Device Order #${orderId}`,
-        order_id: razorpayOrderId,
+        description: `Water Quality Device Order`,
+        order_id: orderData.razorpayOrderId,  // Use Razorpay order ID from backend
         handler: handlePaymentSuccess,
         prefill: {
           name: customerInfo.name,
@@ -227,7 +232,6 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           contact: customerInfo.phone
         },
         notes: {
-          order_id: orderId,
           customer_id: customerInfo.email
         },
         theme: {
@@ -260,8 +264,6 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     }
   }, [
     isScriptLoaded,
-    amount,
-    orderId,
     customerInfo,
     createRazorpayOrder,
     handlePaymentSuccess,

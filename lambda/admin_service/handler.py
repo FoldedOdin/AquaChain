@@ -22,8 +22,8 @@ dynamodb = boto3.resource('dynamodb')
 cloudwatch = boto3.client('cloudwatch')
 
 # Environment variables
-USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID')
-REGION = os.environ.get('AWS_REGION', 'us-east-1')
+USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID') or os.environ.get('USER_POOL_ID')
+REGION = os.environ.get('AWS_REGION', 'ap-south-1')
 
 # DynamoDB tables
 USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
@@ -36,6 +36,10 @@ def lambda_handler(event, context):
     Main Lambda handler for admin operations
     """
     try:
+        # Handle OPTIONS requests for CORS preflight
+        if event.get('httpMethod') == 'OPTIONS':
+            return _create_response(200, {'message': 'OK'})
+        
         # Parse request
         http_method = event.get('httpMethod')
         path = event.get('path', '')
@@ -43,12 +47,19 @@ def lambda_handler(event, context):
         query_params = event.get('queryStringParameters') or {}
         path_params = event.get('pathParameters') or {}
         
+        logger.info(f"Admin service request: {http_method} {path}")
+        
         # Allow /api/devices for all authenticated users (not just admins)
         if path.startswith('/api/devices') and not path.startswith('/api/admin'):
             return _handle_user_device_management(event, http_method, path, query_params)
         
+        # Allow /api/profile for all authenticated users (not just admins)
+        if path.startswith('/api/profile'):
+            return _handle_profile_management(event, http_method, path, body)
+        
         # Verify admin authorization for admin endpoints
         if not _verify_admin_access(event):
+            logger.warning(f"Admin access denied for path: {path}")
             return _create_response(403, {'error': 'Admin access required'})
         
         # Route requests
@@ -68,8 +79,8 @@ def lambda_handler(event, context):
             return _create_response(404, {'error': 'Endpoint not found'})
             
     except Exception as e:
-        logger.error(f"Admin service error: {str(e)}")
-        return _create_response(500, {'error': 'Internal server error'})
+        logger.error(f"Admin service error: {str(e)}", exc_info=True)
+        return _create_response(500, {'error': 'Internal server error', 'message': str(e)})
 
 def _verify_admin_access(event) -> bool:
     """
@@ -118,6 +129,16 @@ def _get_all_users(query_params: Dict):
     Get all users from Cognito User Pool
     """
     try:
+        # Validate USER_POOL_ID is configured
+        if not USER_POOL_ID:
+            logger.error("USER_POOL_ID environment variable not configured")
+            return _create_response(500, {
+                'error': 'User pool not configured',
+                'message': 'COGNITO_USER_POOL_ID or USER_POOL_ID environment variable is missing'
+            })
+        
+        logger.info(f"Fetching users from User Pool: {USER_POOL_ID}")
+        
         limit = int(query_params.get('limit', 50))
         pagination_token = query_params.get('paginationToken')
         
@@ -128,33 +149,61 @@ def _get_all_users(query_params: Dict):
         
         if pagination_token:
             params['PaginationToken'] = pagination_token
-            
+        
+        logger.info(f"Calling list_users with params: {params}")
         response = cognito_client.list_users(**params)
+        logger.info(f"Successfully fetched {len(response.get('Users', []))} users")
         
         users = []
         for user in response.get('Users', []):
-            user_data = {
-                'userId': user['Username'],
-                'email': _get_user_attribute(user, 'email'),
-                'name': _get_user_attribute(user, 'name'),
-                'role': _get_user_groups(user['Username']),
-                'status': user['UserStatus'],
-                'createdAt': user['UserCreateDate'].isoformat(),
-                'lastModified': user['UserLastModifiedDate'].isoformat(),
-                'enabled': user['Enabled']
-            }
-            users.append(user_data)
+            try:
+                user_data = {
+                    'userId': user['Username'],
+                    'email': _get_user_attribute(user, 'email'),
+                    'name': _get_user_attribute(user, 'name') or _get_user_attribute(user, 'given_name'),
+                    'role': _get_user_groups(user['Username']),
+                    'status': user['UserStatus'],
+                    'createdAt': user['UserCreateDate'].isoformat(),
+                    'lastModified': user['UserLastModifiedDate'].isoformat(),
+                    'enabled': user['Enabled']
+                }
+                users.append(user_data)
+            except Exception as user_error:
+                logger.warning(f"Error processing user {user.get('Username')}: {str(user_error)}")
+                continue
         
         result = {
             'users': users,
             'paginationToken': response.get('PaginationToken')
         }
         
+        logger.info(f"Returning {len(users)} users")
         return _create_response(200, result)
         
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_message = e.response['Error']['Message']
+        logger.error(f"Cognito ClientError fetching users: {error_code} - {error_message}")
+        logger.error(f"Full error response: {e.response}")
+        
+        if error_code == 'AccessDeniedException':
+            return _create_response(500, {
+                'error': 'Access denied to Cognito',
+                'message': 'Lambda execution role lacks cognito-idp:ListUsers permission',
+                'details': error_message
+            })
+        else:
+            return _create_response(500, {
+                'error': 'Failed to fetch users from Cognito',
+                'message': error_message,
+                'code': error_code
+            })
     except Exception as e:
-        logger.error(f"Error fetching users: {str(e)}")
-        return _create_response(500, {'error': 'Failed to fetch users'})
+        logger.error(f"Unexpected error fetching users: {str(e)}", exc_info=True)
+        return _create_response(500, {
+            'error': 'Failed to fetch users',
+            'message': str(e)
+        })
 
 def _get_user_attribute(user: Dict, attribute_name: str) -> str:
     """
@@ -170,13 +219,21 @@ def _get_user_groups(username: str) -> str:
     Get user's Cognito groups
     """
     try:
+        if not USER_POOL_ID:
+            logger.warning("USER_POOL_ID not configured, returning default role")
+            return 'consumers'
+        
         response = cognito_client.admin_list_groups_for_user(
             UserPoolId=USER_POOL_ID,
             Username=username
         )
         groups = [group['GroupName'] for group in response.get('Groups', [])]
         return groups[0] if groups else 'consumers'  # Default role
-    except:
+    except ClientError as e:
+        logger.warning(f"Error fetching groups for user {username}: {str(e)}")
+        return 'consumers'
+    except Exception as e:
+        logger.warning(f"Unexpected error fetching groups for user {username}: {str(e)}")
         return 'consumers'
 
 def _handle_system_management(method: str, path: str, body: Dict, query_params: Dict):
@@ -447,6 +504,132 @@ def _handle_device_management(method: str, path: str, query_params: Dict):
         return _get_all_devices(query_params)
     else:
         return _create_response(404, {'error': 'Device management endpoint not found'})
+
+def _handle_profile_management(event, method: str, path: str, body: Dict):
+    """
+    Handle profile operations for authenticated users
+    """
+    try:
+        # Get user ID from Cognito authorizer
+        request_context = event.get('requestContext', {})
+        authorizer = request_context.get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        user_id = claims.get('sub') or claims.get('cognito:username')
+        
+        if not user_id:
+            return _create_response(401, {'error': 'User not authenticated'})
+        
+        if method == 'GET' and path == '/api/profile':
+            return _get_user_profile(user_id)
+        elif method == 'PUT' and path == '/api/profile/update':
+            return _update_user_profile(user_id, body)
+        else:
+            return _create_response(404, {'error': 'Endpoint not found'})
+            
+    except Exception as e:
+        logger.error(f"Profile management error: {str(e)}", exc_info=True)
+        return _create_response(500, {'error': 'Failed to process request', 'message': str(e)})
+
+def _get_user_profile(user_id: str):
+    """
+    Get user profile from DynamoDB
+    """
+    try:
+        table = dynamodb.Table(USERS_TABLE)
+        response = table.get_item(Key={'userId': user_id})
+        
+        if 'Item' not in response:
+            logger.warning(f"User profile not found: {user_id}")
+            return _create_response(404, {'error': 'User profile not found'})
+        
+        profile = response['Item']
+        logger.info(f"User profile retrieved: {user_id}")
+        
+        return _create_response(200, profile)
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error fetching profile: {str(e)}")
+        return _create_response(500, {'error': 'Database error occurred'})
+    except Exception as e:
+        logger.error(f"Error fetching user profile: {str(e)}")
+        return _create_response(500, {'error': 'Failed to fetch profile'})
+
+def _update_user_profile(user_id: str, updates: Dict):
+    """
+    Update user profile information
+    """
+    try:
+        # Validate body is parsed
+        if not isinstance(updates, dict):
+            logger.error(f"Invalid update data type: {type(updates)}")
+            return _create_response(400, {'error': 'Invalid request body'})
+        
+        logger.info(f"Updating profile for user {user_id} with data: {json.dumps(updates)[:200]}")
+        
+        # Get current profile
+        table = dynamodb.Table(USERS_TABLE)
+        response = table.get_item(Key={'userId': user_id})
+        
+        if 'Item' not in response:
+            logger.warning(f"User profile not found: {user_id}")
+            return _create_response(404, {'error': 'User profile not found'})
+        
+        current_profile = response['Item']
+        
+        # Prepare update expression
+        update_expression = "SET updatedAt = :updated_at"
+        expression_values = {':updated_at': datetime.utcnow().isoformat()}
+        has_updates = False
+        
+        # Handle profile updates
+        if 'profile' in updates:
+            profile_updates = updates['profile']
+            for key, value in profile_updates.items():
+                if key in ['firstName', 'lastName', 'phone', 'address']:
+                    update_expression += f", profile.{key} = :{key}"
+                    expression_values[f':{key}'] = value
+                    has_updates = True
+        
+        # Handle preferences updates
+        if 'preferences' in updates:
+            pref_updates = updates['preferences']
+            for key, value in pref_updates.items():
+                update_expression += f", preferences.{key} = :pref_{key}"
+                expression_values[f':pref_{key}'] = value
+                has_updates = True
+        
+        # If no updates were made, just return current profile
+        if not has_updates:
+            logger.info(f"No profile updates needed for user: {user_id}")
+            return _create_response(200, current_profile)
+        
+        # Update DynamoDB
+        logger.info(f"Updating profile with expression: {update_expression}")
+        logger.info(f"Expression values: {expression_values}")
+        
+        response = table.update_item(
+            Key={'userId': user_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_values,
+            ReturnValues='ALL_NEW'
+        )
+        
+        logger.info(f"User profile updated successfully: {user_id}")
+        return _create_response(200, response['Attributes'])
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB ClientError updating profile: {str(e)}")
+        logger.error(f"Error response: {e.response}")
+        return _create_response(500, {
+            'error': 'Database error occurred',
+            'message': str(e)
+        })
+    except Exception as e:
+        logger.error(f"Unexpected profile update error: {str(e)}", exc_info=True)
+        return _create_response(500, {
+            'error': 'Profile update failed',
+            'message': str(e)
+        })
 
 def _handle_user_device_management(event, method: str, path: str, query_params: Dict):
     """

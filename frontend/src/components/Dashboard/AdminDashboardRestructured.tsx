@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import AdminProfile from './AdminProfile';
 import {
   ArrowLeftIcon,
   Cog6ToothIcon,
@@ -56,7 +57,7 @@ interface AdminDashboardRestructuredProps {
 
 const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = memo(() => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedView, setSelectedView] = useState('overview');
@@ -939,27 +940,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         </header>
 
         <main className="max-w-4xl mx-auto p-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-6"
-          >
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Administrator Profile</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <p className="text-gray-900">{user.profile?.firstName} {user.profile?.lastName}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <p className="text-gray-900">{user.email}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                <p className="text-gray-900 capitalize">{user.role}</p>
-              </div>
-            </div>
-          </motion.div>
+          <AdminProfile onUpdate={() => refreshUser()} />
         </main>
       </div>
     );
