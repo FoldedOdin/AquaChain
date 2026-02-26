@@ -1686,7 +1686,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <span className="text-sm font-medium text-gray-700">Open Incidents</span>
                     </div>
                     <span className="text-sm font-semibold text-red-600">
-                      {incidentStats.openIncidents} Active
+                      {incidentStats?.openIncidents ?? 0} Active
                     </span>
                   </div>
                   
@@ -1696,7 +1696,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <span className="text-sm font-medium text-gray-700">Critical Incidents</span>
                     </div>
                     <span className="text-sm font-semibold text-amber-600">
-                      {incidentStats.criticalIncidents} High Priority
+                      {incidentStats?.criticalIncidents ?? 0} High Priority
                     </span>
                   </div>
                   
@@ -1706,7 +1706,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <span className="text-sm font-medium text-gray-700">Avg Resolution Time</span>
                     </div>
                     <span className="text-sm font-semibold text-blue-600">
-                      {incidentStats.avgResolutionTime > 0 ? `${incidentStats.avgResolutionTime.toFixed(1)} hours` : 'N/A'}
+                      {(incidentStats?.avgResolutionTime ?? 0) > 0 ? `${incidentStats.avgResolutionTime.toFixed(1)} hours` : 'N/A'}
                     </span>
                   </div>
                   
