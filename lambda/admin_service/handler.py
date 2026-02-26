@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError
 import logging
+import hashlib
+from config_validation import validate_configuration, get_validation_rules
 
 # Configure logging
 logger = logging.getLogger()
@@ -31,6 +33,7 @@ USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
 DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
 AUDIT_TABLE = os.environ.get('AUDIT_TABLE', 'AquaChain-AuditLogs')
 CONFIG_TABLE = os.environ.get('CONFIG_TABLE', 'AquaChain-SystemConfig')
+CONFIG_HISTORY_TABLE = os.environ.get('CONFIG_HISTORY_TABLE', 'AquaChain-ConfigHistory')
 
 # ============================================================================
 # PII MASKING UTILITIES (Security Layer)
