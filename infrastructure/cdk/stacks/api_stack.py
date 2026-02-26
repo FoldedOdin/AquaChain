@@ -399,6 +399,14 @@ class AquaChainApiStack(Stack):
             
             # /api/admin/users/{userId}
             admin_user_resource = admin_users_resource.add_resource("{userId}")
+            
+            # Add CORS preflight for this resource
+            admin_user_resource.add_cors_preflight(
+                allow_origins=["http://localhost:3000", "*"],
+                allow_methods=["GET", "PUT", "DELETE", "OPTIONS"],
+                allow_headers=["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key"]
+            )
+            
             # GET method for user details (supports ?reveal=true for PII access)
             admin_user_resource.add_method(
                 "GET",
