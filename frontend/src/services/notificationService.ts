@@ -3,6 +3,8 @@
  * Handles fetching and managing user notifications
  */
 
+import { fetchWithAuth } from '../utils/apiInterceptor';
+
 export interface Notification {
   id: string;
   type: 'success' | 'warning' | 'info' | 'error';
@@ -46,10 +48,15 @@ class NotificationService {
    */
   async getNotifications(): Promise<Notification[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/notifications`, {
-        method: 'GET',
-        headers: this.getAuthHeaders()
-      });
+      const response = await fetchWithAuth(
+        `${this.baseUrl}/api/notifications`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       // If endpoint doesn't exist (404) or service unavailable, return empty array
       if (response.status === 404 || response.status === 503 || response.status === 500) {
@@ -77,10 +84,15 @@ class NotificationService {
    */
   async markAsRead(notificationId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/notifications/${notificationId}/read`, {
-        method: 'PUT',
-        headers: this.getAuthHeaders()
-      });
+      const response = await fetchWithAuth(
+        `${this.baseUrl}/api/notifications/${notificationId}/read`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       const result = await response.json();
 
@@ -98,10 +110,15 @@ class NotificationService {
    */
   async markAllAsRead(): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/notifications/read-all`, {
-        method: 'PUT',
-        headers: this.getAuthHeaders()
-      });
+      const response = await fetchWithAuth(
+        `${this.baseUrl}/api/notifications/read-all`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       const result = await response.json();
 
@@ -119,10 +136,15 @@ class NotificationService {
    */
   async deleteNotification(notificationId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/notifications/${notificationId}`, {
-        method: 'DELETE',
-        headers: this.getAuthHeaders()
-      });
+      const response = await fetchWithAuth(
+        `${this.baseUrl}/api/notifications/${notificationId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       const result = await response.json();
 
@@ -140,11 +162,16 @@ class NotificationService {
    */
   async createNotification(notification: Omit<Notification, 'id' | 'timestamp'>): Promise<Notification> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/notifications`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(notification)
-      });
+      const response = await fetchWithAuth(
+        `${this.baseUrl}/api/notifications`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(notification)
+        }
+      );
 
       const result = await response.json();
 
@@ -164,10 +191,15 @@ class NotificationService {
    */
   async getUnreadCount(): Promise<number> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/notifications/unread-count`, {
-        method: 'GET',
-        headers: this.getAuthHeaders()
-      });
+      const response = await fetchWithAuth(
+        `${this.baseUrl}/api/notifications/unread-count`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       // If endpoint doesn't exist or has errors, return 0
       if (response.status === 404 || response.status === 503 || response.status === 500) {

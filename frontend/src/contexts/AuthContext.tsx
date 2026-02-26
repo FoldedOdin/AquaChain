@@ -385,6 +385,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const { signIn, fetchAuthSession, getCurrentUser } = await import('aws-amplify/auth');
         const signInResult = await signIn({ username: email, password });
 
+        console.log('🔐 Cognito signIn result:', {
+          isSignedIn: signInResult.isSignedIn,
+          nextStep: signInResult.nextStep
+        });
+
         if (signInResult.isSignedIn) {
           // Get user details and session
           const currentUser = await getCurrentUser();
@@ -525,12 +530,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
           }, 500);
         } else {
-          throw new Error('Sign in not completed');
+          // Sign in requires additional steps
+          console.error('❌ Sign in not completed. Next step:', signInResult.nextStep);
+          
+          // Handle different authentication challenges
+          if (signInResult.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+            throw new Error('NEW_PASSWORD_REQUIRED');
+          } else if (signInResult.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_SMS_CODE') {
+            throw new Error('MFA_SMS_REQUIRED');
+          } else if (signInResult.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_TOTP_CODE') {
+            throw new Error('MFA_TOTP_REQUIRED');
+          } else if (signInResult.nextStep?.signInStep === 'CONFIRM_SIGN_UP') {
+            throw new Error('UNCONFIRMED_USER');
+          } else {
+            throw new Error(`Sign in requires additional step: ${signInResult.nextStep?.signInStep || 'UNKNOWN'}`);
+          }
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      throw new Error('Login failed');
+      
+      // Check for specific Cognito errors
+      if (error.name === 'UserNotConfirmedException' || error.message?.includes('User is not confirmed')) {
+        // User needs to verify their email
+        throw new Error('UNCONFIRMED_USER');
+      } else if (error.name === 'NotAuthorizedException') {
+        throw new Error('Invalid email or password');
+      } else if (error.name === 'UserNotFoundException') {
+        throw new Error('User not found');
+      } else {
+        throw new Error(error.message || 'Login failed');
+      }
     } finally {
       setIsLoading(false);
     }

@@ -179,6 +179,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     status: 'active'
   });
   const [isSubmittingAdd, setIsSubmittingAdd] = useState(false);
+  const [addUserError, setAddUserError] = useState('');
   
   // System monitoring state
   const [systemMetrics, setSystemMetrics] = useState<{
@@ -467,15 +468,20 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   }, [users, userSearchTerm, userRoleFilter]);
 
   // User role data for bar chart
-  const userRoleData = useMemo(() => [
-    { role: 'Consumer', count: userStats.consumers },
-    { role: 'Technician', count: userStats.technicians },
-    { role: 'Admin', count: userStats.admins },
-    { role: 'Inventory Mgr', count: userStats.inventoryManagers },
-    { role: 'Warehouse Mgr', count: userStats.warehouseManagers },
-    { role: 'Supplier Coord', count: userStats.supplierCoordinators },
-    { role: 'Procurement Ctrl', count: userStats.procurementControllers },
-  ], [userStats]);
+  const userRoleData = useMemo(() => {
+    const data = [
+      { role: 'Consumer', count: userStats.consumers },
+      { role: 'Technician', count: userStats.technicians },
+      { role: 'Admin', count: userStats.admins },
+      { role: 'Inventory Mgr', count: userStats.inventoryManagers },
+      { role: 'Warehouse Mgr', count: userStats.warehouseManagers },
+      { role: 'Supplier Coord', count: userStats.supplierCoordinators },
+      { role: 'Procurement Ctrl', count: userStats.procurementControllers },
+    ];
+    
+    // Filter out roles with 0 count to avoid empty bars
+    return data.filter(item => item.count > 0);
+  }, [userStats]);
 
   // System health metrics
   const systemHealthData = useMemo(() => {
@@ -677,23 +683,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     return () => clearInterval(interval);
   }, [sensitiveSession.isActive, sensitiveSession.expiresAt]);
 
-  const handleRevealSensitiveData = useCallback(() => {
-    setVerificationPassword('');
-    setVerificationError('');
-    setShowPasswordDialog(true);
-  }, []);
-
-  const handleVerifyPassword = useCallback(async () => {
-    if (!selectedUser || !verificationPassword) {
-      setVerificationError('Please enter your password');
-      return;
-    }
+  const handleRevealSensitiveData = useCallback(async () => {
+    if (!selectedUser) return;
 
     setIsVerifying(true);
-    setVerificationError('');
 
     try {
-      const revealedData = await revealSensitiveData(selectedUser.userId, verificationPassword);
+      // Directly reveal sensitive data without password verification
+      // Security: Relies on JWT authentication (admin role) + audit logging
+      const revealedData = await revealSensitiveData(selectedUser.userId);
       
       // Set sensitive session with 5-minute expiration
       const now = new Date();
@@ -717,16 +715,13 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         phone: revealedData.phone,
         lastName: revealedData.lastName
       }));
-
-      setShowPasswordDialog(false);
-      setVerificationPassword('');
     } catch (error) {
-      console.error('Password verification failed:', error);
-      setVerificationError(error instanceof Error ? error.message : 'Verification failed');
+      console.error('Failed to reveal sensitive data:', error);
+      alert('Failed to reveal sensitive data. Please try again.');
     } finally {
       setIsVerifying(false);
     }
-  }, [selectedUser, verificationPassword]);
+  }, [selectedUser]);
 
   const handleEditFormChange = useCallback((field: string, value: string) => {
     setEditFormData((prev) => ({ ...prev, [field]: value }));
@@ -797,6 +792,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
       role: 'consumer',
       status: 'active'
     });
+    setAddUserError(''); // Clear any previous errors
     setShowAddUserModal(true);
   }, []);
 
@@ -806,6 +802,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
   const handleSaveNewUser = useCallback(async () => {
     setIsSubmittingAdd(true);
+    setAddUserError(''); // Clear previous errors
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002'}/api/admin/users`, {
@@ -836,15 +833,16 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         };
         setUsers((prev) => [...prev, newUser]);
         setShowAddUserModal(false);
+        setAddUserError(''); // Clear error on success
         console.log('User created successfully');
       } else {
         const error = await response.json();
         console.error('Failed to create user:', error.error);
-        alert(error.error || 'Failed to create user');
+        setAddUserError(error.error || 'Failed to create user');
       }
     } catch (error) {
       console.error('Error creating user:', error);
-      alert('Error creating user');
+      setAddUserError('Network error. Please check your connection and try again.');
     } finally {
       setIsSubmittingAdd(false);
     }
@@ -2760,98 +2758,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         )}
       </AnimatePresence>
 
-      {/* Password Verification Dialog */}
-      <AnimatePresence>
-        {showPasswordDialog && (
-          <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => !isVerifying && setShowPasswordDialog(false)} />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            >
-              <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheckIcon className="w-6 h-6 text-purple-600" />
-                    <h3 className="text-lg font-bold text-gray-900">Verify Your Identity</h3>
-                  </div>
-                  <button 
-                    onClick={() => !isVerifying && setShowPasswordDialog(false)} 
-                    className="text-gray-400 hover:text-gray-600"
-                    disabled={isVerifying}
-                  >
-                    <XMarkIcon className="w-5 h-5" />
-                  </button>
-                </div>
-                
-                <p className="text-sm text-gray-600 mb-4">
-                  To view sensitive user information, please enter your admin password. This action will be logged for security audit.
-                </p>
-
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Admin Password</label>
-                  <input
-                    type="password"
-                    value={verificationPassword}
-                    onChange={(e) => setVerificationPassword(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleVerifyPassword()}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Enter your password"
-                    disabled={isVerifying}
-                    autoFocus
-                  />
-                  {verificationError && (
-                    <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
-                      <AlertTriangle className="w-4 h-4" />
-                      {verificationError}
-                    </p>
-                  )}
-                </div>
-
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                  <div className="flex items-start gap-2">
-                    <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-800">
-                      <p className="font-medium">Session Duration: 5 minutes</p>
-                      <p className="mt-1">Sensitive data will be automatically hidden after 5 minutes for security.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => setShowPasswordDialog(false)}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                    disabled={isVerifying}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleVerifyPassword}
-                    disabled={isVerifying || !verificationPassword}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                  >
-                    {isVerifying ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Verifying...
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheckIcon className="w-4 h-4" />
-                        Verify & Reveal
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* Add User Modal */}
       <AnimatePresence>
         {showAddUserModal && (
@@ -2874,6 +2780,30 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                     <XMarkIcon className="w-6 h-6" />
                   </button>
                 </div>
+
+                {/* Error Banner */}
+                <AnimatePresence>
+                  {addUserError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
+                    >
+                      <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-red-800">Failed to create user</p>
+                        <p className="text-sm text-red-700 mt-1">{addUserError}</p>
+                      </div>
+                      <button
+                        onClick={() => setAddUserError('')}
+                        className="text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        <XMarkIcon className="w-5 h-5" />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">

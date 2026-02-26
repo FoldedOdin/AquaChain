@@ -10,9 +10,22 @@ import {
   AuditTrailEntry,
   SystemConfiguration
 } from '../types/admin';
+import { fetchWithAuth } from '../utils/apiInterceptor';
 
 // API Base URL
 const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+
+/**
+ * Get logout function from AuthContext
+ * This is used by the API interceptor to handle 401 errors
+ */
+const getLogoutFunction = async () => {
+  // Import dynamically to avoid circular dependencies
+  const { useAuth } = await import('../contexts/AuthContext');
+  // Note: This won't work outside React components
+  // The interceptor will handle logout directly via localStorage and redirect
+  return undefined;
+};
 
 // Mock data for development - will be replaced with actual API calls
 
@@ -41,13 +54,15 @@ export const getDeviceFleetStatus = async (): Promise<DeviceFleetStatus[]> => {
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/devices`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/devices`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to fetch devices');
@@ -136,13 +151,15 @@ export const getAllUsers = async (): Promise<UserManagementData[]> => {
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/users`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to fetch users');
@@ -507,14 +524,16 @@ export const updateSystemConfiguration = async (config: Partial<SystemConfigurat
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/system/configuration`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(config)
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+      }
+    );
 
     if (!response.ok) {
       // If the endpoint doesn't exist yet, simulate the update locally
@@ -565,14 +584,16 @@ export const updateProfile = async (updates: { profile: { firstName: string; las
 
     console.log('Sending profile update request:', flatUpdates);
 
-    const response = await fetch(`${API_BASE_URL}/api/profile/update`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(flatUpdates)
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/profile/update`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(flatUpdates)
+      }
+    );
 
     console.log('Profile update response status:', response.status);
 
@@ -611,7 +632,7 @@ export const updateProfile = async (updates: { profile: { firstName: string; las
   }
 };
 
-export const revealSensitiveData = async (userId: string, password: string): Promise<{
+export const revealSensitiveData = async (userId: string): Promise<{
   userId: string;
   email: string;
   phone: string;
@@ -626,19 +647,19 @@ export const revealSensitiveData = async (userId: string, password: string): Pro
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/sensitive`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-Admin-Password': password // Send password for verification
-      },
-    });
+    // Simplified approach: Just fetch user data directly
+    // Security: JWT authentication (admin role required) + audit logging in Lambda
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/users/${userId}?reveal=true`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
+    );
 
     if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Invalid password');
-      }
       throw new Error('Failed to reveal sensitive data');
     }
 

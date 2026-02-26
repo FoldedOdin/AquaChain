@@ -69,7 +69,17 @@ def lambda_handler(event, context):
     try:
         # Handle OPTIONS requests for CORS preflight
         if event.get('httpMethod') == 'OPTIONS':
-            return _create_response(200, {'message': 'OK'})
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Password,x-admin-password',
+                    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                    'Access-Control-Max-Age': '86400'  # Cache preflight for 24 hours
+                },
+                'body': json.dumps({'message': 'OK'})
+            }
         
         # Parse request
         http_method = event.get('httpMethod')
@@ -99,15 +109,7 @@ def lambda_handler(event, context):
         
         # Route requests
         if path.startswith('/api/admin/users'):
-            # Secure endpoint for revealing sensitive PII
-            if http_method == 'GET' and path.endswith('/sensitive'):
-                # Extract userId from path: /api/admin/users/{userId}/sensitive
-                user_id = path.split('/')[-2]
-                admin_id = authorizer.get('claims', {}).get('sub') or authorizer.get('claims', {}).get('cognito:username')
-                ip_address = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
-                return _get_sensitive_user_data(user_id, admin_id, ip_address)
-            else:
-                return _handle_user_management(http_method, path, body, query_params, path_params)
+            return _handle_user_management(http_method, path, body, query_params, path_params, event)
         elif path.startswith('/api/admin/system/metrics'):
             return _handle_system_metrics(http_method)
         elif path.startswith('/api/admin/system'):
@@ -148,10 +150,24 @@ def _verify_admin_access(event) -> bool:
         logger.error(f"Admin access verification failed: {str(e)}")
         return False
 
-def _handle_user_management(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict):
+def _handle_user_management(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict, event: Dict = None):
     """
     Handle user management operations
     """
+    # Check for sensitive data reveal request (GET with reveal=true query param)
+    if method == 'GET' and path_params.get('userId') and query_params.get('reveal') == 'true':
+        user_id = path_params['userId']
+        
+        # Extract admin ID from authorizer context
+        request_context = event.get('requestContext', {}) if event else {}
+        authorizer = request_context.get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        admin_id = claims.get('sub') or claims.get('cognito:username')
+        ip_address = request_context.get('identity', {}).get('sourceIp', 'unknown')
+        
+        # No password verification - rely on JWT auth + audit logging
+        return _get_sensitive_user_data(user_id, admin_id, ip_address, admin_password=None)
+    
     if method == 'GET' and path == '/api/admin/users':
         return _get_all_users(query_params)
     elif method == 'POST' and path == '/api/admin/users':
@@ -968,10 +984,14 @@ def _create_user(user_data: Dict):
             'admin': 'administrators',
             'administrator': 'administrators',
             'administrators': 'administrators',
-            'inventory_manager': 'technicians',
-            'warehouse_manager': 'technicians',
-            'supplier_coordinator': 'technicians',
-            'procurement_controller': 'technicians'
+            'inventory_manager': 'inventory_managers',
+            'inventory_managers': 'inventory_managers',
+            'warehouse_manager': 'warehouse_managers',
+            'warehouse_managers': 'warehouse_managers',
+            'supplier_coordinator': 'supplier_coordinators',
+            'supplier_coordinators': 'supplier_coordinators',
+            'procurement_controller': 'procurement_controllers',
+            'procurement_controllers': 'procurement_controllers'
         }
         
         role = user_data.get('role', 'consumer').lower()
@@ -1155,16 +1175,30 @@ def _update_user(user_id: str, user_data: Dict):
 
 def _delete_user(user_id: str):
     """
-    Delete a user
+    Delete a user from both Cognito and DynamoDB
     """
     try:
+        # Delete from Cognito (this is the source of truth)
         cognito_client.admin_delete_user(
             UserPoolId=USER_POOL_ID,
             Username=user_id
         )
+        logger.info(f"Deleted user {user_id} from Cognito")
+        
+        # Clean up DynamoDB profile (best effort - don't fail if it doesn't exist)
+        try:
+            users_table = dynamodb.Table(USERS_TABLE)
+            users_table.delete_item(Key={'userId': user_id})
+            logger.info(f"Deleted user profile {user_id} from DynamoDB")
+        except Exception as db_error:
+            logger.warning(f"Failed to delete user profile from DynamoDB: {str(db_error)}")
+            # Continue - Cognito deletion is what matters
         
         return _create_response(200, {'message': 'User deleted successfully'})
         
+    except cognito_client.exceptions.UserNotFoundException:
+        logger.error(f"User not found: {user_id}")
+        return _create_response(404, {'error': 'User not found'})
     except Exception as e:
         logger.error(f"Error deleting user: {str(e)}")
         return _create_response(500, {'error': 'Failed to delete user'})
@@ -1216,15 +1250,16 @@ def _get_performance_metrics(query_params: Dict):
 
 def _create_response(status_code: int, body: Dict) -> Dict:
     """
-    Create standardized API response
+    Create standardized API response with proper CORS headers
     """
     return {
         'statusCode': status_code,
         'headers': {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Password,x-admin-password',
+            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+            'Access-Control-Max-Age': '86400'
         },
         'body': json.dumps(body)
     }
@@ -1295,10 +1330,17 @@ def _handle_system_metrics(method: str):
 # SECURE PII ACCESS ENDPOINT (Audit Logged)
 # ============================================================================
 
-def _get_sensitive_user_data(user_id: str, admin_id: str, ip_address: str):
+def _get_sensitive_user_data(user_id: str, admin_id: str, ip_address: str, admin_password: str = None):
     """
     Retrieve full unmasked PII for a specific user
-    SECURITY: This action is audit logged
+    SECURITY: This action is audit logged. Password verification removed for MVP.
+    
+    Security Model:
+    - JWT authentication (admin role required) - enforced by API Gateway
+    - Audit logging (immutable record) - all PII access is logged
+    - 5-minute session timeout - enforced on frontend
+    
+    NOTE: For production, consider adding password verification via API Gateway configuration
     """
     try:
         # Fetch full user data from DynamoDB
@@ -1310,12 +1352,13 @@ def _get_sensitive_user_data(user_id: str, admin_id: str, ip_address: str):
         
         user_data = response['Item']
         
-        # Log PII access in audit table
+        # Log PII access in audit table (immutable record)
         _log_pii_access(
             admin_id=admin_id,
             target_user_id=user_id,
             action='REVEAL_SENSITIVE_DATA',
-            ip_address=ip_address
+            ip_address=ip_address,
+            details={'password_verification': False, 'method': 'jwt_only'}
         )
         
         # Return full unmasked data
