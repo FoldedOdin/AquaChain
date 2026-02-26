@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test - AquaChain</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; color: #155724; }
+        .connecting { background: #fff3cd; color: #856404; }
+        .error { background: #f8d7da; color: #721c24; }
+        #messages { border: 1px solid #ddd; padding: 10px; height: 300px; overflow-y: auto; }
+        .message { padding: 5px; margin: 5px 0; border-bottom: 1px solid #eee; }
+    </style>
+</head>
+<body>
+    <h1>AquaChain WebSocket Connection Test</h1>
+    <div id="status" class="connecting">Connecting...</div>
+    <div id="messages"></div>
+    
+    <script>
+        const wsUrl = 'wss://nnznduptme.execute-api.ap-south-1.amazonaws.com/dev?topic=test';
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = 'message';
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        log('Attempting to connect to: ' + wsUrl);
+        log('Browser: ' + navigator.userAgent);
+        
+        try {
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                statusDiv.textContent = '✅ Connected Successfully!';
+                statusDiv.className = 'connected';
+                log('WebSocket connection established!', 'success');
+                
+                // Send a test ping
+                const pingMsg = JSON.stringify({ type: 'ping', timestamp: new Date().toISOString() });
+                ws.send(pingMsg);
+                log('Sent ping: ' + pingMsg);
+            };
+            
+            ws.onmessage = (event) => {
+                log('Received message: ' + event.data, 'success');
+                try {
+                    const data = JSON.parse(event.data);
+                    log('Parsed data: ' + JSON.stringify(data, null, 2));
+                } catch (e) {
+                    log('Could not parse message as JSON');
+                }
+            };
+            
+            ws.onerror = (error) => {
+                statusDiv.textContent = '❌ Connection Error';
+                statusDiv.className = 'error';
+                log('WebSocket error occurred', 'error');
+                log('Error object: ' + JSON.stringify(error));
+            };
+            
+            ws.onclose = (event) => {
+                statusDiv.textContent = '🔌 Connection Closed';
+                statusDiv.className = 'error';
+                log(`Connection closed: Code=${event.code}, Reason=${event.reason || 'No reason provided'}`, 'error');
+                log(`Was clean: ${event.wasClean}`);
+            };
+            
+            // Log connection state every second
+            setInterval(() => {
+                const states = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+                log(`WebSocket state: ${states[ws.readyState]} (${ws.readyState})`);
+            }, 5000);
+            
+        } catch (error) {
+            statusDiv.textContent = '❌ Failed to Create WebSocket';
+            statusDiv.className = 'error';
+            log('Exception creating WebSocket: ' + error.message, 'error');
+            log('Stack: ' + error.stack);
+        }
+    </script>
+</body>
+</html>

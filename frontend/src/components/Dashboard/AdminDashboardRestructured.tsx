@@ -46,6 +46,7 @@ import {
 } from '../../services/adminService';
 import { getIncidentReports, getIncidentStats } from '../../services/incidentService';
 import { formatRelativeTime } from '../../utils/dateFormat';
+import websocketService from '../../services/websocketService';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -278,6 +279,10 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     avgResolutionTime: 0
   });
 
+  // WebSocket is disabled - using polling for reliability
+  const wsEnabled = false;
+  const wsConnected = false;
+
   // Fetch dashboard data
   const { data: dashboardData, isLoading, error } = useDashboardData('admin');
   const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: true });
@@ -357,6 +362,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     
     return () => clearInterval(metricsInterval);
   }, []);
+
+  // WebSocket disabled - using polling instead
+  // No WebSocket connection needed
 
   // Helper functions
   const getStatusColor = (status: string) => {
@@ -940,6 +948,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         </header>
 
         <main className="max-w-4xl mx-auto p-6">
+          {/* Profile Section */}
           <AdminProfile onUpdate={() => refreshUser()} />
         </main>
       </div>
@@ -994,14 +1003,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6">
-        {/* Connection Status */}
-        {!isConnected && (
-          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
-            <span className="text-sm text-amber-800">Real-time updates disconnected.</span>
-          </div>
-        )}
-
         {/* Tabbed Navigation - NO OPERATIONAL CONTROLS */}
         <div className="bg-white rounded-lg shadow-md mb-6">
           <div className="flex border-b">

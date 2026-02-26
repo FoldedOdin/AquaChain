@@ -326,6 +326,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         setUser(userProfile);
         setIsAuthenticated(true);
+        
+        // Track login timestamp in DynamoDB
+        console.log('🔄 Attempting to track login timestamp...');
+        try {
+          const token = result.session.token || localStorage.getItem('aquachain_token');
+          const trackResponse = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/admin/users/track-login`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ userId: userProfile.userId, email: userProfile.email })
+          });
+          
+          if (trackResponse.ok) {
+            console.log('✅ Login timestamp tracked successfully');
+          } else {
+            console.warn('⚠️ Login tracking failed:', await trackResponse.text());
+          }
+        } catch (trackError) {
+          console.warn('⚠️ Failed to track login (non-critical):', trackError);
+        }
       } else {
         // Production mode with AWS Cognito
         const { signIn, fetchAuthSession, getCurrentUser } = await import('aws-amplify/auth');
@@ -407,6 +429,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           localStorage.setItem('aquachain_user', JSON.stringify(userProfile));
           setUser(userProfile);
           setIsAuthenticated(true);
+          
+          // Track login timestamp in DynamoDB
+          console.log('🔄 Attempting to track login timestamp...');
+          try {
+            const trackResponse = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/admin/users/track-login`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+              },
+              body: JSON.stringify({ userId: currentUser.userId, email: email })
+            });
+            
+            if (trackResponse.ok) {
+              console.log('✅ Login timestamp tracked successfully');
+            } else {
+              console.warn('⚠️ Login tracking failed:', await trackResponse.text());
+            }
+          } catch (trackError) {
+            console.warn('⚠️ Failed to track login (non-critical):', trackError);
+          }
           
           // Schedule automatic token refresh
           scheduleTokenRefresh();

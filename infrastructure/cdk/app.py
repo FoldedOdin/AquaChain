@@ -32,6 +32,7 @@ from stacks.dashboard_overhaul_stack import DashboardOverhaulStack
 from stacks.deployment_pipeline_stack import DeploymentPipelineStack
 from stacks.production_monitoring_stack import ProductionMonitoringStack
 from stacks.enhanced_consumer_ordering_stack import EnhancedConsumerOrderingStack
+from stacks.websocket_stack import WebSocketStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -343,6 +344,16 @@ def main():
     )
     enhanced_ordering_stack.add_dependency(security_stack)
     enhanced_ordering_stack.add_dependency(lambda_layers_stack)
+    
+    # 26. WebSocket Stack (Real-time updates via WebSocket API)
+    websocket_stack = WebSocketStack(
+        app,
+        f"AquaChain-WebSocket-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain WebSocket API for Real-time Updates - {env_name}"
+    )
+    # WebSocket is independent infrastructure
     
     # Synthesize the app
     app.synth()

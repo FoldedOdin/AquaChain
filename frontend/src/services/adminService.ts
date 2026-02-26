@@ -155,7 +155,7 @@ export const getAllUsers = async (): Promise<UserManagementData[]> => {
       userId: user.userId,
       email: user.email,
       role: user.role,
-      status: user.emailVerified ? 'active' : 'pending',
+      status: user.status || 'pending',  // Use status from backend
       createdAt: user.createdAt,
       lastLogin: user.lastLogin || null,
       deviceCount: 0, // Will be calculated from devices
