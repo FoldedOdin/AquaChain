@@ -216,19 +216,65 @@ export const createUser = async (userData: Partial<UserManagementData>): Promise
 };
 
 export const updateUser = async (userId: string, updates: Partial<UserManagementData>): Promise<UserManagementData> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
-  
-  const users = await getAllUsers();
-  const user = users.find(u => u.userId === userId);
-  
-  if (!user) {
-    throw new Error('User not found');
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    // Transform the data to match backend expectations
+    const updatePayload: any = {};
+    
+    if (updates.profile) {
+      updatePayload.firstName = updates.profile.firstName;
+      updatePayload.lastName = updates.profile.lastName;
+      updatePayload.phone = updates.profile.phone;
+    }
+    
+    if (updates.email) {
+      updatePayload.email = updates.email;
+    }
+    
+    if (updates.status !== undefined) {
+      // Map frontend status to Cognito enabled flag
+      updatePayload.enabled = updates.status === 'active';
+    }
+
+    console.log('Updating user:', userId, 'with payload:', updatePayload);
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/users/${userId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatePayload)
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to update user');
+    }
+
+    const result = await response.json();
+    console.log('User update response:', result);
+    
+    // Fetch the updated user data
+    const users = await getAllUsers();
+    const updatedUser = users.find(u => u.userId === userId);
+    
+    if (!updatedUser) {
+      throw new Error('User not found after update');
+    }
+    
+    return updatedUser;
+  } catch (error) {
+    console.error('Error updating user:', error);
+    throw error;
   }
-  
-  return {
-    ...user,
-    ...updates
-  };
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {

@@ -1143,22 +1143,26 @@ def _reset_user_password(user_id: str):
 
 def _update_user(user_id: str, user_data: Dict):
     """
-    Update an existing user
+    Update an existing user in both Cognito and DynamoDB
     """
     try:
-        # Update user attributes
-        attributes = []
+        # Update Cognito attributes
+        cognito_attributes = []
         if 'name' in user_data:
-            attributes.append({'Name': 'name', 'Value': user_data['name']})
+            cognito_attributes.append({'Name': 'name', 'Value': user_data['name']})
         if 'email' in user_data:
-            attributes.append({'Name': 'email', 'Value': user_data['email']})
+            cognito_attributes.append({'Name': 'email', 'Value': user_data['email']})
+        if 'phone' in user_data:
+            # Cognito uses 'phone_number' not 'phone'
+            cognito_attributes.append({'Name': 'phone_number', 'Value': user_data['phone']})
             
-        if attributes:
+        if cognito_attributes:
             cognito_client.admin_update_user_attributes(
                 UserPoolId=USER_POOL_ID,
                 Username=user_id,
-                UserAttributes=attributes
+                UserAttributes=cognito_attributes
             )
+            logger.info(f"Updated Cognito attributes for user {user_id}: {[attr['Name'] for attr in cognito_attributes]}")
         
         # Update user status if provided
         if 'enabled' in user_data:
@@ -1166,12 +1170,53 @@ def _update_user(user_id: str, user_data: Dict):
                 cognito_client.admin_enable_user(UserPoolId=USER_POOL_ID, Username=user_id)
             else:
                 cognito_client.admin_disable_user(UserPoolId=USER_POOL_ID, Username=user_id)
+            logger.info(f"Updated enabled status for user {user_id}: {user_data['enabled']}")
+        
+        # Update DynamoDB Users table (where profile data is stored)
+        users_table = dynamodb.Table(USERS_TABLE)
+        update_expression_parts = []
+        expression_values = {}
+        
+        # Map frontend fields to DynamoDB fields
+        if 'firstName' in user_data:
+            update_expression_parts.append("firstName = :firstName")
+            expression_values[':firstName'] = user_data['firstName']
+        
+        if 'lastName' in user_data:
+            update_expression_parts.append("lastName = :lastName")
+            expression_values[':lastName'] = user_data['lastName']
+        
+        if 'phone' in user_data:
+            update_expression_parts.append("phone = :phone")
+            expression_values[':phone'] = user_data['phone']
+        
+        if 'email' in user_data:
+            update_expression_parts.append("email = :email")
+            expression_values[':email'] = user_data['email']
+        
+        # Always update the updatedAt timestamp
+        update_expression_parts.append("updatedAt = :updatedAt")
+        expression_values[':updatedAt'] = datetime.utcnow().isoformat()
+        
+        # Only update DynamoDB if there are fields to update
+        if update_expression_parts:
+            update_expression = "SET " + ", ".join(update_expression_parts)
+            
+            users_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression=update_expression,
+                ExpressionAttributeValues=expression_values
+            )
+            logger.info(f"Updated DynamoDB profile for user {user_id}")
         
         return _create_response(200, {'message': 'User updated successfully'})
         
+    except ClientError as e:
+        logger.error(f"AWS error updating user {user_id}: {str(e)}")
+        return _create_response(500, {'error': 'Failed to update user', 'message': str(e)})
     except Exception as e:
-        logger.error(f"Error updating user: {str(e)}")
-        return _create_response(500, {'error': 'Failed to update user'})
+        logger.error(f"Error updating user {user_id}: {str(e)}", exc_info=True)
+        return _create_response(500, {'error': 'Failed to update user', 'message': str(e)})
 
 def _delete_user(user_id: str):
     """
