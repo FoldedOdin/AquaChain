@@ -116,6 +116,18 @@ def lambda_handler(event, context):
         elif path.startswith('/api/admin/system/metrics'):
             return _handle_system_metrics(http_method)
         elif path.startswith('/api/admin/system'):
+            # Extract admin info for audit logging
+            request_context = event.get('requestContext', {})
+            authorizer = request_context.get('authorizer', {})
+            claims = authorizer.get('claims', {})
+            admin_id = claims.get('sub') or claims.get('cognito:username', 'unknown')
+            ip_address = request_context.get('identity', {}).get('sourceIp', 'unknown')
+            
+            # Add admin info to query params for audit logging
+            query_params = query_params or {}
+            query_params['adminId'] = admin_id
+            query_params['ipAddress'] = ip_address
+            
             return _handle_system_management(http_method, path, body, query_params)
         elif path.startswith('/api/admin/incidents'):
             return _handle_incident_management(http_method, path, body, query_params, path_params)
@@ -380,7 +392,14 @@ def _handle_system_management(method: str, path: str, body: Dict, query_params: 
     if method == 'GET' and path == '/api/admin/system/configuration':
         return _get_system_configuration()
     elif method == 'PUT' and path == '/api/admin/system/configuration':
-        return _update_system_configuration(body)
+        # Extract admin info from event for audit logging
+        return _update_system_configuration(body, query_params)
+    elif method == 'GET' and path == '/api/admin/system/configuration/history':
+        return _get_configuration_history(query_params)
+    elif method == 'POST' and path == '/api/admin/system/configuration/validate':
+        return _validate_configuration_endpoint(body)
+    elif method == 'POST' and path == '/api/admin/system/configuration/rollback':
+        return _rollback_configuration(body, query_params)
     elif method == 'GET' and path == '/api/admin/system/health':
         return _get_system_health()
     elif method == 'GET' and path == '/api/admin/system/performance':
@@ -422,24 +441,91 @@ def _get_system_configuration():
         logger.error(f"Error fetching system configuration: {str(e)}")
         return _create_response(500, {'error': 'Failed to fetch system configuration'})
 
-def _update_system_configuration(config: Dict):
+def _update_system_configuration(config: Dict, query_params: Dict):
     """
-    Update system configuration
+    Update system configuration with validation, versioning, and audit logging
     """
     try:
-        table = dynamodb.Table(CONFIG_TABLE)
+        # Validate configuration
+        is_valid, errors = validate_configuration(config)
+        if not is_valid:
+            logger.warning(f"Configuration validation failed: {errors}")
+            return _create_response(400, {
+                'error': 'Configuration validation failed',
+                'validationErrors': errors
+            })
         
-        # Add metadata
+        # Get current configuration for diff calculation
+        config_table = dynamodb.Table(CONFIG_TABLE)
+        current_response = config_table.get_item(Key={'config_id': 'system_config'})
+        current_config = current_response.get('Item', {}) if 'Item' in current_response else {}
+        
+        # Calculate changes (diff)
+        changes = _calculate_config_diff(current_config, config)
+        
+        # Get admin info from query params (passed from handler)
+        admin_id = query_params.get('adminId', 'unknown')
+        ip_address = query_params.get('ipAddress', 'unknown')
+        
+        # Generate version identifier
+        version_timestamp = datetime.utcnow().isoformat()
+        version_id = f"v_{version_timestamp}"
+        
+        # Get previous version ID
+        previous_version = current_config.get('version', 'v_initial')
+        
+        # Save version to history table
+        history_table = dynamodb.Table(CONFIG_HISTORY_TABLE)
+        history_entry = {
+            'configId': 'SYSTEM_CONFIG',
+            'version': version_id,
+            'updatedBy': admin_id,
+            'updatedAt': version_timestamp,
+            'previousVersion': previous_version,
+            'changes': changes,
+            'fullConfig': config,
+            'ipAddress': ip_address
+        }
+        history_table.put_item(Item=history_entry)
+        logger.info(f"Saved configuration version: {version_id}")
+        
+        # Update current configuration
         config['config_id'] = 'system_config'
-        config['updated_at'] = datetime.utcnow().isoformat()
+        config['version'] = version_id
+        config['updated_at'] = version_timestamp
+        config['updated_by'] = admin_id
         
-        table.put_item(Item=config)
+        config_table.put_item(Item=config)
         
-        return _create_response(200, {'message': 'Configuration updated successfully'})
+        # Log audit entry
+        _log_config_change(
+            admin_id=admin_id,
+            action='UPDATE_SYSTEM_CONFIG',
+            ip_address=ip_address,
+            changes=changes,
+            version=version_id
+        )
         
+        logger.info(f"Configuration updated successfully by {admin_id}, version: {version_id}")
+        
+        return _create_response(200, {
+            'message': 'Configuration updated successfully',
+            'version': version_id,
+            'changes': changes
+        })
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error updating configuration: {str(e)}")
+        return _create_response(500, {
+            'error': 'Database error occurred',
+            'message': str(e)
+        })
     except Exception as e:
-        logger.error(f"Error updating system configuration: {str(e)}")
-        return _create_response(500, {'error': 'Failed to update system configuration'})
+        logger.error(f"Error updating system configuration: {str(e)}", exc_info=True)
+        return _create_response(500, {
+            'error': 'Failed to update system configuration',
+            'message': str(e)
+        })
 
 def _get_system_health():
     """
@@ -1448,4 +1534,227 @@ def _log_pii_access(admin_id: str, target_user_id: str, action: str, ip_address:
         
     except Exception as e:
         logger.error(f"CRITICAL: Failed to log audit entry: {str(e)}")
+        # Don't fail the operation, but log the error
+
+
+# ============================================================================
+# CONFIGURATION VERSIONING & HISTORY
+# ============================================================================
+
+def _calculate_config_diff(old_config: Dict, new_config: Dict) -> Dict:
+    """
+    Calculate differences between old and new configuration
+    Returns a dict of changes with old and new values
+    """
+    changes = {}
+    
+    def compare_nested(old_dict, new_dict, path=""):
+        for key in set(list(old_dict.keys()) + list(new_dict.keys())):
+            if key in ['config_id', 'updated_at', 'updated_by', 'version']:
+                continue  # Skip metadata fields
+            
+            current_path = f"{path}.{key}" if path else key
+            old_value = old_dict.get(key)
+            new_value = new_dict.get(key)
+            
+            if isinstance(old_value, dict) and isinstance(new_value, dict):
+                compare_nested(old_value, new_value, current_path)
+            elif old_value != new_value:
+                changes[current_path] = {
+                    'old': old_value,
+                    'new': new_value
+                }
+    
+    compare_nested(old_config, new_config)
+    return changes
+
+
+def _get_configuration_history(query_params: Dict):
+    """
+    Get configuration version history
+    """
+    try:
+        limit = int(query_params.get('limit', 50))
+        
+        history_table = dynamodb.Table(CONFIG_HISTORY_TABLE)
+        
+        # Query all versions for SYSTEM_CONFIG, sorted by version (timestamp) descending
+        response = history_table.query(
+            KeyConditionExpression='configId = :configId',
+            ExpressionAttributeValues={':configId': 'SYSTEM_CONFIG'},
+            ScanIndexForward=False,  # Descending order (newest first)
+            Limit=limit
+        )
+        
+        history = []
+        for item in response.get('Items', []):
+            history.append({
+                'version': item.get('version'),
+                'updatedBy': item.get('updatedBy'),
+                'updatedAt': item.get('updatedAt'),
+                'previousVersion': item.get('previousVersion'),
+                'changes': item.get('changes', {}),
+                'ipAddress': item.get('ipAddress', 'unknown')
+            })
+        
+        return _create_response(200, {
+            'history': history,
+            'count': len(history)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching configuration history: {str(e)}")
+        return _create_response(500, {
+            'error': 'Failed to fetch configuration history',
+            'message': str(e)
+        })
+
+
+def _validate_configuration_endpoint(config: Dict):
+    """
+    Validate configuration without saving
+    """
+    try:
+        is_valid, errors = validate_configuration(config)
+        
+        return _create_response(200, {
+            'valid': is_valid,
+            'errors': errors if not is_valid else []
+        })
+        
+    except Exception as e:
+        logger.error(f"Error validating configuration: {str(e)}")
+        return _create_response(500, {
+            'error': 'Validation failed',
+            'message': str(e)
+        })
+
+
+def _rollback_configuration(body: Dict, query_params: Dict):
+    """
+    Rollback configuration to a previous version
+    """
+    try:
+        target_version = body.get('version')
+        if not target_version:
+            return _create_response(400, {'error': 'Version is required'})
+        
+        # Get admin info for audit logging
+        admin_id = query_params.get('adminId', 'unknown')
+        ip_address = query_params.get('ipAddress', 'unknown')
+        
+        # Fetch the target version from history
+        history_table = dynamodb.Table(CONFIG_HISTORY_TABLE)
+        response = history_table.get_item(
+            Key={
+                'configId': 'SYSTEM_CONFIG',
+                'version': target_version
+            }
+        )
+        
+        if 'Item' not in response:
+            return _create_response(404, {'error': 'Version not found'})
+        
+        target_config = response['Item'].get('fullConfig')
+        if not target_config:
+            return _create_response(500, {'error': 'Configuration data not found in version'})
+        
+        # Get current configuration for diff
+        config_table = dynamodb.Table(CONFIG_TABLE)
+        current_response = config_table.get_item(Key={'config_id': 'system_config'})
+        current_config = current_response.get('Item', {}) if 'Item' in current_response else {}
+        current_version = current_config.get('version', 'unknown')
+        
+        # Calculate changes
+        changes = _calculate_config_diff(current_config, target_config)
+        
+        # Create new version for the rollback
+        rollback_timestamp = datetime.utcnow().isoformat()
+        rollback_version_id = f"v_{rollback_timestamp}"
+        
+        # Save rollback as new version in history
+        history_entry = {
+            'configId': 'SYSTEM_CONFIG',
+            'version': rollback_version_id,
+            'updatedBy': admin_id,
+            'updatedAt': rollback_timestamp,
+            'previousVersion': current_version,
+            'changes': changes,
+            'fullConfig': target_config,
+            'ipAddress': ip_address,
+            'rollbackFrom': current_version,
+            'rollbackTo': target_version
+        }
+        history_table.put_item(Item=history_entry)
+        
+        # Update current configuration
+        target_config['config_id'] = 'system_config'
+        target_config['version'] = rollback_version_id
+        target_config['updated_at'] = rollback_timestamp
+        target_config['updated_by'] = admin_id
+        
+        config_table.put_item(Item=target_config)
+        
+        # Log audit entry
+        _log_config_change(
+            admin_id=admin_id,
+            action='ROLLBACK_SYSTEM_CONFIG',
+            ip_address=ip_address,
+            changes={
+                'rollbackFrom': current_version,
+                'rollbackTo': target_version,
+                'changes': changes
+            },
+            version=rollback_version_id
+        )
+        
+        logger.info(f"Configuration rolled back by {admin_id} from {current_version} to {target_version}")
+        
+        return _create_response(200, {
+            'message': 'Configuration rolled back successfully',
+            'version': rollback_version_id,
+            'rolledBackFrom': current_version,
+            'rolledBackTo': target_version,
+            'changes': changes
+        })
+        
+    except ClientError as e:
+        logger.error(f"DynamoDB error during rollback: {str(e)}")
+        return _create_response(500, {
+            'error': 'Database error occurred',
+            'message': str(e)
+        })
+    except Exception as e:
+        logger.error(f"Error rolling back configuration: {str(e)}", exc_info=True)
+        return _create_response(500, {
+            'error': 'Failed to rollback configuration',
+            'message': str(e)
+        })
+
+
+def _log_config_change(admin_id: str, action: str, ip_address: str, changes: Dict, version: str):
+    """
+    Log configuration changes to audit table
+    """
+    try:
+        audit_table = dynamodb.Table(AUDIT_TABLE)
+        
+        audit_entry = {
+            'audit_id': f"config-audit-{datetime.utcnow().timestamp()}",
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'adminId': admin_id,
+            'action': action,
+            'ipAddress': ip_address,
+            'details': {
+                'version': version,
+                'changes': changes
+            },
+            'immutable': True
+        }
+        
+        audit_table.put_item(Item=audit_entry)
+        logger.info(f"Config change audit log created: {action} by {admin_id}, version: {version}")
+        
+    except Exception as e:
+        logger.error(f"CRITICAL: Failed to log config change audit: {str(e)}")
         # Don't fail the operation, but log the error
