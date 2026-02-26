@@ -399,6 +399,13 @@ class AquaChainApiStack(Stack):
             
             # /api/admin/users/{userId}
             admin_user_resource = admin_users_resource.add_resource("{userId}")
+            # GET method for user details (supports ?reveal=true for PII access)
+            admin_user_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
             admin_user_resource.add_method(
                 "PUT",
                 admin_integration,
