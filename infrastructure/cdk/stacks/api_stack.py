@@ -388,6 +388,15 @@ class AquaChainApiStack(Stack):
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )
             
+            # /api/admin/users/track-login - Login tracking (accessible to all authenticated users)
+            admin_users_track_login_resource = admin_users_resource.add_resource("track-login")
+            admin_users_track_login_resource.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
             # /api/admin/users/{userId}
             admin_user_resource = admin_users_resource.add_resource("{userId}")
             admin_user_resource.add_method(
@@ -407,6 +416,15 @@ class AquaChainApiStack(Stack):
             admin_user_reset_resource = admin_user_resource.add_resource("reset-password")
             admin_user_reset_resource.add_method(
                 "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # /api/admin/users/{userId}/sensitive - Secure PII access (audit logged)
+            admin_user_sensitive_resource = admin_user_resource.add_resource("sensitive")
+            admin_user_sensitive_resource.add_method(
+                "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
                 authorization_type=apigateway.AuthorizationType.COGNITO

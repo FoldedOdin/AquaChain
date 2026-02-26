@@ -172,6 +172,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setIsAuthenticated(true);
           setIsLoading(false);
           
+          // Track login on page load if user doesn't have lastLogin timestamp
+          // This ensures we capture the login even if tracking failed during actual login
+          (async () => {
+            try {
+              // Check if user has lastLogin timestamp
+              if (!userData.lastLogin) {
+                console.log('🔄 No lastLogin found, tracking current session...');
+                const token = storedToken;
+                const trackResponse = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/admin/users/track-login`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                  },
+                  body: JSON.stringify({ userId: userData.userId, email: userData.email })
+                });
+                
+                if (trackResponse.ok) {
+                  console.log('✅ Session login timestamp tracked successfully');
+                  // Update localStorage with lastLogin
+                  userData.lastLogin = new Date().toISOString();
+                  localStorage.setItem('aquachain_user', JSON.stringify(userData));
+                  setUser(userData);
+                } else {
+                  console.warn('⚠️ Session login tracking failed:', await trackResponse.text());
+                }
+              }
+            } catch (trackError) {
+              console.warn('⚠️ Failed to track session login:', trackError);
+            }
+          })();
+          
           // Validate token in background (non-blocking)
           // This avoids unnecessary 401 errors and uses Cognito's built-in validation
           (async () => {

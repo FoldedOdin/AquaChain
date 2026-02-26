@@ -150,21 +150,28 @@ export const getAllUsers = async (): Promise<UserManagementData[]> => {
 
     const data = await response.json();
     
+    console.log('📊 Raw user data from backend:', data.users?.slice(0, 2)); // Log first 2 users for debugging
+    console.log('📊 Full first user object:', JSON.stringify(data.users?.[0], null, 2)); // Log complete structure
+    
     // Transform dev server user data to match UserManagementData interface
-    return data.users.map((user: any) => ({
-      userId: user.userId,
-      email: user.email,
-      role: user.role,
-      status: user.status || 'pending',  // Use status from backend
-      createdAt: user.createdAt,
-      lastLogin: user.lastLogin || null,
-      deviceCount: 0, // Will be calculated from devices
-      profile: {
-        firstName: user.firstName || user.name?.split(' ')[0] || '',
-        lastName: user.lastName || user.name?.split(' ').slice(1).join(' ') || '',
-        phone: user.phone || ''
-      }
-    }));
+    return data.users.map((user: any) => {
+      const mappedUser = {
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        status: user.status || 'pending',  // Use status from backend
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin || null,
+        deviceCount: 0, // Will be calculated from devices
+        profile: {
+          firstName: user.firstName || user.name?.split(' ')[0] || '',
+          lastName: user.lastName || user.name?.split(' ').slice(1).join(' ') || '',
+          phone: user.phone || ''
+        }
+      };
+      console.log(`👤 Mapped user ${user.email}: lastLogin = ${mappedUser.lastLogin}`);
+      return mappedUser;
+    });
   } catch (error) {
     console.error('Error fetching users:', error);
     // Return empty array on error instead of dummy data
@@ -604,6 +611,45 @@ export const updateProfile = async (updates: { profile: { firstName: string; las
   }
 };
 
+export const revealSensitiveData = async (userId: string, password: string): Promise<{
+  userId: string;
+  email: string;
+  phone: string;
+  lastName: string;
+  revealedAt: string;
+  expiresIn: number;
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/sensitive`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-Admin-Password': password // Send password for verification
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error('Invalid password');
+      }
+      throw new Error('Failed to reveal sensitive data');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error revealing sensitive data:', error);
+    throw error;
+  }
+};
+
 export default {
   getSystemHealthMetrics,
   getDeviceFleetStatus,
@@ -623,5 +669,6 @@ export default {
   verifyHashChain,
   getSystemConfiguration,
   updateSystemConfiguration,
-  updateProfile
+  updateProfile,
+  revealSensitiveData
 };

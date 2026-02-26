@@ -32,6 +32,36 @@ DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
 AUDIT_TABLE = os.environ.get('AUDIT_TABLE', 'AquaChain-AuditLogs')
 CONFIG_TABLE = os.environ.get('CONFIG_TABLE', 'AquaChain-SystemConfig')
 
+# ============================================================================
+# PII MASKING UTILITIES (Security Layer)
+# ============================================================================
+
+def _mask_email(email: str) -> str:
+    """Mask email showing only first 2 chars and domain"""
+    if not email or '@' not in email:
+        return 'N/A'
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        return '*' * len(local) + '@' + domain
+    return local[:2] + '*' * (len(local) - 2) + '@' + domain
+
+def _mask_phone(phone: str) -> str:
+    """Mask phone showing only last 4 digits"""
+    if not phone:
+        return 'N/A'
+    digits = ''.join(c for c in phone if c.isdigit())
+    if len(digits) < 4:
+        return '*' * len(digits)
+    return '*' * (len(digits) - 4) + ' ' + digits[-4:]
+
+def _mask_last_name(last_name: str) -> str:
+    """Mask last name showing only first character"""
+    if not last_name:
+        return 'N/A'
+    if len(last_name) <= 1:
+        return last_name
+    return last_name[0] + '*' * (len(last_name) - 1)
+
 def lambda_handler(event, context):
     """
     Main Lambda handler for admin operations
@@ -58,6 +88,10 @@ def lambda_handler(event, context):
         if path.startswith('/api/profile'):
             return _handle_profile_management(event, http_method, path, body)
         
+        # Allow login tracking for all authenticated users (not just admins)
+        if path == '/api/admin/users/track-login' and http_method == 'POST':
+            return _track_user_login(body)
+        
         # Verify admin authorization for admin endpoints
         if not _verify_admin_access(event):
             logger.warning(f"Admin access denied for path: {path}")
@@ -65,7 +99,15 @@ def lambda_handler(event, context):
         
         # Route requests
         if path.startswith('/api/admin/users'):
-            return _handle_user_management(http_method, path, body, query_params, path_params)
+            # Secure endpoint for revealing sensitive PII
+            if http_method == 'GET' and path.endswith('/sensitive'):
+                # Extract userId from path: /api/admin/users/{userId}/sensitive
+                user_id = path.split('/')[-2]
+                admin_id = authorizer.get('claims', {}).get('sub') or authorizer.get('claims', {}).get('cognito:username')
+                ip_address = event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown')
+                return _get_sensitive_user_data(user_id, admin_id, ip_address)
+            else:
+                return _handle_user_management(http_method, path, body, query_params, path_params)
         elif path.startswith('/api/admin/system/metrics'):
             return _handle_system_metrics(http_method)
         elif path.startswith('/api/admin/system'):
@@ -114,8 +156,6 @@ def _handle_user_management(method: str, path: str, body: Dict, query_params: Di
         return _get_all_users(query_params)
     elif method == 'POST' and path == '/api/admin/users':
         return _create_user(body)
-    elif method == 'POST' and path == '/api/admin/users/track-login':
-        return _track_user_login(body)
     elif method == 'PUT' and 'userId' in path_params:
         return _update_user(path_params['userId'], body)
     elif method == 'DELETE' and 'userId' in path_params:
@@ -177,20 +217,38 @@ def _get_all_users(query_params: Dict):
                 
                 logger.info(f"Mapped status for {user['Username']}: from {cognito_status} to {status}")
                 
-                # Try to get lastLogin from DynamoDB Users table
+                # Try to get profile data from DynamoDB Users table
                 last_login = None
+                first_name = None
+                last_name = None
+                phone = None
+                
                 try:
                     users_table = dynamodb.Table(USERS_TABLE)
                     user_record = users_table.get_item(Key={'userId': user['Username']})
                     if 'Item' in user_record:
-                        last_login = user_record['Item'].get('lastLogin')
+                        item = user_record['Item']
+                        last_login = item.get('lastLogin')
+                        first_name = item.get('firstName')
+                        last_name = item.get('lastName')
+                        phone = item.get('phone')
+                        logger.info(f"Found profile data for {user['Username']}: firstName={first_name}, lastName={last_name}, phone={phone}")
+                    else:
+                        logger.info(f"No DynamoDB record found for {user['Username']}")
                 except Exception as db_error:
-                    logger.warning(f"Could not fetch lastLogin for {user['Username']}: {str(db_error)}")
+                    logger.warning(f"Could not fetch profile data for {user['Username']}: {str(db_error)}")
                 
+                # Use DynamoDB data if available, otherwise fall back to Cognito
                 user_data = {
                     'userId': user['Username'],
                     'email': _get_user_attribute(user, 'email'),
+                    'emailMasked': _mask_email(_get_user_attribute(user, 'email')),
                     'name': _get_user_attribute(user, 'name') or _get_user_attribute(user, 'given_name'),
+                    'firstName': first_name or _get_user_attribute(user, 'given_name') or '',
+                    'lastName': last_name or _get_user_attribute(user, 'family_name') or '',
+                    'lastNameMasked': _mask_last_name(last_name or _get_user_attribute(user, 'family_name') or ''),
+                    'phone': phone or _get_user_attribute(user, 'phone_number') or '',
+                    'phoneMasked': _mask_phone(phone or _get_user_attribute(user, 'phone_number') or ''),
                     'role': _get_user_groups(user['Username']),
                     'status': status,  # Use mapped status
                     'cognitoStatus': cognito_status,  # Include original for debugging
@@ -250,25 +308,51 @@ def _get_user_attribute(user: Dict, attribute_name: str) -> str:
 
 def _get_user_groups(username: str) -> str:
     """
-    Get user's Cognito groups
+    Get user's Cognito groups and normalize to singular form
     """
     try:
         if not USER_POOL_ID:
             logger.warning("USER_POOL_ID not configured, returning default role")
-            return 'consumers'
+            return 'consumer'  # Return singular form
         
         response = cognito_client.admin_list_groups_for_user(
             UserPoolId=USER_POOL_ID,
             Username=username
         )
         groups = [group['GroupName'] for group in response.get('Groups', [])]
-        return groups[0] if groups else 'consumers'  # Default role
+        group_name = groups[0] if groups else 'consumers'  # Get Cognito group (plural)
+        
+        # Normalize to singular form for frontend consistency
+        return _normalize_role(group_name)
     except ClientError as e:
         logger.warning(f"Error fetching groups for user {username}: {str(e)}")
-        return 'consumers'
+        return 'consumer'  # Return singular form
     except Exception as e:
         logger.warning(f"Unexpected error fetching groups for user {username}: {str(e)}")
-        return 'consumers'
+        return 'consumer'  # Return singular form
+
+def _normalize_role(role: str) -> str:
+    """
+    Normalize role from Cognito group name (plural) to singular form
+    Examples:
+      consumers -> consumer
+      technicians -> technician
+      administrators -> administrator
+      admin -> admin (no change)
+    """
+    role_mapping = {
+        'consumers': 'consumer',
+        'technicians': 'technician',
+        'administrators': 'administrator',
+        'admin': 'admin',
+        'inventory_managers': 'inventory_manager',
+        'warehouse_managers': 'warehouse_manager',
+        'supplier_coordinators': 'supplier_coordinator',
+        'procurement_controllers': 'procurement_controller'
+    }
+    
+    # Return mapped value or original if not in mapping
+    return role_mapping.get(role.lower(), role)
 
 def _handle_system_management(method: str, path: str, body: Dict, query_params: Dict):
     """
@@ -823,7 +907,8 @@ def _track_user_login(login_data: Dict):
         
         # Update lastLogin in DynamoDB Users table
         users_table = dynamodb.Table(USERS_TABLE)
-        current_time = datetime.utcnow().isoformat()
+        # Use ISO format with 'Z' suffix to indicate UTC
+        current_time = datetime.utcnow().isoformat() + 'Z'
         
         try:
             # Try to update existing record
@@ -1204,3 +1289,72 @@ def _handle_system_metrics(method: str):
             'error': 'Failed to fetch system metrics',
             'message': str(e)
         })
+
+
+# ============================================================================
+# SECURE PII ACCESS ENDPOINT (Audit Logged)
+# ============================================================================
+
+def _get_sensitive_user_data(user_id: str, admin_id: str, ip_address: str):
+    """
+    Retrieve full unmasked PII for a specific user
+    SECURITY: This action is audit logged
+    """
+    try:
+        # Fetch full user data from DynamoDB
+        users_table = dynamodb.Table(USERS_TABLE)
+        response = users_table.get_item(Key={'userId': user_id})
+        
+        if 'Item' not in response:
+            return _create_response(404, {'error': 'User not found'})
+        
+        user_data = response['Item']
+        
+        # Log PII access in audit table
+        _log_pii_access(
+            admin_id=admin_id,
+            target_user_id=user_id,
+            action='REVEAL_SENSITIVE_DATA',
+            ip_address=ip_address
+        )
+        
+        # Return full unmasked data
+        return _create_response(200, {
+            'userId': user_id,
+            'email': user_data.get('email', ''),
+            'phone': user_data.get('phone', ''),
+            'lastName': user_data.get('lastName', ''),
+            'revealedAt': datetime.utcnow().isoformat() + 'Z',
+            'expiresIn': 300  # 5 minutes in seconds
+        })
+        
+    except Exception as e:
+        logger.error(f"Error retrieving sensitive data: {str(e)}")
+        return _create_response(500, {'error': 'Failed to retrieve sensitive data'})
+
+
+def _log_pii_access(admin_id: str, target_user_id: str, action: str, ip_address: str, details: dict = None):
+    """
+    Log PII access to immutable audit ledger
+    SECURITY: Append-only, no updates or deletes allowed
+    """
+    try:
+        audit_table = dynamodb.Table(AUDIT_TABLE)
+        
+        audit_entry = {
+            'audit_id': f"audit-{datetime.utcnow().timestamp()}",
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'adminId': admin_id,
+            'targetUserId': target_user_id,
+            'action': action,
+            'ipAddress': ip_address,
+            'details': details or {},
+            'immutable': True  # Flag to prevent modifications
+        }
+        
+        audit_table.put_item(Item=audit_entry)
+        logger.info(f"Audit log created: {action} by {admin_id} on {target_user_id}")
+        
+    except Exception as e:
+        logger.error(f"CRITICAL: Failed to log audit entry: {str(e)}")
+        # Don't fail the operation, but log the error

@@ -46,7 +46,9 @@ import {
 } from '../../services/adminService';
 import { getIncidentReports, getIncidentStats } from '../../services/incidentService';
 import { formatRelativeTime } from '../../utils/dateFormat';
+import { maskPhoneNumber, maskEmail, maskLastName } from '../../utils/privacy';
 import websocketService from '../../services/websocketService';
+import { revealSensitiveData } from '../../services/adminService';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -136,6 +138,27 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     status: 'active'
   });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  
+  // Sensitive data session state
+  const [sensitiveSession, setSensitiveSession] = useState<{
+    isActive: boolean;
+    revealedAt: Date | null;
+    expiresAt: Date | null;
+    revealedData: {
+      email: string;
+      phone: string;
+      lastName: string;
+    } | null;
+  }>({
+    isActive: false,
+    revealedAt: null,
+    expiresAt: null,
+    revealedData: null
+  });
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [verificationPassword, setVerificationPassword] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
   
   // Add user form state
   const [addFormData, setAddFormData] = useState<{
@@ -320,11 +343,13 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     // Refresh metrics every 30 seconds
     const interval = setInterval(async () => {
       try {
-        const [healthMetrics, perfMetrics, incidentStatsData] = await Promise.all([
+        const [usersData, healthMetrics, perfMetrics, incidentStatsData] = await Promise.all([
+          getAllUsers(), // Also refresh user list to show updated lastLogin
           getSystemHealthMetrics(),
           getPerformanceMetrics('24h'),
           getIncidentStats(30)
         ]);
+        setUsers(usersData); // Update user list with fresh data
         setSystemMetrics(healthMetrics);
         setPerformanceMetrics(perfMetrics);
         setIncidentStats(incidentStatsData);
@@ -378,7 +403,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
   const getRoleColor = (role: string) => {
     switch (role) {
-      case 'admin': 
       case 'administrator': return 'bg-purple-100 text-purple-800';
       case 'technician': return 'bg-blue-100 text-blue-800';
       case 'consumer': return 'bg-green-100 text-green-800';
@@ -407,7 +431,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     
     const consumers = users.filter(u => u.role === 'consumer').length;
     const technicians = users.filter(u => u.role === 'technician').length;
-    const admins = users.filter(u => u.role === 'admin' || u.role === 'administrator').length;
+    const admins = users.filter(u => u.role === 'administrator').length;
     const inventoryManagers = users.filter(u => u.role === 'inventory_manager').length;
     const warehouseManagers = users.filter(u => u.role === 'warehouse_manager').length;
     const supplierCoordinators = users.filter(u => u.role === 'supplier_coordinator').length;
@@ -622,8 +646,87 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
       role: user.role || 'consumer',
       status: user.status || 'active'
     });
+    // Reset sensitive session when opening edit modal
+    setSensitiveSession({
+      isActive: false,
+      revealedAt: null,
+      expiresAt: null,
+      revealedData: null
+    });
     setShowEditUserModal(true);
   }, []);
+
+  // Sensitive data session timeout (5 minutes)
+  useEffect(() => {
+    if (!sensitiveSession.isActive || !sensitiveSession.expiresAt) return;
+
+    const checkExpiration = () => {
+      if (new Date() >= sensitiveSession.expiresAt!) {
+        setSensitiveSession({
+          isActive: false,
+          revealedAt: null,
+          expiresAt: null,
+          revealedData: null
+        });
+        alert('Sensitive data session expired. Please reveal again if needed.');
+      }
+    };
+
+    // Check every second
+    const interval = setInterval(checkExpiration, 1000);
+    return () => clearInterval(interval);
+  }, [sensitiveSession.isActive, sensitiveSession.expiresAt]);
+
+  const handleRevealSensitiveData = useCallback(() => {
+    setVerificationPassword('');
+    setVerificationError('');
+    setShowPasswordDialog(true);
+  }, []);
+
+  const handleVerifyPassword = useCallback(async () => {
+    if (!selectedUser || !verificationPassword) {
+      setVerificationError('Please enter your password');
+      return;
+    }
+
+    setIsVerifying(true);
+    setVerificationError('');
+
+    try {
+      const revealedData = await revealSensitiveData(selectedUser.userId, verificationPassword);
+      
+      // Set sensitive session with 5-minute expiration
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes
+      
+      setSensitiveSession({
+        isActive: true,
+        revealedAt: now,
+        expiresAt: expiresAt,
+        revealedData: {
+          email: revealedData.email,
+          phone: revealedData.phone,
+          lastName: revealedData.lastName
+        }
+      });
+
+      // Update edit form with revealed data
+      setEditFormData(prev => ({
+        ...prev,
+        email: revealedData.email,
+        phone: revealedData.phone,
+        lastName: revealedData.lastName
+      }));
+
+      setShowPasswordDialog(false);
+      setVerificationPassword('');
+    } catch (error) {
+      console.error('Password verification failed:', error);
+      setVerificationError(error instanceof Error ? error.message : 'Verification failed');
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [selectedUser, verificationPassword]);
 
   const handleEditFormChange = useCallback((field: string, value: string) => {
     setEditFormData((prev) => ({ ...prev, [field]: value }));
@@ -1279,7 +1382,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <option value="all">All Roles</option>
                       <option value="consumer">Consumer</option>
                       <option value="technician">Technician</option>
-                      <option value="admin">Admin</option>
                       <option value="administrator">Administrator</option>
                       <option value="inventory_manager">Inventory Manager</option>
                       <option value="warehouse_manager">Warehouse Manager</option>
@@ -2376,15 +2478,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                      <p className="text-gray-900">{selectedUser.profile?.lastName || 'N/A'}</p>
+                      <p className="text-gray-900">{maskLastName(selectedUser.profile?.lastName)}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <p className="text-gray-900">{selectedUser.email}</p>
+                      <p className="text-gray-900">{maskEmail(selectedUser.email)}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <p className="text-gray-900">{selectedUser.profile?.phone || 'N/A'}</p>
+                      <p className="text-gray-900">{maskPhoneNumber(selectedUser.profile?.phone)}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
@@ -2445,7 +2547,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             >
               <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-900">Edit User</h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xl font-bold text-gray-900">Edit User</h3>
+                    {sensitiveSession.isActive && (
+                      <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        Sensitive Mode
+                      </span>
+                    )}
+                  </div>
                   <button 
                     onClick={() => !isSubmittingEdit && setShowEditUserModal(false)} 
                     className="text-gray-400 hover:text-gray-600"
@@ -2455,8 +2565,38 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   </button>
                 </div>
                 
+                {/* Sensitive Data Warning */}
+                {!sensitiveSession.isActive && (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+                    <ShieldCheckIcon className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium">Privacy Protection Active</p>
+                      <p className="text-blue-700 mt-1">Sensitive fields are masked. Click the lock icon to reveal full data.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Session Timer */}
+                {sensitiveSession.isActive && sensitiveSession.expiresAt && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span className="text-sm text-amber-800">
+                        Session expires in {Math.max(0, Math.floor((sensitiveSession.expiresAt.getTime() - Date.now()) / 1000))}s
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleRevealSensitiveData}
+                      className="text-xs text-amber-700 hover:text-amber-900 underline"
+                    >
+                      Extend Session
+                    </button>
+                  </div>
+                )}
+                
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Non-sensitive fields */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
                       <input
@@ -2467,36 +2607,104 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         disabled={isSubmittingEdit}
                       />
                     </div>
+
+                    {/* Sensitive field: Last Name */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                      <input
-                        type="text"
-                        value={editFormData.lastName}
-                        onChange={(e) => handleEditFormChange('lastName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={isSubmittingEdit}
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                        Last Name
+                        {!sensitiveSession.isActive && (
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            Protected
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={sensitiveSession.isActive ? editFormData.lastName : maskLastName(selectedUser.profile?.lastName)}
+                          onChange={(e) => handleEditFormChange('lastName', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 pr-10"
+                          disabled={isSubmittingEdit || !sensitiveSession.isActive}
+                          placeholder={!sensitiveSession.isActive ? 'Click lock to reveal' : ''}
+                        />
+                        {!sensitiveSession.isActive && (
+                          <button
+                            onClick={handleRevealSensitiveData}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Reveal sensitive data"
+                          >
+                            <Shield className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Sensitive field: Email */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input
-                        type="email"
-                        value={editFormData.email}
-                        onChange={(e) => handleEditFormChange('email', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={isSubmittingEdit}
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                        Email
+                        {!sensitiveSession.isActive && (
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            Protected
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="email"
+                          value={sensitiveSession.isActive ? editFormData.email : maskEmail(selectedUser.email)}
+                          onChange={(e) => handleEditFormChange('email', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 pr-10"
+                          disabled={isSubmittingEdit || !sensitiveSession.isActive}
+                          placeholder={!sensitiveSession.isActive ? 'Click lock to reveal' : ''}
+                        />
+                        {!sensitiveSession.isActive && (
+                          <button
+                            onClick={handleRevealSensitiveData}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Reveal sensitive data"
+                          >
+                            <Shield className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Sensitive field: Phone */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <input
-                        type="tel"
-                        value={editFormData.phone}
-                        onChange={(e) => handleEditFormChange('phone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={isSubmittingEdit}
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                        Phone
+                        {!sensitiveSession.isActive && (
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            Protected
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          value={sensitiveSession.isActive ? editFormData.phone : maskPhoneNumber(selectedUser.profile?.phone)}
+                          onChange={(e) => handleEditFormChange('phone', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 pr-10"
+                          disabled={isSubmittingEdit || !sensitiveSession.isActive}
+                          placeholder={!sensitiveSession.isActive ? 'Click lock to reveal' : ''}
+                        />
+                        {!sensitiveSession.isActive && (
+                          <button
+                            onClick={handleRevealSensitiveData}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Reveal sensitive data"
+                          >
+                            <Shield className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Non-sensitive fields */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                       <select
@@ -2507,7 +2715,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       >
                         <option value="consumer">Consumer</option>
                         <option value="technician">Technician</option>
-                        <option value="admin">Admin</option>
                         <option value="administrator">Administrator</option>
                         <option value="inventory_manager">Inventory Manager</option>
                         <option value="warehouse_manager">Warehouse Manager</option>
@@ -2545,6 +2752,98 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                     className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {isSubmittingEdit ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Password Verification Dialog */}
+      <AnimatePresence>
+        {showPasswordDialog && (
+          <>
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => !isVerifying && setShowPasswordDialog(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheckIcon className="w-6 h-6 text-purple-600" />
+                    <h3 className="text-lg font-bold text-gray-900">Verify Your Identity</h3>
+                  </div>
+                  <button 
+                    onClick={() => !isVerifying && setShowPasswordDialog(false)} 
+                    className="text-gray-400 hover:text-gray-600"
+                    disabled={isVerifying}
+                  >
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <p className="text-sm text-gray-600 mb-4">
+                  To view sensitive user information, please enter your admin password. This action will be logged for security audit.
+                </p>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Admin Password</label>
+                  <input
+                    type="password"
+                    value={verificationPassword}
+                    onChange={(e) => setVerificationPassword(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleVerifyPassword()}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Enter your password"
+                    disabled={isVerifying}
+                    autoFocus
+                  />
+                  {verificationError && (
+                    <p className="mt-2 text-sm text-red-600 flex items-center gap-1">
+                      <AlertTriangle className="w-4 h-4" />
+                      {verificationError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                  <div className="flex items-start gap-2">
+                    <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-800">
+                      <p className="font-medium">Session Duration: 5 minutes</p>
+                      <p className="mt-1">Sensitive data will be automatically hidden after 5 minutes for security.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowPasswordDialog(false)}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    disabled={isVerifying}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleVerifyPassword}
+                    disabled={isVerifying || !verificationPassword}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  >
+                    {isVerifying ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Verifying...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheckIcon className="w-4 h-4" />
+                        Verify & Reveal
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -2642,7 +2941,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       >
                         <option value="consumer">Consumer</option>
                         <option value="technician">Technician</option>
-                        <option value="admin">Admin</option>
                         <option value="administrator">Administrator</option>
                         <option value="inventory_manager">Inventory Manager</option>
                         <option value="warehouse_manager">Warehouse Manager</option>
