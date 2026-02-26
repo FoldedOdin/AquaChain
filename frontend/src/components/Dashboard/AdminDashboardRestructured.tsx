@@ -49,6 +49,7 @@ import { formatRelativeTime } from '../../utils/dateFormat';
 import { maskPhoneNumber, maskEmail, maskLastName } from '../../utils/privacy';
 import websocketService from '../../services/websocketService';
 import { revealSensitiveData } from '../../services/adminService';
+import { SystemConfiguration } from '../../types/admin';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -66,21 +67,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const [selectedView, setSelectedView] = useState('overview');
   
   // System configuration state
-  const [systemConfig, setSystemConfig] = useState<{
-    alertThresholds?: {
-      global?: {
-        pH?: { min: number; max: number };
-        turbidity?: { max: number };
-        tds?: { max: number };
-        temperature?: { min: number; max: number };
-      };
-    };
-    systemLimits?: {
-      maxDevicesPerUser?: number;
-      dataRetentionDays?: number;
-      auditRetentionYears?: number;
-    };
-  } | null>(null);
+  const [systemConfig, setSystemConfig] = useState<SystemConfiguration | null>(null);
   const [showSystemConfigModal, setShowSystemConfigModal] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [configChanges, setConfigChanges] = useState<Record<string, any>>({});

@@ -717,6 +717,118 @@ export const revealSensitiveData = async (userId: string): Promise<{
   }
 };
 
+export const getConfigurationHistory = async (limit: number = 50): Promise<{
+  history: Array<{
+    version: string;
+    updatedBy: string;
+    updatedAt: string;
+    previousVersion: string;
+    changes: Record<string, { old: any; new: any }>;
+    ipAddress: string;
+  }>;
+  count: number;
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration/history?limit=${limit}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch configuration history');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching configuration history:', error);
+    throw error;
+  }
+};
+
+export const validateConfiguration = async (config: Partial<SystemConfiguration>): Promise<{ 
+  valid: boolean; 
+  errors: string[] 
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration/validate`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+      }
+    );
+
+    if (!response.ok) {
+      // If validation endpoint fails, return generic error
+      return { valid: false, errors: ['Validation service unavailable'] };
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error validating configuration:', error);
+    return { valid: false, errors: ['Validation service unavailable'] };
+  }
+};
+
+export const rollbackConfiguration = async (version: string): Promise<{
+  message: string;
+  version: string;
+  rolledBackFrom: string;
+  rolledBackTo: string;
+  changes: Record<string, { old: any; new: any }>;
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration/rollback`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ version })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to rollback configuration');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error rolling back configuration:', error);
+    throw error;
+  }
+};
+
 export default {
   getSystemHealthMetrics,
   getDeviceFleetStatus,
@@ -736,6 +848,9 @@ export default {
   verifyHashChain,
   getSystemConfiguration,
   updateSystemConfiguration,
+  getConfigurationHistory,
+  validateConfiguration,
+  rollbackConfiguration,
   updateProfile,
   revealSensitiveData
 };

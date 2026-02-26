@@ -3,7 +3,10 @@ System Configuration Validation Module
 Provides server-side validation for system configuration changes
 """
 
+import logging
 from typing import Dict, List, Tuple
+
+logger = logging.getLogger()
 
 # Validation rules for system configuration
 VALIDATION_RULES = {
@@ -158,3 +161,304 @@ def get_validation_rules() -> Dict:
     Get validation rules for frontend display
     """
     return VALIDATION_RULES
+
+
+def validate_severity_thresholds(thresholds: Dict) -> Tuple[bool, List[str]]:
+    """
+    Validate severity threshold relationships for Phase 3a.
+    
+    Rules:
+    - For range parameters (pH, temp): warning_min < critical_min < critical_max < warning_max
+    - For max-only parameters (turbidity, tds): critical_max < warning_max
+    - All values must be within valid ranges for their respective parameters
+    
+    Args:
+        thresholds: Dictionary containing threshold configuration
+    
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+    
+    # pH validation
+    if 'pH' in thresholds:
+        ph = thresholds['pH']
+        if 'critical' in ph and 'warning' in ph:
+            try:
+                c_min = ph['critical'].get('min')
+                c_max = ph['critical'].get('max')
+                w_min = ph['warning'].get('min')
+                w_max = ph['warning'].get('max')
+                
+                # Check all values are present
+                if None in [c_min, c_max, w_min, w_max]:
+                    errors.append('pH severity thresholds must include all min/max values for both warning and critical')
+                else:
+                    # Validate relationship: warning_min < critical_min < critical_max < warning_max
+                    if not (w_min < c_min < c_max < w_max):
+                        errors.append(
+                            f'pH thresholds must satisfy: warning_min ({w_min}) < '
+                            f'critical_min ({c_min}) < critical_max ({c_max}) < '
+                            f'warning_max ({w_max})'
+                        )
+                    
+                    # Validate ranges
+                    if w_min < 0 or w_max > 14:
+                        errors.append(f'pH warning thresholds must be between 0 and 14 (got min={w_min}, max={w_max})')
+                    if c_min < 0 or c_max > 14:
+                        errors.append(f'pH critical thresholds must be between 0 and 14 (got min={c_min}, max={c_max})')
+            except (KeyError, TypeError) as e:
+                errors.append(f'Invalid pH threshold structure: {str(e)}')
+    
+    # Turbidity validation
+    if 'turbidity' in thresholds:
+        turb = thresholds['turbidity']
+        if 'critical' in turb and 'warning' in turb:
+            try:
+                c_max = turb['critical'].get('max')
+                w_max = turb['warning'].get('max')
+                
+                if None in [c_max, w_max]:
+                    errors.append('Turbidity severity thresholds must include max values for both warning and critical')
+                else:
+                    # Validate relationship: critical_max < warning_max
+                    if c_max >= w_max:
+                        errors.append(
+                            f'Turbidity critical max ({c_max}) must be less than '
+                            f'warning max ({w_max})'
+                        )
+                    
+                    # Validate ranges
+                    if c_max < 0 or c_max > 100:
+                        errors.append(f'Turbidity critical max must be between 0 and 100 (got {c_max})')
+                    if w_max < 0 or w_max > 100:
+                        errors.append(f'Turbidity warning max must be between 0 and 100 (got {w_max})')
+            except (KeyError, TypeError) as e:
+                errors.append(f'Invalid turbidity threshold structure: {str(e)}')
+    
+    # TDS validation
+    if 'tds' in thresholds:
+        tds = thresholds['tds']
+        if 'critical' in tds and 'warning' in tds:
+            try:
+                c_max = tds['critical'].get('max')
+                w_max = tds['warning'].get('max')
+                
+                if None in [c_max, w_max]:
+                    errors.append('TDS severity thresholds must include max values for both warning and critical')
+                else:
+                    # Validate relationship: critical_max < warning_max
+                    if c_max >= w_max:
+                        errors.append(
+                            f'TDS critical max ({c_max}) must be less than '
+                            f'warning max ({w_max})'
+                        )
+                    
+                    # Validate ranges
+                    if c_max < 0 or c_max > 5000:
+                        errors.append(f'TDS critical max must be between 0 and 5000 (got {c_max})')
+                    if w_max < 0 or w_max > 5000:
+                        errors.append(f'TDS warning max must be between 0 and 5000 (got {w_max})')
+            except (KeyError, TypeError) as e:
+                errors.append(f'Invalid TDS threshold structure: {str(e)}')
+    
+    # Temperature validation
+    if 'temperature' in thresholds:
+        temp = thresholds['temperature']
+        if 'critical' in temp and 'warning' in temp:
+            try:
+                c_min = temp['critical'].get('min')
+                c_max = temp['critical'].get('max')
+                w_min = temp['warning'].get('min')
+                w_max = temp['warning'].get('max')
+                
+                # Check all values are present
+                if None in [c_min, c_max, w_min, w_max]:
+                    errors.append('Temperature severity thresholds must include all min/max values for both warning and critical')
+                else:
+                    # Validate relationship: warning_min < critical_min < critical_max < warning_max
+                    if not (w_min < c_min < c_max < w_max):
+                        errors.append(
+                            f'Temperature thresholds must satisfy: warning_min ({w_min}) < '
+                            f'critical_min ({c_min}) < critical_max ({c_max}) < '
+                            f'warning_max ({w_max})'
+                        )
+                    
+                    # Validate ranges
+                    if w_min < -10 or w_max > 100:
+                        errors.append(f'Temperature warning thresholds must be between -10 and 100 (got min={w_min}, max={w_max})')
+                    if c_min < -10 or c_max > 100:
+                        errors.append(f'Temperature critical thresholds must be between -10 and 100 (got min={c_min}, max={c_max})')
+            except (KeyError, TypeError) as e:
+                errors.append(f'Invalid temperature threshold structure: {str(e)}')
+    
+    return (len(errors) == 0, errors)
+
+
+def validate_notification_channels(notification_settings: Dict) -> Tuple[bool, List[str]]:
+    """
+    Validate notification channel configuration for Phase 3a.
+    
+    Rules:
+    - At least one critical alert channel must be enabled
+    - Warning channels cannot include SMS (SMS reserved for critical only)
+    
+    Args:
+        notification_settings: Dictionary containing notification configuration
+    
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+    
+    # Get channel lists (default to empty if not present for backward compatibility)
+    critical_channels = notification_settings.get('criticalAlertChannels', [])
+    warning_channels = notification_settings.get('warningAlertChannels', [])
+    
+    # Validate critical channels - at least one must be enabled
+    if not critical_channels or len(critical_channels) == 0:
+        errors.append('At least one critical alert channel must be enabled')
+    
+    # Validate channel values are valid
+    valid_channels = ['sms', 'email', 'push']
+    for channel in critical_channels:
+        if channel not in valid_channels:
+            errors.append(f'Invalid critical alert channel: {channel}. Valid options: {", ".join(valid_channels)}')
+    
+    # Validate warning channels - SMS not allowed
+    if 'sms' in warning_channels:
+        errors.append('SMS notifications are not allowed for warning alerts (SMS is reserved for critical alerts only)')
+    
+    # Validate warning channel values are valid
+    for channel in warning_channels:
+        if channel not in valid_channels:
+            errors.append(f'Invalid warning alert channel: {channel}. Valid options: {", ".join(valid_channels)}')
+    
+    return (len(errors) == 0, errors)
+
+
+def normalize_threshold_format(config: Dict) -> Dict:
+    """
+    Convert legacy single-threshold format to severity format for Phase 3a backward compatibility.
+    
+    This function automatically migrates configurations from the legacy format:
+        { "min": 6.5, "max": 8.5 }
+    To the new severity format:
+        { "critical": { "min": 6.5, "max": 8.5 }, "warning": { "min": 7.0, "max": 8.0 } }
+    
+    Migration rules:
+    - Legacy thresholds become critical thresholds
+    - Warning thresholds are auto-generated:
+      - For pH/temperature: warning_min = critical_min + 0.5, warning_max = critical_max - 0.5
+      - For turbidity/TDS: warning_max = critical_max * 0.8
+    - Configs that already have severity levels are not modified (idempotent)
+    
+    Args:
+        config: System configuration dictionary
+    
+    Returns:
+        Modified configuration dictionary with normalized threshold format
+    """
+    # Check if alertThresholds exist
+    if 'alertThresholds' not in config or 'global' not in config['alertThresholds']:
+        return config
+    
+    thresholds = config['alertThresholds']['global']
+    migration_performed = False
+    
+    # pH migration (range parameter)
+    if 'pH' in thresholds:
+        ph = thresholds['pH']
+        # Check if legacy format (has min/max but no critical/warning)
+        if 'min' in ph and 'max' in ph and 'critical' not in ph and 'warning' not in ph:
+            legacy_min = ph['min']
+            legacy_max = ph['max']
+            
+            # Convert to severity format
+            thresholds['pH'] = {
+                'critical': {
+                    'min': legacy_min,
+                    'max': legacy_max
+                },
+                'warning': {
+                    'min': legacy_min + 0.5,
+                    'max': legacy_max - 0.5
+                }
+            }
+            
+            logger.info(f'Migrated pH thresholds from legacy format: '
+                       f'critical=({legacy_min}, {legacy_max}), '
+                       f'warning=({legacy_min + 0.5}, {legacy_max - 0.5})')
+            migration_performed = True
+    
+    # Temperature migration (range parameter)
+    if 'temperature' in thresholds:
+        temp = thresholds['temperature']
+        # Check if legacy format
+        if 'min' in temp and 'max' in temp and 'critical' not in temp and 'warning' not in temp:
+            legacy_min = temp['min']
+            legacy_max = temp['max']
+            
+            # Convert to severity format
+            thresholds['temperature'] = {
+                'critical': {
+                    'min': legacy_min,
+                    'max': legacy_max
+                },
+                'warning': {
+                    'min': legacy_min + 0.5,
+                    'max': legacy_max - 0.5
+                }
+            }
+            
+            logger.info(f'Migrated temperature thresholds from legacy format: '
+                       f'critical=({legacy_min}, {legacy_max}), '
+                       f'warning=({legacy_min + 0.5}, {legacy_max - 0.5})')
+            migration_performed = True
+    
+    # Turbidity migration (max-only parameter)
+    if 'turbidity' in thresholds:
+        turb = thresholds['turbidity']
+        # Check if legacy format (has max but no critical/warning)
+        if 'max' in turb and 'critical' not in turb and 'warning' not in turb:
+            legacy_max = turb['max']
+            
+            # Convert to severity format
+            thresholds['turbidity'] = {
+                'critical': {
+                    'max': legacy_max
+                },
+                'warning': {
+                    'max': legacy_max * 0.8
+                }
+            }
+            
+            logger.info(f'Migrated turbidity thresholds from legacy format: '
+                       f'critical={legacy_max}, warning={legacy_max * 0.8}')
+            migration_performed = True
+    
+    # TDS migration (max-only parameter)
+    if 'tds' in thresholds:
+        tds = thresholds['tds']
+        # Check if legacy format (has max but no critical/warning)
+        if 'max' in tds and 'critical' not in tds and 'warning' not in tds:
+            legacy_max = tds['max']
+            
+            # Convert to severity format
+            thresholds['tds'] = {
+                'critical': {
+                    'max': legacy_max
+                },
+                'warning': {
+                    'max': legacy_max * 0.8
+                }
+            }
+            
+            logger.info(f'Migrated TDS thresholds from legacy format: '
+                       f'critical={legacy_max}, warning={legacy_max * 0.8}')
+            migration_performed = True
+    
+    if migration_performed:
+        logger.info('Legacy threshold format migration completed successfully')
+    
+    return config

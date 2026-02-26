@@ -12,7 +12,13 @@ from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError
 import logging
 import hashlib
-from config_validation import validate_configuration, get_validation_rules
+from config_validation import (
+    validate_configuration, 
+    get_validation_rules,
+    validate_severity_thresholds,
+    validate_notification_channels,
+    normalize_threshold_format
+)
 
 # Configure logging
 logger = logging.getLogger()
@@ -446,7 +452,7 @@ def _update_system_configuration(config: Dict, query_params: Dict):
     Update system configuration with validation, versioning, and audit logging
     """
     try:
-        # Validate configuration
+        # Phase 1: Base configuration validation
         is_valid, errors = validate_configuration(config)
         if not is_valid:
             logger.warning(f"Configuration validation failed: {errors}")
@@ -454,6 +460,34 @@ def _update_system_configuration(config: Dict, query_params: Dict):
                 'error': 'Configuration validation failed',
                 'validationErrors': errors
             })
+        
+        # Phase 3a: Severity threshold validation
+        all_errors = []
+        
+        # Validate severity thresholds if present
+        if 'alertThresholds' in config and 'global' in config['alertThresholds']:
+            thresholds = config['alertThresholds']['global']
+            severity_valid, severity_errors = validate_severity_thresholds(thresholds)
+            if not severity_valid:
+                all_errors.extend(severity_errors)
+                logger.warning(f"Severity threshold validation failed: {severity_errors}")
+        
+        # Validate notification channels if present
+        if 'notificationSettings' in config:
+            channels_valid, channel_errors = validate_notification_channels(config['notificationSettings'])
+            if not channels_valid:
+                all_errors.extend(channel_errors)
+                logger.warning(f"Notification channel validation failed: {channel_errors}")
+        
+        # Return all validation errors if any
+        if all_errors:
+            return _create_response(400, {
+                'error': 'Configuration validation failed',
+                'validationErrors': all_errors
+            })
+        
+        # Phase 3a: Normalize threshold format for backward compatibility
+        config = normalize_threshold_format(config)
         
         # Get current configuration for diff calculation
         config_table = dynamodb.Table(CONFIG_TABLE)
