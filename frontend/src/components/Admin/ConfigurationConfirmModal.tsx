@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SystemConfiguration } from '../../types/admin';
 
 interface ConfigChange {
@@ -28,12 +28,12 @@ const ConfigurationConfirmModal = ({
   const [changes, setChanges] = useState<ConfigChange[]>([]);
 
   // Calculate changes when modal opens
-  useState(() => {
+  useEffect(() => {
     if (isOpen) {
       const detectedChanges = calculateChanges(currentConfig, newConfig);
       setChanges(detectedChanges);
     }
-  });
+  }, [isOpen, currentConfig, newConfig]);
 
   if (!isOpen) return null;
 
@@ -128,74 +128,133 @@ function calculateChanges(oldConfig: SystemConfiguration, newConfig: SystemConfi
   const oldThresholds = oldConfig.alertThresholds.global;
   const newThresholds = newConfig.alertThresholds.global;
 
-  if (oldThresholds.pH.min !== newThresholds.pH.min) {
+  // pH thresholds - warning and critical levels
+  if (oldThresholds.pH?.warning?.min !== newThresholds.pH?.warning?.min) {
     changes.push({
-      field: 'pH Minimum',
-      oldValue: oldThresholds.pH.min,
-      newValue: newThresholds.pH.min,
-      path: 'alertThresholds.global.pH.min'
+      field: 'pH Warning Minimum',
+      oldValue: oldThresholds.pH?.warning?.min,
+      newValue: newThresholds.pH?.warning?.min,
+      path: 'alertThresholds.global.pH.warning.min'
     });
   }
 
-  if (oldThresholds.pH.max !== newThresholds.pH.max) {
+  if (oldThresholds.pH?.warning?.max !== newThresholds.pH?.warning?.max) {
     changes.push({
-      field: 'pH Maximum',
-      oldValue: oldThresholds.pH.max,
-      newValue: newThresholds.pH.max,
-      path: 'alertThresholds.global.pH.max'
+      field: 'pH Warning Maximum',
+      oldValue: oldThresholds.pH?.warning?.max,
+      newValue: newThresholds.pH?.warning?.max,
+      path: 'alertThresholds.global.pH.warning.max'
     });
   }
 
-  if (oldThresholds.turbidity.max !== newThresholds.turbidity.max) {
+  if (oldThresholds.pH?.critical?.min !== newThresholds.pH?.critical?.min) {
     changes.push({
-      field: 'Turbidity Maximum',
-      oldValue: oldThresholds.turbidity.max,
-      newValue: newThresholds.turbidity.max,
-      path: 'alertThresholds.global.turbidity.max'
+      field: 'pH Critical Minimum',
+      oldValue: oldThresholds.pH?.critical?.min,
+      newValue: newThresholds.pH?.critical?.min,
+      path: 'alertThresholds.global.pH.critical.min'
     });
   }
 
-  if (oldThresholds.tds.max !== newThresholds.tds.max) {
+  if (oldThresholds.pH?.critical?.max !== newThresholds.pH?.critical?.max) {
     changes.push({
-      field: 'TDS Maximum',
-      oldValue: oldThresholds.tds.max,
-      newValue: newThresholds.tds.max,
-      path: 'alertThresholds.global.tds.max'
+      field: 'pH Critical Maximum',
+      oldValue: oldThresholds.pH?.critical?.max,
+      newValue: newThresholds.pH?.critical?.max,
+      path: 'alertThresholds.global.pH.critical.max'
     });
   }
 
-  if (oldThresholds.temperature.min !== newThresholds.temperature.min) {
+  // Turbidity thresholds
+  if (oldThresholds.turbidity?.warning?.max !== newThresholds.turbidity?.warning?.max) {
     changes.push({
-      field: 'Temperature Minimum',
-      oldValue: oldThresholds.temperature.min,
-      newValue: newThresholds.temperature.min,
-      path: 'alertThresholds.global.temperature.min'
+      field: 'Turbidity Warning Maximum',
+      oldValue: oldThresholds.turbidity?.warning?.max,
+      newValue: newThresholds.turbidity?.warning?.max,
+      path: 'alertThresholds.global.turbidity.warning.max'
     });
   }
 
-  if (oldThresholds.temperature.max !== newThresholds.temperature.max) {
+  if (oldThresholds.turbidity?.critical?.max !== newThresholds.turbidity?.critical?.max) {
     changes.push({
-      field: 'Temperature Maximum',
-      oldValue: oldThresholds.temperature.max,
-      newValue: newThresholds.temperature.max,
-      path: 'alertThresholds.global.temperature.max'
+      field: 'Turbidity Critical Maximum',
+      oldValue: oldThresholds.turbidity?.critical?.max,
+      newValue: newThresholds.turbidity?.critical?.max,
+      path: 'alertThresholds.global.turbidity.critical.max'
     });
   }
 
-  if (oldThresholds.wqi.critical !== newThresholds.wqi.critical) {
+  // TDS thresholds
+  if (oldThresholds.tds?.warning?.max !== newThresholds.tds?.warning?.max) {
+    changes.push({
+      field: 'TDS Warning Maximum',
+      oldValue: oldThresholds.tds?.warning?.max,
+      newValue: newThresholds.tds?.warning?.max,
+      path: 'alertThresholds.global.tds.warning.max'
+    });
+  }
+
+  if (oldThresholds.tds?.critical?.max !== newThresholds.tds?.critical?.max) {
+    changes.push({
+      field: 'TDS Critical Maximum',
+      oldValue: oldThresholds.tds?.critical?.max,
+      newValue: newThresholds.tds?.critical?.max,
+      path: 'alertThresholds.global.tds.critical.max'
+    });
+  }
+
+  // Temperature thresholds
+  if (oldThresholds.temperature?.warning?.min !== newThresholds.temperature?.warning?.min) {
+    changes.push({
+      field: 'Temperature Warning Minimum',
+      oldValue: oldThresholds.temperature?.warning?.min,
+      newValue: newThresholds.temperature?.warning?.min,
+      path: 'alertThresholds.global.temperature.warning.min'
+    });
+  }
+
+  if (oldThresholds.temperature?.warning?.max !== newThresholds.temperature?.warning?.max) {
+    changes.push({
+      field: 'Temperature Warning Maximum',
+      oldValue: oldThresholds.temperature?.warning?.max,
+      newValue: newThresholds.temperature?.warning?.max,
+      path: 'alertThresholds.global.temperature.warning.max'
+    });
+  }
+
+  if (oldThresholds.temperature?.critical?.min !== newThresholds.temperature?.critical?.min) {
+    changes.push({
+      field: 'Temperature Critical Minimum',
+      oldValue: oldThresholds.temperature?.critical?.min,
+      newValue: newThresholds.temperature?.critical?.min,
+      path: 'alertThresholds.global.temperature.critical.min'
+    });
+  }
+
+  if (oldThresholds.temperature?.critical?.max !== newThresholds.temperature?.critical?.max) {
+    changes.push({
+      field: 'Temperature Critical Maximum',
+      oldValue: oldThresholds.temperature?.critical?.max,
+      newValue: newThresholds.temperature?.critical?.max,
+      path: 'alertThresholds.global.temperature.critical.max'
+    });
+  }
+
+  // WQI thresholds (if they exist)
+  if (oldThresholds.wqi?.critical !== newThresholds.wqi?.critical) {
     changes.push({
       field: 'WQI Critical Threshold',
-      oldValue: oldThresholds.wqi.critical,
-      newValue: newThresholds.wqi.critical,
+      oldValue: oldThresholds.wqi?.critical,
+      newValue: newThresholds.wqi?.critical,
       path: 'alertThresholds.global.wqi.critical'
     });
   }
 
-  if (oldThresholds.wqi.warning !== newThresholds.wqi.warning) {
+  if (oldThresholds.wqi?.warning !== newThresholds.wqi?.warning) {
     changes.push({
       field: 'WQI Warning Threshold',
-      oldValue: oldThresholds.wqi.warning,
-      newValue: newThresholds.wqi.warning,
+      oldValue: oldThresholds.wqi?.warning,
+      newValue: newThresholds.wqi?.warning,
       path: 'alertThresholds.global.wqi.warning'
     });
   }

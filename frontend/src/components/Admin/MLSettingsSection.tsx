@@ -57,9 +57,12 @@ const MLSettingsSection: React.FC<MLSettingsSectionProps> = ({
 
   return (
     <div className="bg-white rounded-lg shadow p-6 mb-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">
-        ML Configuration Settings
-      </h3>
+      <div className="flex items-center gap-2 mb-4">
+        <h3 className="text-lg font-medium text-gray-900">
+          ML Configuration Settings
+        </h3>
+        <span className="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">WIP</span>
+      </div>
 
       <div className="space-y-6">
         {/* Anomaly Detection Toggle */}

@@ -68,7 +68,8 @@ const SystemConfiguration = () => {
     try {
       const data = await getSystemConfiguration();
       setConfig(data);
-      setFormData(data);
+      // Deep clone to prevent state mutation
+      setFormData(JSON.parse(JSON.stringify(data)));
     } catch (error) {
       console.error('Error loading configuration:', error);
     } finally {
@@ -83,6 +84,8 @@ const SystemConfiguration = () => {
       setSystemHealth(health);
     } catch (error) {
       console.error('Failed to load system health:', error);
+      // CORS issue - set null to hide the panel gracefully
+      setSystemHealth(null);
       // Don't throw - allow configuration to continue working even if health check fails
     } finally {
       setHealthLoading(false);
@@ -112,14 +115,38 @@ const SystemConfiguration = () => {
     setShowConfirmModal(false);
     
     try {
+      // Debug: Log what we're about to send
+      console.log('Sending configuration to backend:', JSON.stringify(formData, null, 2));
+      console.log('TDS values being sent:', {
+        critical: formData.alertThresholds?.global?.tds?.critical?.max,
+        warning: formData.alertThresholds?.global?.tds?.warning?.max
+      });
+      console.log('Temperature values being sent:', {
+        warningMin: formData.alertThresholds?.global?.temperature?.warning?.min,
+        criticalMin: formData.alertThresholds?.global?.temperature?.critical?.min,
+        criticalMax: formData.alertThresholds?.global?.temperature?.critical?.max,
+        warningMax: formData.alertThresholds?.global?.temperature?.warning?.max
+      });
+      
       const updated = await updateSystemConfiguration(formData);
       setConfig(updated);
-      setFormData(updated);
+      // Deep clone to prevent state mutation
+      setFormData(JSON.parse(JSON.stringify(updated)));
       setEditMode(false);
+      setValidationErrors([]);
       alert('Configuration updated successfully');
     } catch (error) {
       console.error('Error updating configuration:', error);
-      alert('Failed to update configuration');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update configuration';
+      
+      // If error message contains newlines, it's likely validation errors
+      if (errorMessage.includes('\n')) {
+        setValidationErrors(errorMessage.split('\n'));
+      } else {
+        setValidationErrors([errorMessage]);
+      }
+      
+      alert(`Failed to update configuration:\n\n${errorMessage}`);
     } finally {
       setSaving(false);
     }
@@ -131,7 +158,8 @@ const SystemConfiguration = () => {
         return;
       }
     }
-    setFormData(config);
+    // Deep clone to prevent state mutation
+    setFormData(JSON.parse(JSON.stringify(config)));
     setEditMode(false);
     setValidationErrors([]);
     setFieldErrors({});
@@ -443,7 +471,7 @@ const SystemConfiguration = () => {
       </div>
 
       {/* Phase 3c: System Health Indicators - Display only when in edit mode */}
-      {editMode && (
+      {editMode && systemHealth && (
         <SystemHealthPanel 
           health={systemHealth} 
           loading={healthLoading}
@@ -474,7 +502,10 @@ const SystemConfiguration = () => {
 
         {/* Notification Settings */}
         <div className="border rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-4">Notification Settings</h3>
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="font-semibold text-gray-900">Notification Settings</h3>
+            <span className="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">WIP</span>
+          </div>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Critical Alert Channels</label>
@@ -549,7 +580,10 @@ const SystemConfiguration = () => {
 
         {/* System Limits */}
         <div className="border rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-4">System Limits</h3>
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="font-semibold text-gray-900">System Limits</h3>
+            <span className="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">WIP</span>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Max Devices Per User</label>
@@ -614,7 +648,10 @@ const SystemConfiguration = () => {
 
         {/* Maintenance Mode */}
         <div className="border rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-4">Maintenance Mode</h3>
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="font-semibold text-gray-900">Maintenance Mode</h3>
+            <span className="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">WIP</span>
+          </div>
           <div className="space-y-4">
             <label className="flex items-center">
               <input
