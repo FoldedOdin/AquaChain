@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from botocore.exceptions import ClientError
 import logging
 import hashlib
+from decimal import Decimal
 from config_validation import (
     validate_configuration, 
     get_validation_rules,
@@ -48,6 +49,19 @@ CONFIG_HISTORY_TABLE = os.environ.get('CONFIG_HISTORY_TABLE', 'AquaChain-ConfigH
 # ============================================================================
 # PII MASKING UTILITIES (Security Layer)
 # ============================================================================
+
+def _convert_floats_to_decimal(obj):
+    """
+    Recursively convert all float values to Decimal for DynamoDB compatibility
+    """
+    if isinstance(obj, list):
+        return [_convert_floats_to_decimal(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: _convert_floats_to_decimal(value) for key, value in obj.items()}
+    elif isinstance(obj, float):
+        return Decimal(str(obj))
+    else:
+        return obj
 
 def _mask_email(email: str) -> str:
     """Mask email showing only first 2 chars and domain"""
@@ -116,9 +130,19 @@ def lambda_handler(event, context):
             return _track_user_login(body)
         
         # Verify admin authorization for admin endpoints
-        if not _verify_admin_access(event):
-            logger.warning(f"Admin access denied for path: {path}")
-            return _create_response(403, {'error': 'Admin access required'})
+        is_admin, debug_info = _verify_admin_access(event)
+        if not is_admin:
+            logger.warning(f"Admin access denied for path: {path}, Debug: {debug_info}")
+            return _create_response(403, {
+                'error': 'Admin access required',
+                'message': 'You do not have administrator privileges',
+                'details': {
+                    'requiredGroup': 'administrators',
+                    'yourGroups': debug_info.get('groups', []),
+                    'userId': debug_info.get('userId', 'unknown'),
+                    'email': debug_info.get('email', 'unknown')
+                }
+            })
         
         # Route requests
         if path.startswith('/api/admin/users'):
@@ -152,28 +176,135 @@ def lambda_handler(event, context):
         logger.error(f"Admin service error: {str(e)}", exc_info=True)
         return _create_response(500, {'error': 'Internal server error', 'message': str(e)})
 
-def _verify_admin_access(event) -> bool:
+def _decode_jwt_payload(token: str) -> dict:
+    """
+    Decode JWT payload without verification (API Gateway already verified it)
+    """
+    import base64
+    
+    try:
+        # JWT format: header.payload.signature
+        parts = token.split('.')
+        if len(parts) != 3:
+            raise ValueError("Invalid JWT format")
+        
+        # Decode the payload (middle part)
+        payload_part = parts[1]
+        
+        # Add padding if needed (base64 requires length to be multiple of 4)
+        padding = '=' * (-len(payload_part) % 4)
+        decoded_bytes = base64.urlsafe_b64decode(payload_part + padding)
+        
+        return json.loads(decoded_bytes)
+    except Exception as e:
+        logger.error(f"Failed to decode JWT: {str(e)}")
+        return {}
+
+
+def _verify_admin_access(event) -> tuple[bool, dict]:
     """
     Verify that the request comes from an admin user
+    Returns: (is_admin: bool, debug_info: dict)
+    
+    This function extracts the JWT from the Authorization header and decodes it directly,
+    since API Gateway's Cognito Authorizer doesn't reliably pass claims to Lambda.
     """
     try:
-        # Get user info from Cognito authorizer context
+        # First, try to get claims from API Gateway authorizer context (if available)
         request_context = event.get('requestContext', {})
         authorizer = request_context.get('authorizer', {})
         claims = authorizer.get('claims', {})
+        
+        # If claims are empty or missing critical fields, decode JWT directly from header
+        if not claims or not claims.get('sub'):
+            logger.info("Claims not available from authorizer, decoding JWT from header")
+            
+            # Extract Authorization header
+            headers = event.get('headers', {})
+            auth_header = headers.get('Authorization') or headers.get('authorization')
+            
+            if not auth_header:
+                logger.warning("No Authorization header found")
+                return False, {
+                    'userId': 'unknown',
+                    'email': 'unknown',
+                    'groups': [],
+                    'hasAdminGroup': False,
+                    'rawGroupsClaim': '',
+                    'source': 'no_auth_header'
+                }
+            
+            # Extract token (format: "Bearer <token>")
+            token_parts = auth_header.split(' ')
+            if len(token_parts) != 2 or token_parts[0].lower() != 'bearer':
+                logger.warning(f"Invalid Authorization header format: {auth_header[:20]}...")
+                return False, {
+                    'userId': 'unknown',
+                    'email': 'unknown',
+                    'groups': [],
+                    'hasAdminGroup': False,
+                    'rawGroupsClaim': '',
+                    'source': 'invalid_auth_format'
+                }
+            
+            token = token_parts[1]
+            claims = _decode_jwt_payload(token)
+            
+            if not claims:
+                logger.warning("Failed to decode JWT payload")
+                return False, {
+                    'userId': 'unknown',
+                    'email': 'unknown',
+                    'groups': [],
+                    'hasAdminGroup': False,
+                    'rawGroupsClaim': '',
+                    'source': 'jwt_decode_failed'
+                }
+            
+            logger.info(f"Successfully decoded JWT for user: {claims.get('email', 'unknown')}")
+        
+        # Extract user information
+        user_id = claims.get('sub', 'unknown')
+        email = claims.get('email', 'unknown')
         
         # Check if user has admin role
         cognito_groups = claims.get('cognito:groups', '')
         if isinstance(cognito_groups, str):
             groups = cognito_groups.split(',') if cognito_groups else []
+        elif isinstance(cognito_groups, list):
+            groups = cognito_groups
         else:
-            groups = cognito_groups or []
-            
-        return 'administrators' in groups
+            groups = []
+        
+        is_admin = 'administrators' in groups
+        
+        # Build debug info
+        debug_info = {
+            'userId': user_id,
+            'email': email,
+            'groups': groups,
+            'hasAdminGroup': is_admin,
+            'rawGroupsClaim': cognito_groups,
+            'source': 'jwt_header' if not authorizer.get('claims', {}).get('sub') else 'authorizer_context'
+        }
+        
+        # Log detailed information
+        if not is_admin:
+            logger.warning(
+                f"Admin access denied - User: {email} ({user_id}), "
+                f"Groups: {groups}, Required: administrators, Source: {debug_info['source']}"
+            )
+        else:
+            logger.info(
+                f"Admin access granted - User: {email} ({user_id}), "
+                f"Groups: {groups}, Source: {debug_info['source']}"
+            )
+        
+        return is_admin, debug_info
         
     except Exception as e:
-        logger.error(f"Admin access verification failed: {str(e)}")
-        return False
+        logger.error(f"Admin access verification failed: {str(e)}", exc_info=True)
+        return False, {'error': str(e), 'source': 'exception'}
 
 def _handle_user_management(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict, event: Dict = None):
     """
@@ -423,12 +554,24 @@ def _get_system_configuration():
     """
     try:
         table = dynamodb.Table(CONFIG_TABLE)
-        response = table.get_item(Key={'config_id': 'system_config'})
+        response = table.get_item(Key={'configKey': 'system_config'})
         
         if 'Item' in response:
             config = response['Item']
             # Remove DynamoDB metadata
-            config.pop('config_id', None)
+            config.pop('configKey', None)
+            config.pop('updated_at', None)
+            config.pop('updated_by', None)
+            
+            # Clean up legacy threshold format if present
+            if 'alertThresholds' in config and 'global' in config['alertThresholds']:
+                thresholds = config['alertThresholds']['global']
+                
+                # Remove legacy pH fields if new format exists
+                if 'pH' in thresholds and 'warning' in thresholds['pH']:
+                    thresholds['pH'].pop('min', None)
+                    thresholds['pH'].pop('max', None)
+            
             return _create_response(200, config)
         else:
             # Return default configuration
@@ -507,7 +650,7 @@ def _update_system_configuration(config: Dict, query_params: Dict):
         
         # Get current configuration for diff calculation
         config_table = dynamodb.Table(CONFIG_TABLE)
-        current_response = config_table.get_item(Key={'config_id': 'system_config'})
+        current_response = config_table.get_item(Key={'configKey': 'system_config'})
         current_config = current_response.get('Item', {}) if 'Item' in current_response else {}
         
         # Calculate changes (diff)
@@ -524,6 +667,10 @@ def _update_system_configuration(config: Dict, query_params: Dict):
         # Get previous version ID
         previous_version = current_config.get('version', 'v_initial')
         
+        # Convert all floats to Decimal for DynamoDB compatibility
+        config_for_db = _convert_floats_to_decimal(config)
+        changes_for_db = _convert_floats_to_decimal(changes)
+        
         # Save version to history table
         history_table = dynamodb.Table(CONFIG_HISTORY_TABLE)
         history_entry = {
@@ -532,20 +679,20 @@ def _update_system_configuration(config: Dict, query_params: Dict):
             'updatedBy': admin_id,
             'updatedAt': version_timestamp,
             'previousVersion': previous_version,
-            'changes': changes,
-            'fullConfig': config,
+            'changes': changes_for_db,
+            'fullConfig': config_for_db,
             'ipAddress': ip_address
         }
         history_table.put_item(Item=history_entry)
         logger.info(f"Saved configuration version: {version_id}")
         
         # Update current configuration
-        config['config_id'] = 'system_config'
-        config['version'] = version_id
-        config['updated_at'] = version_timestamp
-        config['updated_by'] = admin_id
+        config_for_db['configKey'] = 'system_config'
+        config_for_db['version'] = version_id
+        config_for_db['updated_at'] = version_timestamp
+        config_for_db['updated_by'] = admin_id
         
-        config_table.put_item(Item=config)
+        config_table.put_item(Item=config_for_db)
         
         # Log audit entry
         _log_config_change(
@@ -558,10 +705,17 @@ def _update_system_configuration(config: Dict, query_params: Dict):
         
         logger.info(f"Configuration updated successfully by {admin_id}, version: {version_id}")
         
+        # Return the updated configuration (without DynamoDB-specific fields)
+        response_config = dict(config_for_db)
+        response_config.pop('configKey', None)
+        response_config.pop('updated_at', None)
+        response_config.pop('updated_by', None)
+        
         return _create_response(200, {
             'message': 'Configuration updated successfully',
             'version': version_id,
-            'changes': changes
+            'changes': changes,
+            'configuration': response_config
         })
         
     except ClientError as e:
@@ -1408,6 +1562,14 @@ def _get_performance_metrics(query_params: Dict):
         logger.error(f"Error fetching performance metrics: {str(e)}")
         return _create_response(500, {'error': 'Failed to fetch performance metrics'})
 
+def _decimal_default(obj):
+    """
+    JSON serializer for objects not serializable by default json code (like Decimal)
+    """
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
 def _create_response(status_code: int, body: Dict) -> Dict:
     """
     Create standardized API response with proper CORS headers
@@ -1421,7 +1583,7 @@ def _create_response(status_code: int, body: Dict) -> Dict:
             'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
             'Access-Control-Max-Age': '86400'
         },
-        'body': json.dumps(body)
+        'body': json.dumps(body, default=_decimal_default)
     }
 
 
@@ -1765,15 +1927,24 @@ def _log_config_change(admin_id: str, action: str, ip_address: str, changes: Dic
     try:
         audit_table = dynamodb.Table(AUDIT_TABLE)
         
+        # Convert floats to Decimal for DynamoDB
+        changes_for_db = _convert_floats_to_decimal(changes)
+        
+        # Create composite key for audit table
+        timestamp = datetime.utcnow().isoformat() + 'Z'
+        date_str = datetime.utcnow().strftime('%Y-%m-%d')
+        user_id_date = f"{admin_id}#{date_str}"
+        
         audit_entry = {
-            'audit_id': f"config-audit-{datetime.utcnow().timestamp()}",
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'userId_date': user_id_date,
+            'timestamp': timestamp,
             'adminId': admin_id,
             'action': action,
+            'resourceType': 'SYSTEM_CONFIG',
             'ipAddress': ip_address,
             'details': {
                 'version': version,
-                'changes': changes
+                'changes': changes_for_db
             },
             'immutable': True
         }

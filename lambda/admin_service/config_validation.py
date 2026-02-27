@@ -4,7 +4,8 @@ Provides server-side validation for system configuration changes
 """
 
 import logging
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
+from decimal import Decimal
 
 logger = logging.getLogger()
 
@@ -17,6 +18,39 @@ DEFAULT_ML_SETTINGS = {
     'retrainingFrequencyDays': 30,
     'driftDetectionEnabled': True
 }
+
+
+def _safe_numeric_get(d: Dict, key: str, param_name: str) -> Optional[float]:
+    """
+    Safely extract and convert numeric value from dict.
+    
+    Handles Decimal (from DynamoDB), string, int, and float types.
+    
+    Args:
+        d: Dictionary to extract from
+        key: Key to look up
+        param_name: Parameter name for error messages (e.g., 'pH.critical')
+    
+    Returns:
+        float value or None if missing
+        
+    Raises:
+        ValueError if value exists but cannot be converted to float
+    """
+    value = d.get(key)
+    if value is None:
+        return None
+    
+    try:
+        # Handle Decimal (from DynamoDB), string, int, float
+        if isinstance(value, Decimal):
+            return float(value)
+        return float(value)
+    except (ValueError, TypeError) as e:
+        raise ValueError(
+            f"Invalid {param_name}.{key}: expected numeric value, got {type(value).__name__} '{value}'"
+        )
+
 
 # Validation rules for system configuration
 VALIDATION_RULES = {
@@ -175,12 +209,12 @@ def get_validation_rules() -> Dict:
 
 def validate_severity_thresholds(thresholds: Dict) -> Tuple[bool, List[str]]:
     """
-    Validate severity threshold relationships for Phase 3a.
+    Validate severity threshold relationships with robust error handling.
     
     Rules:
     - For range parameters (pH, temp): warning_min < critical_min < critical_max < warning_max
     - For max-only parameters (turbidity, tds): critical_max < warning_max
-    - All values must be within valid ranges for their respective parameters
+    - All values must be within valid scientific ranges
     
     Args:
         thresholds: Dictionary containing threshold configuration
@@ -190,117 +224,189 @@ def validate_severity_thresholds(thresholds: Dict) -> Tuple[bool, List[str]]:
     """
     errors = []
     
-    # pH validation
+    logger.info(f"Validating thresholds: {thresholds}")
+    
+    # ========== pH Validation ==========
     if 'pH' in thresholds:
         ph = thresholds['pH']
+        logger.debug(f"Validating pH thresholds: {ph}")
+        
         if 'critical' in ph and 'warning' in ph:
             try:
-                c_min = ph['critical'].get('min')
-                c_max = ph['critical'].get('max')
-                w_min = ph['warning'].get('min')
-                w_max = ph['warning'].get('max')
+                # Safe numeric extraction with type coercion
+                c_min = _safe_numeric_get(ph['critical'], 'min', 'pH.critical')
+                c_max = _safe_numeric_get(ph['critical'], 'max', 'pH.critical')
+                w_min = _safe_numeric_get(ph['warning'], 'min', 'pH.warning')
+                w_max = _safe_numeric_get(ph['warning'], 'max', 'pH.warning')
+                
+                logger.debug(f"pH values - w_min:{w_min}, c_min:{c_min}, c_max:{c_max}, w_max:{w_max}")
                 
                 # Check all values are present
                 if None in [c_min, c_max, w_min, w_max]:
-                    errors.append('pH severity thresholds must include all min/max values for both warning and critical')
+                    missing = []
+                    if c_min is None: missing.append('critical.min')
+                    if c_max is None: missing.append('critical.max')
+                    if w_min is None: missing.append('warning.min')
+                    if w_max is None: missing.append('warning.max')
+                    errors.append(f'pH thresholds missing required fields: {", ".join(missing)}')
                 else:
-                    # Validate relationship: warning_min < critical_min < critical_max < warning_max
-                    if not (w_min < c_min < c_max < w_max):
-                        errors.append(
-                            f'pH thresholds must satisfy: warning_min ({w_min}) < '
-                            f'critical_min ({c_min}) < critical_max ({c_max}) < '
-                            f'warning_max ({w_max})'
-                        )
+                    # Validate scientific range FIRST (fail fast)
+                    if not (0 <= w_min <= 14):
+                        errors.append(f'pH warning.min must be between 0 and 14 (got {w_min})')
+                    if not (0 <= w_max <= 14):
+                        errors.append(f'pH warning.max must be between 0 and 14 (got {w_max})')
+                    if not (0 <= c_min <= 14):
+                        errors.append(f'pH critical.min must be between 0 and 14 (got {c_min})')
+                    if not (0 <= c_max <= 14):
+                        errors.append(f'pH critical.max must be between 0 and 14 (got {c_max})')
                     
-                    # Validate ranges
-                    if w_min < 0 or w_max > 14:
-                        errors.append(f'pH warning thresholds must be between 0 and 14 (got min={w_min}, max={w_max})')
-                    if c_min < 0 or c_max > 14:
-                        errors.append(f'pH critical thresholds must be between 0 and 14 (got min={c_min}, max={c_max})')
+                    # Validate relationship (only if ranges are valid)
+                    if not errors:  # Don't check relationships if ranges are invalid
+                        if not (w_min < c_min < c_max < w_max):
+                            errors.append(
+                                f'pH thresholds must satisfy: warning.min ({w_min}) < '
+                                f'critical.min ({c_min}) < critical.max ({c_max}) < warning.max ({w_max}). '
+                                f'Critical thresholds should be MORE restrictive than warning.'
+                            )
+                            
+            except ValueError as e:
+                errors.append(f'pH threshold type error: {str(e)}')
+                logger.error(f"pH validation type error: {e}", exc_info=True)
             except (KeyError, TypeError) as e:
-                errors.append(f'Invalid pH threshold structure: {str(e)}')
+                errors.append(f'pH threshold structure error: {str(e)}')
+                logger.error(f"pH validation structure error: {e}", exc_info=True)
     
-    # Turbidity validation
+    # ========== Turbidity Validation ==========
     if 'turbidity' in thresholds:
         turb = thresholds['turbidity']
+        logger.debug(f"Validating turbidity thresholds: {turb}")
+        
         if 'critical' in turb and 'warning' in turb:
             try:
-                c_max = turb['critical'].get('max')
-                w_max = turb['warning'].get('max')
+                c_max = _safe_numeric_get(turb['critical'], 'max', 'turbidity.critical')
+                w_max = _safe_numeric_get(turb['warning'], 'max', 'turbidity.warning')
+                
+                logger.debug(f"Turbidity values - c_max:{c_max}, w_max:{w_max}")
                 
                 if None in [c_max, w_max]:
-                    errors.append('Turbidity severity thresholds must include max values for both warning and critical')
+                    missing = []
+                    if c_max is None: missing.append('critical.max')
+                    if w_max is None: missing.append('warning.max')
+                    errors.append(f'Turbidity thresholds missing required fields: {", ".join(missing)}')
                 else:
-                    # Validate relationship: critical_max < warning_max
-                    if c_max >= w_max:
-                        errors.append(
-                            f'Turbidity critical max ({c_max}) must be less than '
-                            f'warning max ({w_max})'
-                        )
-                    
                     # Validate ranges
-                    if c_max < 0 or c_max > 100:
-                        errors.append(f'Turbidity critical max must be between 0 and 100 (got {c_max})')
-                    if w_max < 0 or w_max > 100:
-                        errors.append(f'Turbidity warning max must be between 0 and 100 (got {w_max})')
+                    if not (0 <= c_max <= 100):
+                        errors.append(f'Turbidity critical.max must be between 0 and 100 NTU (got {c_max})')
+                    if not (0 <= w_max <= 100):
+                        errors.append(f'Turbidity warning.max must be between 0 and 100 NTU (got {w_max})')
+                    
+                    # Validate relationship
+                    if not errors:
+                        if not (c_max < w_max):
+                            errors.append(
+                                f'Turbidity: critical.max ({c_max}) must be < warning.max ({w_max}). '
+                                f'Critical threshold should be MORE restrictive.'
+                            )
+                            
+            except ValueError as e:
+                errors.append(f'Turbidity threshold type error: {str(e)}')
+                logger.error(f"Turbidity validation type error: {e}", exc_info=True)
             except (KeyError, TypeError) as e:
-                errors.append(f'Invalid turbidity threshold structure: {str(e)}')
+                errors.append(f'Turbidity threshold structure error: {str(e)}')
+                logger.error(f"Turbidity validation structure error: {e}", exc_info=True)
     
-    # TDS validation
+    # ========== TDS Validation ==========
     if 'tds' in thresholds:
-        tds = thresholds['tds']
-        if 'critical' in tds and 'warning' in tds:
+        tds_data = thresholds['tds']
+        logger.debug(f"Validating TDS thresholds: {tds_data}")
+        
+        if 'critical' in tds_data and 'warning' in tds_data:
             try:
-                c_max = tds['critical'].get('max')
-                w_max = tds['warning'].get('max')
+                c_max = _safe_numeric_get(tds_data['critical'], 'max', 'tds.critical')
+                w_max = _safe_numeric_get(tds_data['warning'], 'max', 'tds.warning')
+                
+                logger.debug(f"TDS values - c_max:{c_max}, w_max:{w_max}")
                 
                 if None in [c_max, w_max]:
-                    errors.append('TDS severity thresholds must include max values for both warning and critical')
+                    missing = []
+                    if c_max is None: missing.append('critical.max')
+                    if w_max is None: missing.append('warning.max')
+                    errors.append(f'TDS thresholds missing required fields: {", ".join(missing)}')
                 else:
-                    # Validate relationship: critical_max < warning_max
-                    if c_max >= w_max:
-                        errors.append(
-                            f'TDS critical max ({c_max}) must be less than '
-                            f'warning max ({w_max})'
-                        )
-                    
                     # Validate ranges
-                    if c_max < 0 or c_max > 5000:
-                        errors.append(f'TDS critical max must be between 0 and 5000 (got {c_max})')
-                    if w_max < 0 or w_max > 5000:
-                        errors.append(f'TDS warning max must be between 0 and 5000 (got {w_max})')
+                    if not (0 <= c_max <= 5000):
+                        errors.append(f'TDS critical.max must be between 0 and 5000 ppm (got {c_max})')
+                    if not (0 <= w_max <= 5000):
+                        errors.append(f'TDS warning.max must be between 0 and 5000 ppm (got {w_max})')
+                    
+                    # Validate relationship
+                    if not errors:
+                        if not (c_max < w_max):
+                            errors.append(
+                                f'TDS: critical.max ({c_max}) must be < warning.max ({w_max}). '
+                                f'Critical threshold should be MORE restrictive.'
+                            )
+                            
+            except ValueError as e:
+                errors.append(f'TDS threshold type error: {str(e)}')
+                logger.error(f"TDS validation type error: {e}", exc_info=True)
             except (KeyError, TypeError) as e:
-                errors.append(f'Invalid TDS threshold structure: {str(e)}')
+                errors.append(f'TDS threshold structure error: {str(e)}')
+                logger.error(f"TDS validation structure error: {e}", exc_info=True)
     
-    # Temperature validation
+    # ========== Temperature Validation ==========
     if 'temperature' in thresholds:
         temp = thresholds['temperature']
+        logger.debug(f"Validating temperature thresholds: {temp}")
+        
         if 'critical' in temp and 'warning' in temp:
             try:
-                c_min = temp['critical'].get('min')
-                c_max = temp['critical'].get('max')
-                w_min = temp['warning'].get('min')
-                w_max = temp['warning'].get('max')
+                c_min = _safe_numeric_get(temp['critical'], 'min', 'temperature.critical')
+                c_max = _safe_numeric_get(temp['critical'], 'max', 'temperature.critical')
+                w_min = _safe_numeric_get(temp['warning'], 'min', 'temperature.warning')
+                w_max = _safe_numeric_get(temp['warning'], 'max', 'temperature.warning')
+                
+                logger.debug(f"Temperature values - w_min:{w_min}, c_min:{c_min}, c_max:{c_max}, w_max:{w_max}")
                 
                 # Check all values are present
                 if None in [c_min, c_max, w_min, w_max]:
-                    errors.append('Temperature severity thresholds must include all min/max values for both warning and critical')
+                    missing = []
+                    if c_min is None: missing.append('critical.min')
+                    if c_max is None: missing.append('critical.max')
+                    if w_min is None: missing.append('warning.min')
+                    if w_max is None: missing.append('warning.max')
+                    errors.append(f'Temperature thresholds missing required fields: {", ".join(missing)}')
                 else:
-                    # Validate relationship: warning_min < critical_min < critical_max < warning_max
-                    if not (w_min < c_min < c_max < w_max):
-                        errors.append(
-                            f'Temperature thresholds must satisfy: warning_min ({w_min}) < '
-                            f'critical_min ({c_min}) < critical_max ({c_max}) < '
-                            f'warning_max ({w_max})'
-                        )
-                    
                     # Validate ranges
-                    if w_min < -10 or w_max > 100:
-                        errors.append(f'Temperature warning thresholds must be between -10 and 100 (got min={w_min}, max={w_max})')
-                    if c_min < -10 or c_max > 100:
-                        errors.append(f'Temperature critical thresholds must be between -10 and 100 (got min={c_min}, max={c_max})')
+                    if not (-10 <= w_min <= 100):
+                        errors.append(f'Temperature warning.min must be between -10 and 100°C (got {w_min})')
+                    if not (-10 <= w_max <= 100):
+                        errors.append(f'Temperature warning.max must be between -10 and 100°C (got {w_max})')
+                    if not (-10 <= c_min <= 100):
+                        errors.append(f'Temperature critical.min must be between -10 and 100°C (got {c_min})')
+                    if not (-10 <= c_max <= 100):
+                        errors.append(f'Temperature critical.max must be between -10 and 100°C (got {c_max})')
+                    
+                    # Validate relationship
+                    if not errors:
+                        if not (w_min < c_min < c_max < w_max):
+                            errors.append(
+                                f'Temperature thresholds must satisfy: warning.min ({w_min}) < '
+                                f'critical.min ({c_min}) < critical.max ({c_max}) < warning.max ({w_max}). '
+                                f'Critical thresholds should be MORE restrictive than warning.'
+                            )
+                            
+            except ValueError as e:
+                errors.append(f'Temperature threshold type error: {str(e)}')
+                logger.error(f"Temperature validation type error: {e}", exc_info=True)
             except (KeyError, TypeError) as e:
-                errors.append(f'Invalid temperature threshold structure: {str(e)}')
+                errors.append(f'Temperature threshold structure error: {str(e)}')
+                logger.error(f"Temperature validation structure error: {e}", exc_info=True)
+    
+    if errors:
+        logger.warning(f"Validation failed with {len(errors)} errors: {errors}")
+    else:
+        logger.info("Validation passed successfully")
     
     return (len(errors) == 0, errors)
 
