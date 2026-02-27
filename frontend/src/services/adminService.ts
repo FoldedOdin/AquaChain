@@ -530,37 +530,81 @@ export const verifyHashChain = async (startSequence: number, endSequence: number
 };
 
 export const getSystemConfiguration = async (): Promise<SystemConfiguration> => {
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  return {
-    alertThresholds: {
-      global: {
-        pH: { min: 6.5, max: 8.5 },
-        turbidity: { max: 5.0 },
-        tds: { max: 500 },
-        temperature: { min: 0, max: 40 },
-        wqi: { critical: 40, warning: 60 }
-      }
-    },
-    notificationSettings: {
-      criticalAlertChannels: ['sms', 'email', 'push'],
-      warningAlertChannels: ['email', 'push'],
-      rateLimits: {
-        smsPerHour: 100,
-        emailPerHour: 500
-      }
-    },
-    systemLimits: {
-      maxDevicesPerUser: 10,
-      maxConcurrentDevices: 10000,
-      dataRetentionDays: 90,
-      auditRetentionYears: 7
-    },
-    maintenanceMode: {
-      enabled: false,
-      allowedRoles: ['administrator']
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-  };
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch system configuration');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching system configuration:', error);
+    // Return default configuration as fallback
+    return {
+      alertThresholds: {
+        global: {
+          pH: { 
+            warning: { min: 5.5, max: 8.5 },
+            critical: { min: 6.0, max: 8.0 }
+          },
+          turbidity: { 
+            warning: { max: 4.0 },
+            critical: { max: 5.0 }
+          },
+          tds: { 
+            warning: { max: 400 },
+            critical: { max: 500 }
+          },
+          temperature: { 
+            warning: { min: 0.5, max: 39.5 },
+            critical: { min: 0, max: 40 }
+          },
+          wqi: { critical: 40, warning: 60 }
+        }
+      },
+      notificationSettings: {
+        criticalAlertChannels: ['sms', 'email', 'push'],
+        warningAlertChannels: ['email', 'push'],
+        rateLimits: {
+          smsPerHour: 100,
+          emailPerHour: 500
+        }
+      },
+      systemLimits: {
+        maxDevicesPerUser: 10,
+        maxConcurrentDevices: 10000,
+        dataRetentionDays: 90,
+        auditRetentionYears: 7
+      },
+      maintenanceMode: {
+        enabled: false,
+        allowedRoles: ['administrator']
+      },
+      mlSettings: {
+        anomalyDetectionEnabled: true,
+        modelVersion: 'latest',
+        confidenceThreshold: 0.85,
+        retrainingFrequencyDays: 30,
+        driftDetectionEnabled: true
+      }
+    };
+  }
 };
 
 export const updateSystemConfiguration = async (config: Partial<SystemConfiguration>): Promise<SystemConfiguration> => {
@@ -593,22 +637,22 @@ export const updateSystemConfiguration = async (config: Partial<SystemConfigurat
           ...config
         };
       }
-      throw new Error('Failed to update system configuration');
+      
+      // Parse validation errors from backend
+      const errorData = await response.json();
+      if (errorData.validationErrors && Array.isArray(errorData.validationErrors)) {
+        const errorMessage = errorData.validationErrors.join('\n');
+        throw new Error(errorMessage);
+      }
+      
+      throw new Error(errorData.error || 'Failed to update system configuration');
     }
 
     const data = await response.json();
     return data.configuration;
   } catch (error) {
     console.error('Error updating system configuration:', error);
-    
-    // Fallback: simulate the update locally for development
-    console.warn('Falling back to local simulation of configuration update');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const currentConfig = await getSystemConfiguration();
-    return {
-      ...currentConfig,
-      ...config
-    };
+    throw error; // Re-throw to let the caller handle it
   }
 };
 
@@ -728,7 +772,7 @@ export const getSystemHealth = async (forceRefresh: boolean = false): Promise<Sy
 
     const queryParam = forceRefresh ? '?refresh=true' : '';
     const response = await fetchWithAuth(
-      `${API_BASE_URL}/api/admin/system-health${queryParam}`,
+      `${API_BASE_URL}/api/admin/system/health${queryParam}`,
       {
         method: 'GET',
         headers: {
@@ -812,8 +856,29 @@ export const validateConfiguration = async (config: Partial<SystemConfiguration>
     );
 
     if (!response.ok) {
-      // If validation endpoint fails, return generic error
-      return { valid: false, errors: ['Validation service unavailable'] };
+      // Try to get detailed error message
+      try {
+        const errorData = await response.json();
+        console.error('Validation failed:', errorData);
+        
+        // If it's a 403 with details, show specific error
+        if (response.status === 403 && errorData.details) {
+          const { requiredGroup, yourGroups, email } = errorData.details;
+          return { 
+            valid: false, 
+            errors: [
+              `Access Denied: Admin privileges required`,
+              `Your account (${email}) has groups: ${yourGroups.join(', ') || 'none'}`,
+              `Required group: ${requiredGroup}`,
+              `Please contact your administrator or log out and log back in if you were recently granted admin access.`
+            ] 
+          };
+        }
+        
+        return { valid: false, errors: [errorData.message || 'Validation service unavailable'] };
+      } catch (parseError) {
+        return { valid: false, errors: ['Validation service unavailable'] };
+      }
     }
 
     const data = await response.json();

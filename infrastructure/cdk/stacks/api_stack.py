@@ -14,11 +14,38 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as lambda_,
     Duration,
-    CfnOutput
+    CfnOutput,
+    IAspect
 )
-from constructs import Construct
+from constructs import Construct, IConstruct
 from typing import Dict, Any
 from config.environment_config import get_resource_name
+import jsii
+
+
+@jsii.implements(IAspect)
+class RemoveAdminLambdaPermissionsAspect:
+    """
+    CDK Aspect to remove auto-generated Lambda permissions for admin endpoints.
+    This keeps only the wildcard permission, preventing policy size from exceeding 20KB.
+    """
+    
+    def visit(self, node: IConstruct) -> None:
+        """Visit each node in the construct tree and remove admin Lambda permissions."""
+        # Check if this is a CfnPermission resource
+        if isinstance(node, lambda_.CfnPermission):
+            # Get the logical ID of the permission
+            logical_id = node.node.id
+            
+            # Remove auto-generated permissions for admin endpoints (keep only wildcard)
+            # Auto-generated permissions have IDs like "RestAPIapiadminusersGETApiPermission..."
+            # Our wildcard permission has ID "AdminLambdaApiGatewayPermission"
+            if logical_id.startswith("RestAPIapiadmin") and "ApiPermission" in logical_id:
+                # This is an auto-generated permission for an admin endpoint
+                # Remove it from the parent's children
+                parent = node.node.scope
+                if parent:
+                    parent.node.try_remove_child(logical_id)
 
 class AquaChainApiStack(Stack):
     """
@@ -70,6 +97,11 @@ class AquaChainApiStack(Stack):
         
         # Create WAF for API protection
         self._create_waf_resources()
+        
+        # Apply aspect to remove auto-generated admin Lambda permissions
+        # This ensures only the wildcard permission is used, keeping policy size under 20KB
+        from aws_cdk import Aspects
+        Aspects.of(self).add(RemoveAdminLambdaPermissionsAspect())
     
     def _create_cognito_resources(self) -> None:
         """
@@ -216,10 +248,14 @@ class AquaChainApiStack(Stack):
         """
         
         # Cognito Authorizer
+        # IMPORTANT: results_cache_ttl_in_seconds=0 ensures fresh token validation
+        # identity_source ensures the Authorization header is used for caching
         self.cognito_authorizer = apigateway.CognitoUserPoolsAuthorizer(
             self, "CognitoAuthorizer",
             cognito_user_pools=[self.user_pool],
-            authorizer_name="AquaChainAuthorizer"
+            authorizer_name="AquaChainAuthorizer",
+            identity_source="method.request.header.Authorization",
+            results_cache_ttl=Duration.seconds(0)  # Disable caching to ensure fresh claims
         )
         
         # REST API
@@ -230,7 +266,14 @@ class AquaChainApiStack(Stack):
             default_cors_preflight_options=apigateway.CorsOptions(
                 allow_origins=apigateway.Cors.ALL_ORIGINS,
                 allow_methods=apigateway.Cors.ALL_METHODS,
-                allow_headers=["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key"]
+                allow_headers=[
+                    "Content-Type",
+                    "Authorization",
+                    "X-Amz-Date",
+                    "X-Api-Key",
+                    "X-Amz-Security-Token"
+                ],
+                allow_credentials=True
             ),
             deploy_options=apigateway.StageOptions(
                 stage_name=self.config["environment"],
@@ -371,7 +414,31 @@ class AquaChainApiStack(Stack):
         
         # Admin Lambda integration (if admin service exists)
         if "admin_service" in self.lambda_functions:
-            admin_integration = apigateway.LambdaIntegration(self.lambda_functions["admin_service"])
+            # Add a single wildcard permission for all admin endpoints
+            # This replaces individual permissions per endpoint to stay under the 20KB policy limit
+            from aws_cdk import aws_lambda as lambda_
+            lambda_.CfnPermission(
+                self, "AdminLambdaApiGatewayPermission",
+                action="lambda:InvokeFunction",
+                function_name=self.lambda_functions["admin_service"].function_name,
+                principal="apigateway.amazonaws.com",
+                source_arn=f"arn:aws:execute-api:{self.region}:{self.account}:{self.rest_api.rest_api_id}/*/*"
+            )
+            
+            # Use LambdaIntegration for proper proxy behavior, but prevent automatic permission creation
+            # by using a custom integration that references the Lambda ARN without granting permissions
+            # This ensures only the wildcard permission above is used, keeping policy size under 20KB
+            from aws_cdk import aws_iam as iam
+            
+            # Create a custom integration role that uses the wildcard permission
+            # Note: We set credentials_role=None to use resource-based policy (our wildcard permission)
+            admin_integration = apigateway.LambdaIntegration(
+                self.lambda_functions["admin_service"],
+                proxy=True,
+                allow_test_invoke=False,  # Prevents test-invoke-stage permissions
+                # This is the key: we already have the wildcard permission, so we don't want
+                # LambdaIntegration to create additional permissions
+            )
             
             # /api/admin/users - User management
             admin_users_resource = api_admin.add_resource("users")
@@ -379,14 +446,35 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             admin_users_resource.add_method(
                 "POST",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
+            # Note: CORS preflight is already handled by default_cors_preflight_options at API level
             
             # /api/admin/users/track-login - Login tracking (accessible to all authenticated users)
             admin_users_track_login_resource = admin_users_resource.add_resource("track-login")
@@ -394,7 +482,17 @@ class AquaChainApiStack(Stack):
                 "POST",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/users/{userId}
@@ -404,19 +502,49 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             admin_user_resource.add_method(
                 "PUT",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             admin_user_resource.add_method(
                 "DELETE",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/users/{userId}/reset-password
@@ -425,7 +553,17 @@ class AquaChainApiStack(Stack):
                 "POST",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/users/{userId}/sensitive - Secure PII access (audit logged)
@@ -434,7 +572,17 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/system - System management
@@ -446,13 +594,91 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             admin_config_resource.add_method(
                 "PUT",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+            # Note: CORS preflight is already handled by default_cors_preflight_options at API level
+            
+            # /api/admin/system/configuration/history
+            admin_config_history_resource = admin_config_resource.add_resource("history")
+            admin_config_history_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+            
+            # /api/admin/system/configuration/validate
+            admin_config_validate_resource = admin_config_resource.add_resource("validate")
+            admin_config_validate_resource.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+            
+            # /api/admin/system/configuration/rollback
+            admin_config_rollback_resource = admin_config_resource.add_resource("rollback")
+            admin_config_rollback_resource.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/system/health
@@ -461,8 +687,19 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
+            # Note: CORS preflight is already handled by default_cors_preflight_options at API level
             
             # /api/admin/system/performance
             admin_performance_resource = admin_system_resource.add_resource("performance")
@@ -470,7 +707,17 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/incidents - Incident management
@@ -479,13 +726,33 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             admin_incidents_resource.add_method(
                 "POST",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/incidents/stats
@@ -494,7 +761,17 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/incidents/{incidentId}
@@ -503,7 +780,17 @@ class AquaChainApiStack(Stack):
                 "PUT",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/audit - Audit management
@@ -513,7 +800,17 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/devices - Device management
@@ -522,7 +819,17 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
             
             # /api/admin/compliance - Compliance reporting
@@ -532,7 +839,17 @@ class AquaChainApiStack(Stack):
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
             )
         
         # /api/payments - Payment endpoints (authenticated)

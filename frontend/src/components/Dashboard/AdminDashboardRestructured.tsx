@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import AdminProfile from './AdminProfile';
+import SystemConfiguration from '../Admin/SystemConfiguration';
 import {
   ArrowLeftIcon,
   Cog6ToothIcon,
@@ -38,7 +39,6 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { 
   getAllUsers, 
   getSystemConfiguration, 
-  updateSystemConfiguration,
   getSystemHealthMetrics,
   getPerformanceMetrics,
   getAuditTrail,
@@ -49,7 +49,7 @@ import { formatRelativeTime } from '../../utils/dateFormat';
 import { maskPhoneNumber, maskEmail, maskLastName } from '../../utils/privacy';
 import websocketService from '../../services/websocketService';
 import { revealSensitiveData } from '../../services/adminService';
-import { SystemConfiguration } from '../../types/admin';
+import { SystemConfiguration as SystemConfigType } from '../../types/admin';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -66,11 +66,8 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedView, setSelectedView] = useState('overview');
   
-  // System configuration state
-  const [systemConfig, setSystemConfig] = useState<SystemConfiguration | null>(null);
-  const [showSystemConfigModal, setShowSystemConfigModal] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [configChanges, setConfigChanges] = useState<Record<string, any>>({});
+  // System configuration state (kept for backward compatibility with other features)
+  const [systemConfig, setSystemConfig] = useState<SystemConfigType | null>(null);
   
   // User management state
   const [users, setUsers] = useState<Array<{
@@ -501,126 +498,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const toggleExportModal = useCallback(() => {
     setShowExportModal(prev => !prev);
   }, []);
-
-  // System configuration handlers
-  const handleOpenSystemConfig = useCallback(() => {
-    setConfigChanges({});
-    setShowSystemConfigModal(true);
-  }, []);
-
-  const handleConfigChange = useCallback((path: string[], value: any) => {
-    setConfigChanges((prev: Record<string, any>) => {
-      const newChanges = { ...prev };
-      let current: any = newChanges;
-      
-      // Create nested structure if it doesn't exist
-      for (let i = 0; i < path.length - 1; i++) {
-        if (!current[path[i]] || typeof current[path[i]] !== 'object') {
-          current[path[i]] = {};
-        }
-        current = current[path[i]];
-      }
-      
-      // Set the final value
-      current[path[path.length - 1]] = value;
-      
-      // Debug log to see what's being changed
-      console.log('Config change:', { path, value, newChanges });
-      
-      return newChanges;
-    });
-  }, []);
-
-  // Helper function to get the current value (original config + changes)
-  const getCurrentConfigValue = useCallback((path: string[], defaultValue: any) => {
-    if (!systemConfig) return defaultValue;
-    
-    // First try to get from configChanges
-    let current: any = configChanges;
-    let hasChange = true;
-    
-    for (const key of path) {
-      if (current && typeof current === 'object' && key in current) {
-        current = current[key];
-      } else {
-        hasChange = false;
-        break;
-      }
-    }
-    
-    if (hasChange && current !== undefined) {
-      return current;
-    }
-    
-    // Fall back to original systemConfig
-    current = systemConfig;
-    for (const key of path) {
-      if (current && typeof current === 'object' && key in current) {
-        current = current[key];
-      } else {
-        return defaultValue;
-      }
-    }
-    
-    return current !== undefined ? current : defaultValue;
-  }, [systemConfig, configChanges]);
-
-  // Helper function to deep merge configuration objects
-  const deepMergeConfig = useCallback((target: any, source: any): any => {
-    if (!source || typeof source !== 'object') return target;
-    if (!target || typeof target !== 'object') return source;
-    
-    const result = { ...target };
-    
-    for (const key in source) {
-      if (source.hasOwnProperty(key)) {
-        if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
-          result[key] = deepMergeConfig(result[key] || {}, source[key]);
-        } else {
-          result[key] = source[key];
-        }
-      }
-    }
-    
-    return result;
-  }, []);
-
-  const handleSaveSystemConfig = useCallback(async () => {
-    if (Object.keys(configChanges).length === 0) {
-      setShowSystemConfigModal(false);
-      return;
-    }
-
-    // Debug log to see what changes are being saved
-    console.log('Saving configuration changes:', configChanges);
-
-    // Show confirmation dialog for system-wide changes
-    const confirmed = window.confirm(
-      'Are you sure you want to save these system configuration changes? This will affect all users and devices in the system.'
-    );
-    
-    if (!confirmed) return;
-
-    setIsSavingConfig(true);
-    try {
-      // Create the complete configuration by merging current config with changes
-      const completeConfig = systemConfig ? deepMergeConfig(systemConfig, configChanges) : configChanges;
-      console.log('Complete configuration to save:', completeConfig);
-      
-      const updatedConfig = await updateSystemConfiguration(completeConfig);
-      console.log('Configuration updated successfully:', updatedConfig);
-      
-      setSystemConfig(updatedConfig);
-      alert('System configuration saved successfully!');
-      setShowSystemConfigModal(false);
-      setConfigChanges({});
-    } catch (error) {
-      console.error('Error saving system configuration:', error);
-      alert(`Error saving system configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsSavingConfig(false);
-    }
-  }, [configChanges, systemConfig, deepMergeConfig]);
 
   // User management handlers
   const handleViewUser = useCallback((user: typeof selectedUser) => {
@@ -1300,7 +1177,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   <span className="text-sm font-medium text-gray-900">Add User</span>
                 </button>
                 <button
-                  onClick={handleOpenSystemConfig}
+                  onClick={() => setSelectedView('configuration')}
                   className="flex flex-col items-center gap-2 p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition-colors"
                 >
                   <Settings className="w-6 h-6 text-purple-600" />
@@ -1463,83 +1340,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-lg font-semibold text-gray-900">System Configuration</h3>
-                  {Object.keys(configChanges).length > 0 && (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                      Unsaved Changes
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleOpenSystemConfig}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                  >
-                    <Settings className="w-4 h-4" />
-                    Configure System
-                  </button>
-                  {Object.keys(configChanges).length > 0 && (
-                    <button
-                      onClick={() => setConfigChanges({})}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                    >
-                      Reset Changes
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-              {systemConfig && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-gray-900">Alert Thresholds</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-600">pH Range:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'min'], 6.5)} - {getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'max'], 8.5)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">Turbidity Max:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'turbidity', 'max'], 5.0)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">TDS Max:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'tds', 'max'], 500)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">Temperature Range:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'min'], 0)}° - {getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'max'], 40)}°C</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-gray-900">System Limits</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Max Devices per User:</span>
-                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'maxDevicesPerUser'], 10)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Data Retention:</span>
-                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'dataRetentionDays'], 90)} days</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Audit Retention:</span>
-                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'auditRetentionYears'], 7)} years</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <SystemConfiguration />
           </motion.div>
         )}
 
@@ -1835,153 +1636,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         onClose={toggleExportModal}
         userRole="admin"
       />
-
-      {/* System Configuration Modal */}
-      <AnimatePresence>
-        {showSystemConfigModal && systemConfig && (
-          <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => !isSavingConfig && setShowSystemConfigModal(false)} />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            >
-              <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-900">System Configuration</h3>
-                  <button 
-                    onClick={() => !isSavingConfig && setShowSystemConfigModal(false)} 
-                    className="text-gray-400 hover:text-gray-600"
-                    disabled={isSavingConfig}
-                  >
-                    <XMarkIcon className="w-6 h-6" />
-                  </button>
-                </div>
-                
-                <div className="space-y-6">
-                  {/* Alert Thresholds */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Alert Thresholds</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">pH Min</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'min'], 6.5)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'pH', 'min'], parseFloat(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">pH Max</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'max'], 8.5)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'pH', 'max'], parseFloat(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Turbidity Max</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'turbidity', 'max'], 5.0)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'turbidity', 'max'], parseFloat(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">TDS Max</label>
-                        <input
-                          type="number"
-                          step="1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'tds', 'max'], 500)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'tds', 'max'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Temperature Min (°C)</label>
-                        <input
-                          type="number"
-                          step="1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'min'], 0)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'temperature', 'min'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Temperature Max (°C)</label>
-                        <input
-                          type="number"
-                          step="1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'max'], 40)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'temperature', 'max'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* System Limits */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">System Limits</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Max Devices per User</label>
-                        <input
-                          type="number"
-                          value={getCurrentConfigValue(['systemLimits', 'maxDevicesPerUser'], 10)}
-                          onChange={(e) => handleConfigChange(['systemLimits', 'maxDevicesPerUser'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Data Retention (days)</label>
-                        <input
-                          type="number"
-                          value={getCurrentConfigValue(['systemLimits', 'dataRetentionDays'], 90)}
-                          onChange={(e) => handleConfigChange(['systemLimits', 'dataRetentionDays'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
-                  <button
-                    onClick={() => setShowSystemConfigModal(false)}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                    disabled={isSavingConfig}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveSystemConfig}
-                    disabled={isSavingConfig || Object.keys(configChanges).length === 0}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isSavingConfig ? 'Saving...' : 'Save Configuration'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
 
       {/* Enhanced Audit Logs Modal with Advanced Filtering */}
       <AnimatePresence>
