@@ -17,8 +17,12 @@ from config_validation import (
     get_validation_rules,
     validate_severity_thresholds,
     validate_notification_channels,
-    normalize_threshold_format
+    normalize_threshold_format,
+    validate_ml_settings,
+    get_ml_settings,
+    DEFAULT_ML_SETTINGS
 )
+import health_monitor
 
 # Configure logging
 logger = logging.getLogger()
@@ -407,7 +411,7 @@ def _handle_system_management(method: str, path: str, body: Dict, query_params: 
     elif method == 'POST' and path == '/api/admin/system/configuration/rollback':
         return _rollback_configuration(body, query_params)
     elif method == 'GET' and path == '/api/admin/system/health':
-        return _get_system_health()
+        return _get_system_health(query_params)
     elif method == 'GET' and path == '/api/admin/system/performance':
         return _get_performance_metrics(query_params)
     else:
@@ -479,6 +483,13 @@ def _update_system_configuration(config: Dict, query_params: Dict):
                 all_errors.extend(channel_errors)
                 logger.warning(f"Notification channel validation failed: {channel_errors}")
         
+        # Phase 3b: ML settings validation
+        if 'mlSettings' in config:
+            ml_valid, ml_errors = validate_ml_settings(config['mlSettings'])
+            if not ml_valid:
+                all_errors.extend(ml_errors)
+                logger.warning(f"ML settings validation failed: {ml_errors}")
+        
         # Return all validation errors if any
         if all_errors:
             return _create_response(400, {
@@ -488,6 +499,11 @@ def _update_system_configuration(config: Dict, query_params: Dict):
         
         # Phase 3a: Normalize threshold format for backward compatibility
         config = normalize_threshold_format(config)
+        
+        # Phase 3b: Apply default ML settings if not provided
+        if 'mlSettings' not in config:
+            config['mlSettings'] = DEFAULT_ML_SETTINGS.copy()
+            logger.info("Applied default ML settings to configuration")
         
         # Get current configuration for diff calculation
         config_table = dynamodb.Table(CONFIG_TABLE)
@@ -561,62 +577,38 @@ def _update_system_configuration(config: Dict, query_params: Dict):
             'message': str(e)
         })
 
-def _get_system_health():
+def _get_system_health(query_params: Dict):
     """
-    Get system health metrics from CloudWatch
+    GET /api/admin/system-health
+    Retrieve real-time health status of all monitored services.
+    
+    Uses the health_monitor module to check IoT Core, Lambda, DynamoDB, SNS,
+    and ML Inference services. Supports cache refresh via query parameter.
+    
+    Query Parameters:
+        refresh (optional): 'true' to force cache refresh, default 'false'
     """
     try:
-        # Get metrics from CloudWatch
-        end_time = datetime.utcnow()
-        start_time = end_time - timedelta(hours=1)
+        # Extract refresh query parameter (default to false)
+        refresh_param = query_params.get('refresh', 'false').lower() if query_params else 'false'
+        force_refresh = refresh_param == 'true'
         
-        # API Gateway metrics
-        api_metrics = cloudwatch.get_metric_statistics(
-            Namespace='AWS/ApiGateway',
-            MetricName='Count',
-            Dimensions=[],
-            StartTime=start_time,
-            EndTime=end_time,
-            Period=3600,
-            Statistics=['Sum']
-        )
+        logger.info(f"System health check requested (force_refresh={force_refresh})")
         
-        # Lambda metrics
-        lambda_metrics = cloudwatch.get_metric_statistics(
-            Namespace='AWS/Lambda',
-            MetricName='Invocations',
-            Dimensions=[],
-            StartTime=start_time,
-            EndTime=end_time,
-            Period=3600,
-            Statistics=['Sum']
-        )
+        # Get health status from health_monitor module
+        health_data = health_monitor.get_system_health(force_refresh=force_refresh)
         
-        # Get device count from DynamoDB
-        devices_table = dynamodb.Table(DEVICES_TABLE)
-        device_scan = devices_table.scan(Select='COUNT')
-        total_devices = device_scan['Count']
+        logger.info(f"System health check completed: {health_data['overallStatus']}, cacheHit={health_data['cacheHit']}")
         
-        # Calculate active devices (devices with data in last 24 hours)
-        active_devices = _count_active_devices()
-        
-        health_metrics = {
-            'timestamp': datetime.utcnow().isoformat(),
-            'criticalPathUptime': 99.5,  # Would calculate from actual metrics
-            'apiUptime': 99.2,
-            'notificationUptime': 98.8,
-            'errorRate': 0.5,
-            'activeDevices': active_devices,
-            'totalDevices': total_devices,
-            'activeAlerts': _count_active_alerts(),
-            'pendingServiceRequests': _count_pending_service_requests()
-        }
-        
-        return _create_response(200, health_metrics)
-        
+        return _create_response(200, health_data)
+    
     except Exception as e:
-        logger.error(f"Error fetching system health: {str(e)}")
-        return _create_response(500, {'error': 'Failed to fetch system health'})
+        logger.error(f"System health check failed: {str(e)}", exc_info=True)
+        return _create_response(500, {
+            'error': 'Health check failed',
+            'message': str(e),
+            'services': []
+        })
 
 def _count_active_devices() -> int:
     """

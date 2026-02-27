@@ -1,12 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
-import { SystemConfiguration as SystemConfigType } from '../../types/admin';
+import { SystemConfiguration as SystemConfigType, SystemHealthResponse } from '../../types/admin';
 import { 
   getSystemConfiguration, 
   updateSystemConfiguration,
-  validateConfiguration 
+  validateConfiguration,
+  getSystemHealth
 } from '../../services/adminService';
 import ConfigurationConfirmModal from './ConfigurationConfirmModal';
 import SeverityThresholdSection from './SeverityThresholdSection';
+import MLSettingsSection from './MLSettingsSection';
+import SystemHealthPanel from './SystemHealthPanel';
 import { AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-react';
 
 const SystemConfiguration = () => {
@@ -19,6 +22,10 @@ const SystemConfiguration = () => {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showTooltip, setShowTooltip] = useState<string | null>(null);
+
+  // Phase 3c: System health state
+  const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
 
   // Calculate unsaved changes count
   const unsavedChangesCount = useMemo(() => {
@@ -43,6 +50,20 @@ const SystemConfiguration = () => {
     loadConfiguration();
   }, []);
 
+  // Phase 3c: Auto-refresh health status every 30 seconds when in edit mode
+  useEffect(() => {
+    if (editMode) {
+      // Load health immediately when entering edit mode
+      loadSystemHealth();
+      
+      // Set up 30-second auto-refresh interval
+      const interval = setInterval(loadSystemHealth, 30000);
+      
+      // Cleanup interval on unmount or when exiting edit mode
+      return () => clearInterval(interval);
+    }
+  }, [editMode]);
+
   const loadConfiguration = async () => {
     try {
       const data = await getSystemConfiguration();
@@ -52,6 +73,19 @@ const SystemConfiguration = () => {
       console.error('Error loading configuration:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSystemHealth = async () => {
+    setHealthLoading(true);
+    try {
+      const health = await getSystemHealth();
+      setSystemHealth(health);
+    } catch (error) {
+      console.error('Failed to load system health:', error);
+      // Don't throw - allow configuration to continue working even if health check fails
+    } finally {
+      setHealthLoading(false);
     }
   };
 
@@ -145,6 +179,46 @@ const SystemConfiguration = () => {
     }
   };
 
+  // Handle ML settings changes (e.g., "mlSettings.confidenceThreshold")
+  const handleMLSettingsChange = (field: string, value: any) => {
+    if (!formData) return;
+
+    const parts = field.split('.');
+    if (parts[0] !== 'mlSettings') return;
+
+    // Initialize mlSettings if it doesn't exist
+    const updatedMLSettings = formData.mlSettings ? { ...formData.mlSettings } : {
+      anomalyDetectionEnabled: true,
+      modelVersion: 'latest',
+      confidenceThreshold: 0.85,
+      retrainingFrequencyDays: 30,
+      driftDetectionEnabled: true
+    };
+
+    // Update the specific field
+    const fieldName = parts[1] as keyof typeof updatedMLSettings;
+    (updatedMLSettings as any)[fieldName] = value;
+
+    setFormData({
+      ...formData,
+      mlSettings: updatedMLSettings
+    });
+
+    // Real-time validation for the field
+    if (editMode) {
+      const validationError = validateField(field, value);
+      setFieldErrors(prev => {
+        const updated = { ...prev };
+        if (validationError) {
+          updated[field] = validationError;
+        } else {
+          delete updated[field];
+        }
+        return updated;
+      });
+    }
+  };
+
   // Real-time field validation
   const validateField = (field: string, value: any): string | null => {
     switch (field) {
@@ -187,6 +261,16 @@ const SystemConfiguration = () => {
       case 'auditRetentionYears':
         if (value < 1) return 'Audit retention must be at least 1 year';
         if (value > 10) return 'Audit retention should not exceed 10 years';
+        break;
+      case 'mlSettings.confidenceThreshold':
+        if (value < 0 || value > 1) return 'Confidence threshold must be between 0.0 and 1.0';
+        break;
+      case 'mlSettings.retrainingFrequencyDays':
+        if (value < 1) return 'Retraining frequency must be at least 1 day';
+        if (value > 365) return 'Retraining frequency should not exceed 365 days';
+        break;
+      case 'mlSettings.modelVersion':
+        if (!value || value.trim() === '') return 'Model version cannot be empty';
         break;
     }
     return null;
@@ -358,11 +442,30 @@ const SystemConfiguration = () => {
         )}
       </div>
 
+      {/* Phase 3c: System Health Indicators - Display only when in edit mode */}
+      {editMode && (
+        <SystemHealthPanel 
+          health={systemHealth} 
+          loading={healthLoading}
+          onRefresh={loadSystemHealth}
+        />
+      )}
+
       <div className="space-y-6">
         {/* Alert Thresholds - Phase 3a Severity Thresholds */}
         <SeverityThresholdSection
           thresholds={formData.alertThresholds.global}
           onChange={handleThresholdChange}
+          editMode={editMode}
+          errors={fieldErrors}
+          showTooltip={showTooltip}
+          setShowTooltip={setShowTooltip}
+        />
+
+        {/* ML Settings - Phase 3b */}
+        <MLSettingsSection
+          mlSettings={formData.mlSettings}
+          onChange={handleMLSettingsChange}
           editMode={editMode}
           errors={fieldErrors}
           showTooltip={showTooltip}

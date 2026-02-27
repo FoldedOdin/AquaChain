@@ -8,7 +8,8 @@ import {
   TechnicianManagementData,
   ComplianceReport,
   AuditTrailEntry,
-  SystemConfiguration
+  SystemConfiguration,
+  SystemHealthResponse
 } from '../types/admin';
 import { fetchWithAuth } from '../utils/apiInterceptor';
 
@@ -717,6 +718,37 @@ export const revealSensitiveData = async (userId: string): Promise<{
   }
 };
 
+export const getSystemHealth = async (forceRefresh: boolean = false): Promise<SystemHealthResponse> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const queryParam = forceRefresh ? '?refresh=true' : '';
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system-health${queryParam}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch system health');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching system health:', error);
+    throw error;
+  }
+};
+
 export const getConfigurationHistory = async (limit: number = 50): Promise<{
   history: Array<{
     version: string;
@@ -852,5 +884,6 @@ export default {
   validateConfiguration,
   rollbackConfiguration,
   updateProfile,
-  revealSensitiveData
+  revealSensitiveData,
+  getSystemHealth
 };

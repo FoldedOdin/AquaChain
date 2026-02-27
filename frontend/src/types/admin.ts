@@ -247,3 +247,22 @@ export interface SystemConfiguration {
     driftDetectionEnabled: boolean;
   };
 }
+
+// Phase 3c: System Health Monitoring Types
+
+export interface ServiceHealth {
+  name: string;
+  status: 'healthy' | 'degraded' | 'down' | 'unknown';
+  lastCheck: string;
+  metrics?: {
+    [key: string]: number;
+  };
+  message?: string;
+}
+
+export interface SystemHealthResponse {
+  services: ServiceHealth[];
+  overallStatus: 'healthy' | 'degraded' | 'down';
+  checkedAt: string;
+  cacheHit: boolean;
+}

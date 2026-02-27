@@ -8,6 +8,16 @@ from typing import Dict, List, Tuple
 
 logger = logging.getLogger()
 
+# Default ML settings for Phase 3b
+# These defaults are applied when ML settings are not present in configuration
+DEFAULT_ML_SETTINGS = {
+    'anomalyDetectionEnabled': True,
+    'modelVersion': 'latest',  # Resolved at runtime by ML inference service
+    'confidenceThreshold': 0.85,
+    'retrainingFrequencyDays': 30,
+    'driftDetectionEnabled': True
+}
+
 # Validation rules for system configuration
 VALIDATION_RULES = {
     'dataRetentionDays': {'min': 30, 'max': 3650, 'type': 'int'},
@@ -462,3 +472,127 @@ def normalize_threshold_format(config: Dict) -> Dict:
         logger.info('Legacy threshold format migration completed successfully')
     
     return config
+
+
+# ============================================================================
+# Phase 3b: ML Configuration Validation
+# ============================================================================
+
+
+def validate_ml_settings(ml_settings: Dict) -> Tuple[bool, List[str]]:
+    """
+    Validate ML configuration settings for Phase 3b.
+    
+    Rules:
+    - confidenceThreshold: 0.0 <= value <= 1.0
+    - retrainingFrequencyDays: 1 <= value <= 365
+    - modelVersion: must be non-empty string
+    - anomalyDetectionEnabled: must be boolean
+    - driftDetectionEnabled: must be boolean
+    
+    Args:
+        ml_settings: Dictionary containing ML configuration
+    
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+    """
+    errors = []
+    
+    # Confidence threshold validation
+    if 'confidenceThreshold' in ml_settings:
+        threshold = ml_settings['confidenceThreshold']
+        
+        # Type check
+        if not isinstance(threshold, (int, float)):
+            errors.append(f'ML confidence threshold must be a number (got {type(threshold).__name__})')
+        else:
+            # Range check
+            if not (0.0 <= threshold <= 1.0):
+                errors.append(
+                    f'ML confidence threshold ({threshold}) must be between 0.0 and 1.0'
+                )
+    
+    # Retraining frequency validation
+    if 'retrainingFrequencyDays' in ml_settings:
+        days = ml_settings['retrainingFrequencyDays']
+        
+        # Type check
+        if not isinstance(days, int):
+            try:
+                days = int(days)
+            except (ValueError, TypeError):
+                errors.append(f'ML retraining frequency must be an integer (got {type(days).__name__})')
+        else:
+            # Range check
+            if not (1 <= days <= 365):
+                errors.append(
+                    f'ML retraining frequency ({days}) must be between 1 and 365 days'
+                )
+    
+    # Model version validation
+    if 'modelVersion' in ml_settings:
+        version = ml_settings['modelVersion']
+        
+        if not version or not isinstance(version, str):
+            errors.append('ML model version must be a non-empty string')
+        elif len(version.strip()) == 0:
+            errors.append('ML model version cannot be empty or whitespace')
+    
+    # Anomaly detection enabled validation
+    if 'anomalyDetectionEnabled' in ml_settings:
+        enabled = ml_settings['anomalyDetectionEnabled']
+        
+        if not isinstance(enabled, bool):
+            errors.append(f'ML anomalyDetectionEnabled must be a boolean (got {type(enabled).__name__})')
+    
+    # Drift detection enabled validation
+    if 'driftDetectionEnabled' in ml_settings:
+        enabled = ml_settings['driftDetectionEnabled']
+        
+        if not isinstance(enabled, bool):
+            errors.append(f'ML driftDetectionEnabled must be a boolean (got {type(enabled).__name__})')
+    
+    return (len(errors) == 0, errors)
+
+
+def get_ml_settings(config: Dict) -> Dict:
+    """
+    Get ML settings from configuration with defaults if not present.
+    
+    This function ensures backward compatibility by providing sensible defaults
+    when ML settings are not present in the configuration. This is important
+    for existing configurations that were created before Phase 3b.
+    
+    Default values:
+    - anomalyDetectionEnabled: True (ML anomaly detection is enabled by default)
+    - modelVersion: 'latest' (uses the most recent model version)
+    - confidenceThreshold: 0.85 (85% confidence required for predictions)
+    - retrainingFrequencyDays: 30 (model retrained monthly)
+    - driftDetectionEnabled: True (monitor for model performance degradation)
+    
+    Args:
+        config: System configuration dictionary
+    
+    Returns:
+        Dictionary containing ML settings (either from config or defaults)
+    
+    Example:
+        >>> config = {'alertThresholds': {...}}
+        >>> ml_settings = get_ml_settings(config)
+        >>> ml_settings['confidenceThreshold']
+        0.85
+    """
+    # Return a copy of defaults if ML settings not present
+    # Using .copy() prevents mutation of the DEFAULT_ML_SETTINGS constant
+    if 'mlSettings' not in config:
+        logger.info('ML settings not found in configuration, using defaults')
+        return DEFAULT_ML_SETTINGS.copy()
+    
+    # Return existing ML settings
+    ml_settings = config['mlSettings']
+    
+    # Ensure all required fields are present, fill in missing ones with defaults
+    result = DEFAULT_ML_SETTINGS.copy()
+    result.update(ml_settings)
+    
+    return result
