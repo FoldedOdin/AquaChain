@@ -510,3 +510,9 @@ DOCS/
 !*.sample 
 
 backups/*
+
+# CDK infrastructure backups (temporary)
+infrastructure/cdk/backups/
+
+# Temporary deployment scripts (one-off fixes)
+scripts/deployment/deploy-admin-lambda.bat
