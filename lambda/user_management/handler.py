@@ -234,12 +234,19 @@ class UserManagementService:
             expression_values = {':updated_at': datetime.utcnow().isoformat()}
             has_updates = False
             
+            # Check if user has nested profile structure or flat structure
+            has_nested_profile = 'profile' in current_profile
+            
             # Handle profile updates
             if 'profile' in updates:
                 profile_updates = updates['profile']
                 for key, value in profile_updates.items():
                     if key in ['firstName', 'lastName', 'phone', 'address']:
-                        update_expression += f", profile.{key} = :{key}"
+                        # Use nested path if profile exists, otherwise update at root level
+                        if has_nested_profile:
+                            update_expression += f", profile.{key} = :{key}"
+                        else:
+                            update_expression += f", {key} = :{key}"
                         expression_values[f':{key}'] = value
                         has_updates = True
             
@@ -275,6 +282,7 @@ class UserManagementService:
             # Update DynamoDB
             logger.info(f"Updating profile for user {user_id} with expression: {update_expression}")
             logger.info(f"Expression values: {expression_values}")
+            logger.info(f"Has nested profile structure: {has_nested_profile}")
             
             response = self.users_table.update_item(
                 Key={'userId': user_id},
