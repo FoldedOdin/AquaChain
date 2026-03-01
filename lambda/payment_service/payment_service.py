@@ -175,17 +175,16 @@ class PaymentService:
                 min_value=1.0,
                 max_value=1000000.0
             ),
-            'orderId': ValidationRule(
-                field_type=FieldType.STRING,
-                required=True,
-                min_length=1,
-                max_length=100,
-                pattern=r'^[a-zA-Z0-9\-_]+$'
-            ),
             'currency': ValidationRule(
                 field_type=FieldType.STRING,
                 required=False,
                 allowed_values=['INR']
+            ),
+            'userId': ValidationRule(
+                field_type=FieldType.STRING,
+                required=False,  # Optional - can be extracted from JWT
+                min_length=1,
+                max_length=100
             )
         }
         
@@ -250,15 +249,26 @@ class PaymentService:
             logger.error(f"Invalid JSON in Razorpay credentials: {str(e)}")
             raise Exception("Payment service configuration error")
     
-    def create_razorpay_order(self, amount: float, order_id: str, currency: str = 'INR') -> Dict[str, Any]:
-        """Create a Razorpay order for online payment"""
+    def create_razorpay_order(self, amount: float, currency: str = 'INR', user_id: str = None) -> Dict[str, Any]:
+        """Create a Razorpay order for online payment
+        
+        Args:
+            amount: Payment amount in INR
+            currency: Currency code (default: INR)
+            user_id: Optional user ID for tracking
+            
+        Returns:
+            Dict containing success status and Razorpay order details
+        """
         try:
             # Validate input
             request_data = {
                 'amount': amount,
-                'orderId': order_id,
                 'currency': currency
             }
+            
+            if user_id:
+                request_data['userId'] = user_id
             
             validation_result = self.validator.validate_data(
                 request_data, 
@@ -273,6 +283,10 @@ class PaymentService:
             # Get Razorpay credentials
             credentials = self.get_razorpay_credentials()
             
+            # Generate unique order ID (backend generates this, not frontend)
+            timestamp_ms = int(datetime.now().timestamp() * 1000000)  # Microseconds for uniqueness
+            order_id = f"order_{timestamp_ms}"
+            
             # Convert amount to paise (Razorpay expects amount in smallest currency unit)
             amount_paise = int(validated_data['amount'] * 100)
             
@@ -280,17 +294,33 @@ class PaymentService:
             from decimal import Decimal
             amount_decimal = Decimal(str(validated_data['amount']))
             
-            # Create Razorpay order (simulated for now - in production, use Razorpay SDK)
-            razorpay_order = {
-                'id': f"order_{order_id}_{int(datetime.now().timestamp() * 1000000)}",  # Use microseconds for uniqueness
-                'amount': amount_paise,
-                'currency': validated_data['currency'],
-                'receipt': order_id,
-                'status': 'created'
-            }
+            # Create Razorpay order using actual Razorpay SDK
+            try:
+                import razorpay
+                client = razorpay.Client(auth=(credentials['key_id'], credentials['key_secret']))
+                razorpay_order = client.order.create({
+                    'amount': amount_paise,
+                    'currency': validated_data['currency'],
+                    'receipt': order_id
+                })
+                logger.info(f"Razorpay order created successfully: {razorpay_order['id']}")
+            except ImportError:
+                logger.error("Razorpay SDK not installed, using simulation")
+                # Fallback to simulation if SDK not available
+                razorpay_order_id = f"order_razorpay_{timestamp_ms}"
+                razorpay_order = {
+                    'id': razorpay_order_id,
+                    'amount': amount_paise,
+                    'currency': validated_data['currency'],
+                    'receipt': order_id,
+                    'status': 'created'
+                }
+            except Exception as razorpay_error:
+                logger.error(f"Razorpay order creation failed: {str(razorpay_error)}")
+                raise Exception(f"Failed to create Razorpay order: {str(razorpay_error)}")
             
             # Create payment record
-            payment_id = f"pay_{order_id}_{int(datetime.now().timestamp() * 1000000)}"  # Use microseconds for uniqueness
+            payment_id = f"pay_{timestamp_ms}"
             timestamp = datetime.now(timezone.utc).isoformat()
             
             payment_record = {
@@ -308,13 +338,16 @@ class PaymentService:
                 'updatedAt': timestamp
             }
             
+            if user_id:
+                payment_record['userId'] = user_id
+            
             # Store payment record
             payments_table.put_item(Item=payment_record)
             
             # Log audit event
             audit_logger.log_event(
                 event_type='payment_order_created',
-                user_id='system',
+                user_id=user_id or 'anonymous',
                 resource_id=payment_id,
                 details={
                     'orderId': order_id,
@@ -324,13 +357,17 @@ class PaymentService:
                 }
             )
             
-            logger.info(f"Created Razorpay order for order {order_id}")
+            logger.info(f"Created Razorpay order {order_id} with Razorpay order ID {razorpay_order['id']}")
             
             return {
                 'success': True,
                 'data': {
                     'paymentId': payment_id,
-                    'razorpayOrder': razorpay_order
+                    'orderId': order_id,
+                    'razorpayOrderId': razorpay_order['id'],
+                    'amount': amount_paise,
+                    'currency': validated_data['currency'],
+                    'key': credentials['key_id']  # Return key_id for frontend to use
                 }
             }
             
@@ -339,7 +376,13 @@ class PaymentService:
             return error_handler.handle_error(e, 'CREATE_RAZORPAY_ORDER_FAILED')
     
     def verify_razorpay_payment(self, payment_id: str, order_id: str, signature: str) -> Dict[str, Any]:
-        """Verify Razorpay payment signature and update payment status"""
+        """Verify Razorpay payment signature and update payment status
+        
+        Args:
+            payment_id: Razorpay payment ID (e.g., pay_123)
+            order_id: Razorpay order ID (e.g., order_razorpay_123)
+            signature: Razorpay signature for verification
+        """
         try:
             # Validate input
             request_data = {
@@ -361,37 +404,46 @@ class PaymentService:
             # Get Razorpay credentials
             credentials = self.get_razorpay_credentials()
             
-            # Get payment record
-            payment_response = payments_table.get_item(
-                Key={
-                    'PK': f'PAYMENT#{payment_id}',
-                    'SK': f'PAYMENT#{payment_id}'
-                }
+            # Find payment record by razorpayOrderId
+            # The order_id parameter is Razorpay's order ID, not our internal order ID
+            logger.info(f"Searching for payment with razorpayOrderId: {order_id}")
+            
+            scan_response = payments_table.scan(
+                FilterExpression='razorpayOrderId = :razorpay_order_id',
+                ExpressionAttributeValues={
+                    ':razorpay_order_id': order_id
+                },
+                Limit=1
             )
             
-            if 'Item' not in payment_response:
+            if not scan_response.get('Items'):
+                logger.error(f"Payment record not found for Razorpay order ID: {order_id}")
                 raise ValueError("Payment record not found")
             
-            payment_record = payment_response['Item']
+            payment_record = scan_response['Items'][0]
+            logger.info(f"Found payment record: {payment_record['paymentId']}")
             
-            # Verify signature (simplified - in production, use proper Razorpay signature verification)
+            # Verify signature using Razorpay's method
+            # Signature format: hmac_sha256(order_id|payment_id, secret)
             expected_signature = hmac.new(
                 credentials['key_secret'].encode(),
-                f"{payment_record['razorpayOrderId']}|{payment_id}".encode(),
+                f"{order_id}|{payment_id}".encode(),
                 hashlib.sha256
             ).hexdigest()
             
             if not hmac.compare_digest(signature, expected_signature):
+                logger.warning(f"Invalid signature for payment {payment_id}")
                 # Update payment status to failed
-                self._update_payment_status(payment_id, PaymentStatus.FAILED, {
+                self._update_payment_status(payment_record['paymentId'], PaymentStatus.FAILED, {
                     'reason': 'Invalid signature',
-                    'timestamp': datetime.now(timezone.utc).isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'razorpayPaymentId': payment_id
                 })
                 
                 raise ValueError("Invalid payment signature")
             
             # Update payment status to completed
-            self._update_payment_status(payment_id, PaymentStatus.COMPLETED, {
+            self._update_payment_status(payment_record['paymentId'], PaymentStatus.COMPLETED, {
                 'razorpayPaymentId': payment_id,
                 'razorpaySignature': signature,
                 'verifiedAt': datetime.now(timezone.utc).isoformat()
@@ -401,20 +453,21 @@ class PaymentService:
             audit_logger.log_event(
                 event_type='payment_verified',
                 user_id='system',
-                resource_id=payment_id,
+                resource_id=payment_record['paymentId'],
                 details={
-                    'orderId': order_id,
-                    'paymentId': payment_id,
+                    'orderId': payment_record.get('orderId'),
+                    'razorpayPaymentId': payment_id,
+                    'razorpayOrderId': order_id,
                     'status': PaymentStatus.COMPLETED.value
                 }
             )
             
-            logger.info(f"Payment verified successfully for order {order_id}")
+            logger.info(f"Payment verified successfully for Razorpay order {order_id}")
             
             return {
                 'success': True,
                 'data': {
-                    'paymentId': payment_id,
+                    'paymentId': payment_record['paymentId'],
                     'status': PaymentStatus.COMPLETED.value,
                     'verified': True
                 }
@@ -635,6 +688,19 @@ def lambda_handler(event, context):
     try:
         logger.info(f"Processing payment service request: {event.get('httpMethod', 'UNKNOWN')} {event.get('path', 'UNKNOWN')}")
         
+        # Handle OPTIONS requests for CORS preflight
+        if event.get('httpMethod') == 'OPTIONS':
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token',
+                    'Access-Control-Max-Age': '86400'
+                },
+                'body': ''
+            }
+        
         payment_service = PaymentService()
         
         # Parse request
@@ -646,10 +712,17 @@ def lambda_handler(event, context):
         
         # Route requests
         if http_method == 'POST' and path.endswith('/create-razorpay-order'):
+            # Extract user ID from JWT token if available
+            user_id = None
+            request_context = event.get('requestContext', {})
+            authorizer = request_context.get('authorizer', {})
+            claims = authorizer.get('claims', {})
+            user_id = claims.get('sub') or claims.get('cognito:username')
+            
             result = payment_service.create_razorpay_order(
                 amount=body.get('amount'),
-                order_id=body.get('orderId'),
-                currency=body.get('currency', 'INR')
+                currency=body.get('currency', 'INR'),
+                user_id=user_id
             )
         
         elif http_method == 'POST' and path.endswith('/verify-payment'):
@@ -691,7 +764,7 @@ def lambda_handler(event, context):
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token'
             },
             'body': json.dumps(result)
         }
@@ -704,7 +777,9 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token'
             },
             'body': json.dumps(error_result)
         }

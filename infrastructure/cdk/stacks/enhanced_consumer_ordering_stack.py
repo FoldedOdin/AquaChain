@@ -19,6 +19,7 @@ from aws_cdk import (
     Duration,
     CfnOutput
 )
+from aws_cdk.aws_apigatewayv2_integrations import WebSocketLambdaIntegration
 from constructs import Construct
 from typing import Dict, Any, Optional
 from config.environment_config import get_resource_name
@@ -74,9 +75,7 @@ class EnhancedConsumerOrderingStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
             removal_policy=RemovalPolicy.DESTROY if self.config["environment"] != "prod" else RemovalPolicy.RETAIN,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="ttl"
@@ -125,9 +124,7 @@ class EnhancedConsumerOrderingStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
             removal_policy=RemovalPolicy.DESTROY if self.config["environment"] != "prod" else RemovalPolicy.RETAIN,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -161,9 +158,7 @@ class EnhancedConsumerOrderingStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.kms_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=self.config["enable_point_in_time_recovery"]
-            ),
+            point_in_time_recovery=self.config["enable_point_in_time_recovery"],
             removal_policy=RemovalPolicy.DESTROY if self.config["environment"] != "prod" else RemovalPolicy.RETAIN,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -216,21 +211,16 @@ class EnhancedConsumerOrderingStack(Stack):
     
     def _create_secrets(self) -> None:
         """
-        Create Secrets Manager secrets for external service credentials
+        Import existing Secrets Manager secrets for external service credentials
         """
         
-        # Razorpay API credentials secret
-        self.razorpay_secret = secretsmanager.Secret(
+        # Import existing Razorpay API credentials secret
+        # The secret was created manually or by a previous deployment
+        secret_name = get_resource_name(self.config, "secret", "razorpay-credentials")
+        
+        self.razorpay_secret = secretsmanager.Secret.from_secret_name_v2(
             self, "RazorpaySecret",
-            secret_name=get_resource_name(self.config, "secret", "razorpay-credentials"),
-            description="Razorpay API credentials for payment processing",
-            encryption_key=self.kms_key,
-            generate_secret_string=secretsmanager.SecretStringGenerator(
-                secret_string_template='{"key_id": ""}',
-                generate_string_key="key_secret",
-                exclude_characters=' "%@\\\'',
-                password_length=32
-            )
+            secret_name=secret_name
         )
         
         # Update Lambda environment variables with secret ARN
@@ -602,15 +592,15 @@ class EnhancedConsumerOrderingStack(Stack):
             api_name=get_resource_name(self.config, "websocket-api", "ordering"),
             description="WebSocket API for real-time order status updates",
             connect_route_options=apigatewayv2.WebSocketRouteOptions(
-                integration=apigatewayv2.WebSocketLambdaIntegration(
+                integration=WebSocketLambdaIntegration(
                     "ConnectIntegration",
-                    handler=self.websocket_connect_function
+                    self.websocket_connect_function
                 )
             ),
             disconnect_route_options=apigatewayv2.WebSocketRouteOptions(
-                integration=apigatewayv2.WebSocketLambdaIntegration(
+                integration=WebSocketLambdaIntegration(
                     "DisconnectIntegration", 
-                    handler=self.websocket_disconnect_function
+                    self.websocket_disconnect_function
                 )
             )
         )

@@ -25,7 +25,7 @@ class UserUtils:
     def __init__(self, region: str = 'us-east-1'):
         self.region = region
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
-        self.users_table = self.dynamodb.Table('aquachain-users')
+        self.users_table = self.dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))
     
     def get_user_by_email(self, email: str) -> Optional[Dict]:
         """

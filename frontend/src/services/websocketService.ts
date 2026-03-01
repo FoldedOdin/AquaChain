@@ -159,6 +159,33 @@ class WebSocketService {
    * Reuses existing connection if available
    */
   connect(topic: string, onMessage: (data: unknown) => void): void {
+    // Check if WebSocket is disabled by user preference
+    const wsEnabled = localStorage.getItem('aquachain_websocket_enabled') === 'true';
+    
+    if (!wsEnabled) {
+      console.log(`🔌 WebSocket disabled by user preference for topic: ${topic}`);
+      // Notify subscriber that WebSocket is disabled
+      onMessage({
+        type: 'websocket_disabled',
+        message: 'WebSocket connections are disabled. Using polling instead.',
+        topic
+      });
+      return;
+    }
+    
+    const WEBSOCKET_DISABLED = false;
+    
+    if (WEBSOCKET_DISABLED) {
+      console.log(`🔌 WebSocket temporarily disabled for topic: ${topic}`);
+      // Notify subscriber that WebSocket is disabled
+      onMessage({
+        type: 'websocket_disabled',
+        message: 'WebSocket connections are temporarily disabled. Using polling instead.',
+        topic
+      });
+      return;
+    }
+    
     // Check if connection already exists
     const existingConnection = this.connections.get(topic);
     
@@ -186,17 +213,10 @@ class WebSocketService {
       const endpoint = this.getCurrentEndpoint();
       const wsUrl = `${endpoint}?topic=${encodeURIComponent(topic)}`;
       
-      // Check if we're in development and WebSocket server might not be available
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      
-      if (isDevelopment) {
-        // Only log once per topic to avoid spam
-        if (!this.loggedTopics) this.loggedTopics = new Set();
-        if (!this.loggedTopics.has(topic)) {
-          console.log(`🔌 WebSocket development mode: ${topic} - server may not be running`);
-          this.loggedTopics.add(topic);
-        }
-      }
+      // Always log connection attempts for debugging
+      console.log(`🔌 WebSocket connecting to: ${wsUrl}`);
+      console.log(`   Environment: ${process.env.NODE_ENV}`);
+      console.log(`   Endpoint from env: ${process.env.REACT_APP_WEBSOCKET_ENDPOINT}`);
       
       const ws = new WebSocket(wsUrl);
 
@@ -212,10 +232,8 @@ class WebSocketService {
       this.connections.set(topic, connection);
 
       ws.onopen = () => {
-        // Only log successful connections to avoid spam
-        if (isDevelopment) {
-          console.log(`✅ WebSocket connected: ${topic}`);
-        }
+        // Log successful connections
+        console.log(`✅ WebSocket connected: ${topic}`);
         connection.isConnected = true;
         connection.reconnectAttempts = 0;
         connection.lastConnectedAt = new Date();
@@ -257,24 +275,20 @@ class WebSocketService {
 
       ws.onerror = (error) => {
         connection.isConnected = false;
-        // Suppress error logging in development to avoid spam
-        if (!isDevelopment) {
-          console.error(`❌ WebSocket error on topic ${topic}:`, error);
-        }
+        // Always log errors for debugging
+        console.error(`❌ WebSocket error on topic ${topic}:`, error);
+        console.error(`   URL: ${wsUrl}`);
+        console.error(`   ReadyState: ${ws.readyState}`);
       };
 
       ws.onclose = (event) => {
         connection.isConnected = false;
         this.stopHeartbeat(topic);
         
-        // Only log disconnections in production or first time in development
-        if (!isDevelopment || !this.loggedDisconnections) {
-          if (!this.loggedDisconnections) this.loggedDisconnections = new Set();
-          if (!isDevelopment || !this.loggedDisconnections.has(topic)) {
-            console.log(`🔌 WebSocket disconnected: ${topic} (code: ${event.code})`);
-            if (isDevelopment) this.loggedDisconnections.add(topic);
-          }
-        }
+        // Always log disconnections for debugging
+        console.log(`🔌 WebSocket disconnected: ${topic}`);
+        console.log(`   Code: ${event.code}, Reason: ${event.reason || 'No reason'}`);
+        console.log(`   Was clean: ${event.wasClean}`);
 
         // Handle reconnection with development mode considerations
         this.handleReconnect(topic, endpoint);
@@ -322,25 +336,20 @@ class WebSocketService {
 
     const isDevelopment = process.env.NODE_ENV === 'development';
 
-    // In development mode, disable automatic reconnection to prevent page reload loops
-    if (isDevelopment) {
-      // Only log once to avoid spam
-      if (!this.loggedMaxAttempts) this.loggedMaxAttempts = new Set();
-      if (!this.loggedMaxAttempts.has(topic)) {
-        console.log(`🔌 WebSocket auto-reconnection disabled in development mode for: ${topic}`);
-        this.loggedMaxAttempts.add(topic);
-      }
+    // In development mode, limit reconnection attempts to prevent loops
+    if (isDevelopment && connection.reconnectAttempts >= 2) {
+      console.log(`🔌 WebSocket: Stopping reconnection attempts for ${topic} (development mode, max 2 attempts)`);
       
-      // Notify subscribers about development mode
+      // Notify subscribers about connection failure
       connection.subscribers.forEach(callback => {
         callback({
-          type: 'development_offline',
-          message: `WebSocket unavailable in development mode - auto-reconnection disabled`,
+          type: 'connection_error',
+          message: `Failed to connect after ${connection.reconnectAttempts} attempts`,
           topic
         });
       });
       
-      // Clean up the connection without reconnecting
+      // Clean up the connection
       this.cleanupConnection(topic);
       return;
     }

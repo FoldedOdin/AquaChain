@@ -27,12 +27,19 @@ const THRESHOLDS: Record<string, WebVitalsThresholds> = {
 
 const PAGE_LOAD_THRESHOLD = 3000; // 3 seconds
 
+// Disable performance warnings in development mode
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+const ENABLE_PERFORMANCE_WARNINGS = process.env.REACT_APP_ENABLE_PERFORMANCE_WARNINGS === 'true';
+
 class PerformanceMonitor {
   private metrics: PerformanceMetric[] = [];
   private observers: PerformanceObserver[] = [];
 
   constructor() {
-    this.initializeMonitoring();
+    // Only initialize monitoring if enabled
+    if (ENABLE_PERFORMANCE_WARNINGS || !IS_DEVELOPMENT) {
+      this.initializeMonitoring();
+    }
   }
 
   /**
@@ -61,7 +68,8 @@ class PerformanceMonitor {
           const timing = window.performance.timing;
           const loadTime = timing.loadEventEnd - timing.navigationStart;
 
-          if (loadTime > PAGE_LOAD_THRESHOLD) {
+          // Only warn in production or if explicitly enabled
+          if (loadTime > PAGE_LOAD_THRESHOLD && (!IS_DEVELOPMENT || ENABLE_PERFORMANCE_WARNINGS)) {
             console.warn(
               `⚠️ Page load time exceeded threshold: ${loadTime}ms (threshold: ${PAGE_LOAD_THRESHOLD}ms)`
             );
@@ -151,6 +159,11 @@ class PerformanceMonitor {
   private monitorLongTasks(): void {
     if ('PerformanceObserver' in window) {
       try {
+        // Check if longtask is supported before observing
+        if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
+          return; // Silently skip if not supported
+        }
+        
         const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             if (entry.duration > 50) {
@@ -179,6 +192,11 @@ class PerformanceMonitor {
   ): void {
     if ('PerformanceObserver' in window) {
       try {
+        // Check if entry type is supported before observing
+        if (!PerformanceObserver.supportedEntryTypes?.includes(entryType)) {
+          return; // Silently skip if not supported
+        }
+        
         const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             callback(entry);
@@ -199,8 +217,8 @@ class PerformanceMonitor {
   private recordMetric(metric: PerformanceMetric): void {
     this.metrics.push(metric);
 
-    // Log poor performance
-    if (metric.rating === 'poor') {
+    // Log poor performance (only in production or if explicitly enabled)
+    if (metric.rating === 'poor' && (!IS_DEVELOPMENT || ENABLE_PERFORMANCE_WARNINGS)) {
       console.warn(
         `⚠️ Poor ${metric.name} performance: ${metric.value.toFixed(2)}ms`,
         metric

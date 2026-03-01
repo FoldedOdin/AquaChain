@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { CreditCard, Loader2, AlertCircle, CheckCircle, Shield } from 'lucide-react';
 import { RazorpayCheckoutProps, RazorpayError } from '../../types/ordering';
-import { apiClient } from '../../services/apiClient';
+import { PaymentService } from '../../services/paymentService';
 import { MockPaymentService } from '../../services/mockPaymentService';
 
 // Razorpay script URL
@@ -97,25 +97,15 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   const createRazorpayOrder = useCallback(async () => {
     const result = await makeRequest(
       async () => {
-        interface CreateRazorpayOrderResponse {
-          razorpayOrderId: string;
-          amount: number;
-          currency: string;
-        }
-
         try {
-          // Try real API first
-          const response = await apiClient.post<CreateRazorpayOrderResponse>('/api/payments/create-razorpay-order', {
-            amount: amount * 100,
-            orderId,
-            currency: 'INR'
-          });
+          // Call backend to create Razorpay order (backend generates order ID)
+          const response = await PaymentService.createRazorpayOrder(amount);
 
-          if (response.data?.razorpayOrderId) {
+          if (response.success && response.data?.razorpayOrderId) {
             setRazorpayOrderId(response.data.razorpayOrderId);
-            return response.data.razorpayOrderId;
+            return response.data;  // Return full data including razorpayOrderId and key
           } else {
-            throw new Error('Failed to create payment order');
+            throw new Error(response.error || 'Failed to create payment order');
           }
         } catch (apiError: any) {
           // Fallback to mock service if API is not available
@@ -123,7 +113,12 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           
           const mockOrder = await MockPaymentService.createRazorpayOrder(amount, orderId);
           setRazorpayOrderId(mockOrder.razorpayOrderId);
-          return mockOrder.razorpayOrderId;
+          return {
+            razorpayOrderId: mockOrder.razorpayOrderId,
+            amount: amount * 100,
+            currency: 'INR',
+            key: process.env.REACT_APP_RAZORPAY_KEY_ID
+          };
         }
       },
       {
@@ -147,26 +142,19 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
   const handlePaymentSuccess = useCallback(async (response: any) => {
     const result = await makeRequest(
       async () => {
-        interface VerifyPaymentResponse {
-          verified: boolean;
-          paymentId?: string;
-          orderId?: string;
-        }
-
         try {
           // Try real API first
-          const verificationResponse = await apiClient.post<VerifyPaymentResponse>('/api/payments/verify-payment', {
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_signature: response.razorpay_signature,
-            orderId
-          });
+          const verificationResponse = await PaymentService.verifyPayment(
+            response.razorpay_payment_id,
+            response.razorpay_order_id,
+            response.razorpay_signature
+          );
 
-          if (verificationResponse.data?.verified) {
+          if (verificationResponse.success && verificationResponse.data?.verified) {
             onSuccess(response.razorpay_payment_id);
             return verificationResponse.data;
           } else {
-            throw new Error('Payment verification failed');
+            throw new Error(verificationResponse.error || 'Payment verification failed');
           }
         } catch (apiError: any) {
           // Fallback to mock verification if API is not available
@@ -224,19 +212,19 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     }
 
     try {
-      const razorpayOrderId = await createRazorpayOrder();
+      const orderData = await createRazorpayOrder();
       
-      if (!razorpayOrderId) {
+      if (!orderData || !orderData.razorpayOrderId) {
         return;
       }
       
       const options = {
-        key: process.env.REACT_APP_RAZORPAY_KEY_ID,
-        amount: amount * 100,
-        currency: 'INR',
+        key: orderData.key || process.env.REACT_APP_RAZORPAY_KEY_ID,  // Use key from backend
+        amount: orderData.amount,  // Amount in paise from backend
+        currency: orderData.currency || 'INR',
         name: 'AquaChain',
-        description: `Water Quality Device Order #${orderId}`,
-        order_id: razorpayOrderId,
+        description: `Water Quality Device Order`,
+        order_id: orderData.razorpayOrderId,  // Use Razorpay order ID from backend
         handler: handlePaymentSuccess,
         prefill: {
           name: customerInfo.name,
@@ -244,7 +232,6 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           contact: customerInfo.phone
         },
         notes: {
-          order_id: orderId,
           customer_id: customerInfo.email
         },
         theme: {
@@ -277,8 +264,6 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     }
   }, [
     isScriptLoaded,
-    amount,
-    orderId,
     customerInfo,
     createRazorpayOrder,
     handlePaymentSuccess,

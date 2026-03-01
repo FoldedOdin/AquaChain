@@ -22,7 +22,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 from typing import Dict, Any
-from infrastructure.cdk.config.environment_config import get_resource_name
+from config.environment_config import get_resource_name
 
 class DashboardOverhaulStack(Stack):
     """
@@ -211,18 +211,18 @@ class DashboardOverhaulStack(Stack):
             preferred_maintenance_window="sun:05:00-sun:07:00",  # Sunday maintenance window
             notification_topic_arn=None,  # Will be set up with monitoring
             tags=[
-                elasticache.CfnReplicationGroup.TagProperty(
-                    key="Name",
-                    value=get_resource_name(self.config, "redis", "dashboard")
-                ),
-                elasticache.CfnReplicationGroup.TagProperty(
-                    key="Environment",
-                    value=self.config["environment"]
-                ),
-                elasticache.CfnReplicationGroup.TagProperty(
-                    key="Purpose",
-                    value="DashboardCaching"
-                )
+                {
+                    "key": "Name",
+                    "value": get_resource_name(self.config, "redis", "dashboard")
+                },
+                {
+                    "key": "Environment",
+                    "value": self.config["environment"]
+                },
+                {
+                    "key": "Purpose",
+                    "value": "DashboardCaching"
+                }
             ]
         )
         
@@ -360,9 +360,7 @@ class DashboardOverhaulStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.dashboard_data_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -396,9 +394,7 @@ class DashboardOverhaulStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.dashboard_data_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -432,9 +428,7 @@ class DashboardOverhaulStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.dashboard_data_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -468,9 +462,7 @@ class DashboardOverhaulStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.dashboard_data_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -504,9 +496,7 @@ class DashboardOverhaulStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.dashboard_data_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY,
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -540,9 +530,7 @@ class DashboardOverhaulStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
             encryption_key=self.dashboard_data_key,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN,  # Always retain audit data
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )

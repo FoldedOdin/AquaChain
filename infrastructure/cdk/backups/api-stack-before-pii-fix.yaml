@@ -1,0 +1,4028 @@
+Description: AquaChain API Layer - dev
+Resources:
+  UserPoolsmsRole4EA729DD:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: AquaChainAPIdevUserPoolF7E69F66
+            Effect: Allow
+            Principal:
+              Service: cognito-idp.amazonaws.com
+        Version: "2012-10-17"
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action: sns:Publish
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: sns-publish
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ManagedBy
+          Value: CDK
+        - Key: Project
+          Value: AquaChain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/UserPool/smsRole/Resource
+  UserPool6BA7E5F2:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AutoVerifiedAttributes:
+        - email
+      EmailVerificationMessage: The verification code to your new account is {####}
+      EmailVerificationSubject: Verify your new account
+      EnabledMfas:
+        - SMS_MFA
+        - SOFTWARE_TOKEN_MFA
+      MfaConfiguration: OPTIONAL
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      SmsConfiguration:
+        ExternalId: AquaChainAPIdevUserPoolF7E69F66
+        SnsCallerArn:
+          Fn::GetAtt:
+            - UserPoolsmsRole4EA729DD
+            - Arn
+      SmsVerificationMessage: The verification code to your new account is {####}
+      UserPoolName: aquachain-pool-users-dev
+      UserPoolTags:
+        Environment: dev
+        ManagedBy: CDK
+        Project: AquaChain
+      UsernameAttributes:
+        - email
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailMessage: The verification code to your new account is {####}
+        EmailSubject: Verify your new account
+        SmsMessage: The verification code to your new account is {####}
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/UserPool/Resource
+  UserPoolUserPoolDomain9F01E991:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: aquachain-auth-domain-dev
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/UserPool/UserPoolDomain/Resource
+  ConsumerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      Description: Consumer users who monitor water quality
+      GroupName: consumers
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/ConsumerGroup
+  TechnicianGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      Description: Technician users who service devices
+      GroupName: technicians
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/TechnicianGroup
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      Description: Administrator users with full system access
+      GroupName: administrators
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/AdminGroup
+  UserPoolClient2F5918F7:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      AccessTokenValidity: 60
+      AllowedOAuthFlows:
+        - implicit
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      CallbackURLs:
+        - https://dev.aquachain.io/auth/callback
+        - http://localhost:3000/auth/callback
+      ClientName: aquachain-client-web-dev
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+      IdTokenValidity: 60
+      LogoutURLs:
+        - https://dev.aquachain.io/auth/logout
+        - http://localhost:3000/auth/logout
+      RefreshTokenValidity: 43200
+      SupportedIdentityProviders:
+        - COGNITO
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: minutes
+      UserPoolId:
+        Ref: UserPool6BA7E5F2
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/UserPoolClient/Resource
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ClientId:
+            Ref: UserPoolClient2F5918F7
+          ProviderName:
+            Fn::GetAtt:
+              - UserPool6BA7E5F2
+              - ProviderName
+      IdentityPoolName: aquachain-identity-pool-dev
+      IdentityPoolTags:
+        - Key: Environment
+          Value: dev
+        - Key: ManagedBy
+          Value: CDK
+        - Key: Project
+          Value: AquaChain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/IdentityPool
+  CognitoAuthorizerF3215DBC:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      IdentitySource: method.request.header.Authorization
+      Name: AquaChainAuthorizer
+      ProviderARNs:
+        - Fn::GetAtt:
+            - UserPool6BA7E5F2
+            - Arn
+      RestApiId:
+        Ref: RestAPI1CC12F26
+      Type: COGNITO_USER_POOLS
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/CognitoAuthorizer/Resource
+  RestAPI1CC12F26:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Description: AquaChain REST API
+      Name: aquachain-api-rest-dev
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ManagedBy
+          Value: CDK
+        - Key: Project
+          Value: AquaChain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Resource
+  RestAPICloudWatchRole025FE33D:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ManagedBy
+          Value: CDK
+        - Key: Project
+          Value: AquaChain
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/CloudWatchRole/Resource
+  RestAPIAccountB5481627:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn:
+        Fn::GetAtt:
+          - RestAPICloudWatchRole025FE33D
+          - Arn
+    DependsOn:
+      - RestAPI1CC12F26
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Account
+  RestAPIDeploymentD35A5380f2df376489ce5684ac2bb17e3a034bbf:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      Description: AquaChain REST API
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    DependsOn:
+      - CognitoAuthorizerF3215DBC
+      - RestAPIapiadminauditOPTIONS4B8ACC0A
+      - RestAPIapiadminaudit90EE8F52
+      - RestAPIapiadminaudittrailGETA1724575
+      - RestAPIapiadminaudittrailOPTIONS392743FE
+      - RestAPIapiadminaudittrailBC0CE72B
+      - RestAPIapiadmincomplianceOPTIONS6948AEE7
+      - RestAPIapiadmincompliancereportGET532A2DBF
+      - RestAPIapiadmincompliancereportOPTIONSBD520D76
+      - RestAPIapiadmincompliancereport11EBAB33
+      - RestAPIapiadmincomplianceF95EE030
+      - RestAPIapiadmindevicesGET6DC2782D
+      - RestAPIapiadmindevicesOPTIONSC8EBDE1C
+      - RestAPIapiadmindevices1990D661
+      - RestAPIapiadminincidentsincidentIdOPTIONS39BABEEA
+      - RestAPIapiadminincidentsincidentIdPUT9AD49CAE
+      - RestAPIapiadminincidentsincidentId7E4882B7
+      - RestAPIapiadminincidentsGET7F4BF257
+      - RestAPIapiadminincidentsOPTIONS1FDAD988
+      - RestAPIapiadminincidentsPOSTC7DA854D
+      - RestAPIapiadminincidents69254B23
+      - RestAPIapiadminincidentsstatsGET39D46249
+      - RestAPIapiadminincidentsstatsOPTIONS8609258D
+      - RestAPIapiadminincidentsstats825E70BD
+      - RestAPIapiadminOPTIONSF3256B05
+      - RestAPIapiadmin96CCA3E4
+      - RestAPIapiadminsystemconfigurationGET82F35165
+      - RestAPIapiadminsystemconfigurationOPTIONSD40C5998
+      - RestAPIapiadminsystemconfigurationPUT2C0D971A
+      - RestAPIapiadminsystemconfiguration02DE3D66
+      - RestAPIapiadminsystemhealthGETA21C302E
+      - RestAPIapiadminsystemhealthOPTIONS40230930
+      - RestAPIapiadminsystemhealthA57C427E
+      - RestAPIapiadminsystemOPTIONS7682C2C8
+      - RestAPIapiadminsystemperformanceGET9B7A68BF
+      - RestAPIapiadminsystemperformanceOPTIONS0F7EA4C1
+      - RestAPIapiadminsystemperformance85FB7F76
+      - RestAPIapiadminsystem8C496E90
+      - RestAPIapiadminusersuserIdDELETEFEED46F1
+      - RestAPIapiadminusersuserIdOPTIONS43ECA095
+      - RestAPIapiadminusersuserIdPUT50062A50
+      - RestAPIapiadminusersuserIdresetpasswordOPTIONS0F4407F2
+      - RestAPIapiadminusersuserIdresetpasswordPOSTA7BBCE4E
+      - RestAPIapiadminusersuserIdresetpassword4668D034
+      - RestAPIapiadminusersuserIdCCE8E8DB
+      - RestAPIapiadminusersuserIdsensitiveGET4EFCBA47
+      - RestAPIapiadminusersuserIdsensitiveOPTIONSDC474E40
+      - RestAPIapiadminusersuserIdsensitive95585EB6
+      - RestAPIapiadminusersGET562999DA
+      - RestAPIapiadminusersOPTIONS6DD496C0
+      - RestAPIapiadminusersPOSTB994D35B
+      - RestAPIapiadminusersD04501C4
+      - RestAPIapiadminuserstrackloginOPTIONSE3B80E54
+      - RestAPIapiadminuserstrackloginPOST592E1AF7
+      - RestAPIapiadminuserstracklogin583BE1A8
+      - RestAPIapiOPTIONSDB9D83EF
+      - RestAPIapipaymentscreatecodpaymentOPTIONS8EDD16B7
+      - RestAPIapipaymentscreatecodpaymentPOSTD69E614A
+      - RestAPIapipaymentscreatecodpayment7929BF01
+      - RestAPIapipaymentscreaterazorpayorderOPTIONS0DE57831
+      - RestAPIapipaymentscreaterazorpayorderPOSTC2DED562
+      - RestAPIapipaymentscreaterazorpayorder88EC7BDF
+      - RestAPIapipaymentsOPTIONS07AE6C2E
+      - RestAPIapipaymentspaymentstatusGET4655C265
+      - RestAPIapipaymentspaymentstatusOPTIONS13F3D6B5
+      - RestAPIapipaymentspaymentstatus04C50984
+      - RestAPIapipaymentsF2BB9EF5
+      - RestAPIapipaymentsverifypaymentOPTIONS6A1A932A
+      - RestAPIapipaymentsverifypaymentPOSTC73AD9EC
+      - RestAPIapipaymentsverifypaymentB95224A1
+      - RestAPIapiprofileOPTIONS81246537
+      - RestAPIapiprofilerequestotpOPTIONS7437C154
+      - RestAPIapiprofilerequestotpPOST58963E82
+      - RestAPIapiprofilerequestotp6A524B44
+      - RestAPIapiprofileE8EE098C
+      - RestAPIapiprofileupdateGET38CFAD63
+      - RestAPIapiprofileupdateOPTIONSA75F2953
+      - RestAPIapiprofileupdatePUTE9D2F6D5
+      - RestAPIapiprofileupdate0C5FA759
+      - RestAPIapiprofileverifyandupdateOPTIONS4E51519E
+      - RestAPIapiprofileverifyandupdatePUT608FCE62
+      - RestAPIapiprofileverifyandupdateF001F24F
+      - RestAPIapi7AB5A9C8
+      - RestAPIapiv1audithashchainGET0E02B474
+      - RestAPIapiv1audithashchainOPTIONSF85D9ACD
+      - RestAPIapiv1audithashchainEF9D3C27
+      - RestAPIapiv1auditOPTIONS7EF5551E
+      - RestAPIapiv1audit7ED44836
+      - RestAPIapiv1OPTIONSF1DF3CC4
+      - RestAPIapiv1readingsdeviceIdGET2E65733B
+      - RestAPIapiv1readingsdeviceIdhistoryGET9DB04CE8
+      - RestAPIapiv1readingsdeviceIdhistoryOPTIONS3337E1C3
+      - RestAPIapiv1readingsdeviceIdhistoryBD130580
+      - RestAPIapiv1readingsdeviceIdOPTIONS792C1274
+      - RestAPIapiv1readingsdeviceIdA28E0CD9
+      - RestAPIapiv1readingsOPTIONSD1A2717A
+      - RestAPIapiv1readings4E58EF38
+      - RestAPIapiv10D9C47E5
+      - RestAPIapiv1servicerequestsrequestIdGET910DCA5D
+      - RestAPIapiv1servicerequestsrequestIdOPTIONS8A319524
+      - RestAPIapiv1servicerequestsrequestIdPUTC45DC264
+      - RestAPIapiv1servicerequestsrequestIdF5F7366A
+      - RestAPIapiv1servicerequestsGET58227EA7
+      - RestAPIapiv1servicerequestsOPTIONS501ECBF7
+      - RestAPIapiv1servicerequestsPOST09E86169
+      - RestAPIapiv1servicerequests26B472C9
+      - RestAPIapiv1usersGETCACE8164
+      - RestAPIapiv1usersOPTIONSF6C4A460
+      - RestAPIapiv1usersPOST70E25F17
+      - RestAPIapiv1usersB8CE5997
+      - RestAPIapiwebhooksOPTIONS61AC71A9
+      - RestAPIapiwebhooksrazorpayOPTIONSAE352349
+      - RestAPIapiwebhooksrazorpayPOST07E56E70
+      - RestAPIapiwebhooksrazorpay1DC8166D
+      - RestAPIapiwebhooksCA809F0A
+      - RestAPIOPTIONS3271A002
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Deployment/Resource
+      aws:cdk:do-not-refactor: true
+  RestAPIDeploymentStagedev1DE74094:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId:
+        Ref: RestAPIDeploymentD35A5380f2df376489ce5684ac2bb17e3a034bbf
+      MethodSettings:
+        - DataTraceEnabled: true
+          HttpMethod: "*"
+          LoggingLevel: INFO
+          MetricsEnabled: true
+          ResourcePath: /*
+          ThrottlingBurstLimit: 200
+          ThrottlingRateLimit: 100
+      RestApiId:
+        Ref: RestAPI1CC12F26
+      StageName: dev
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ManagedBy
+          Value: CDK
+        - Key: Project
+          Value: AquaChain
+    DependsOn:
+      - RestAPIAccountB5481627
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/DeploymentStage.dev/Resource
+  RestAPIOPTIONS3271A002:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Fn::GetAtt:
+          - RestAPI1CC12F26
+          - RootResourceId
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/OPTIONS/Resource
+  RestAPIapi7AB5A9C8:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Fn::GetAtt:
+          - RestAPI1CC12F26
+          - RootResourceId
+      PathPart: api
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/Resource
+  RestAPIapiOPTIONSDB9D83EF:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapi7AB5A9C8
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/OPTIONS/Resource
+  RestAPIapiv10D9C47E5:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapi7AB5A9C8
+      PathPart: v1
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/Resource
+  RestAPIapiv1OPTIONSF1DF3CC4:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv10D9C47E5
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/OPTIONS/Resource
+  RestAPIapiv1readings4E58EF38:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv10D9C47E5
+      PathPart: readings
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/Resource
+  RestAPIapiv1readingsOPTIONSD1A2717A:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1readings4E58EF38
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/OPTIONS/Resource
+  RestAPIapiv1readingsdeviceIdA28E0CD9:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv1readings4E58EF38
+      PathPart: "{deviceId}"
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/Resource
+  RestAPIapiv1readingsdeviceIdOPTIONS792C1274:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1readingsdeviceIdA28E0CD9
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/OPTIONS/Resource
+  RestAPIapiv1readingsdeviceIdGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiv1readingsdeviceId518D5B53:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttDataProcessingFunction1BB8FB78Arn41355F5A
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/v1/readings/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.readings.{deviceId}
+  RestAPIapiv1readingsdeviceIdGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiv1readingsdeviceIdDAE0C9B2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttDataProcessingFunction1BB8FB78Arn41355F5A
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/v1/readings/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.readings.{deviceId}
+  RestAPIapiv1readingsdeviceIdGET2E65733B:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttDataProcessingFunction1BB8FB78Arn41355F5A
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1readingsdeviceIdA28E0CD9
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/GET/Resource
+  RestAPIapiv1readingsdeviceIdhistoryBD130580:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv1readingsdeviceIdA28E0CD9
+      PathPart: history
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/history/Resource
+  RestAPIapiv1readingsdeviceIdhistoryOPTIONS3337E1C3:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1readingsdeviceIdhistoryBD130580
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/history/OPTIONS/Resource
+  RestAPIapiv1readingsdeviceIdhistoryGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiv1readingsdeviceIdhistory5F1DF63D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttDataProcessingFunction1BB8FB78Arn41355F5A
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/v1/readings/*/history
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/history/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.readings.{deviceId}.history
+  RestAPIapiv1readingsdeviceIdhistoryGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiv1readingsdeviceIdhistory29E4EFB2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttDataProcessingFunction1BB8FB78Arn41355F5A
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/v1/readings/*/history
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/history/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.readings.{deviceId}.history
+  RestAPIapiv1readingsdeviceIdhistoryGET9DB04CE8:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttDataProcessingFunction1BB8FB78Arn41355F5A
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1readingsdeviceIdhistoryBD130580
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/readings/{deviceId}/history/GET/Resource
+  RestAPIapiv1usersB8CE5997:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv10D9C47E5
+      PathPart: users
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/Resource
+  RestAPIapiv1usersOPTIONSF6C4A460:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1usersB8CE5997
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/OPTIONS/Resource
+  RestAPIapiv1usersGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiv1users926D64E2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/v1/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.users
+  RestAPIapiv1usersGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiv1users35288394:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/v1/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.users
+  RestAPIapiv1usersGETCACE8164:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1usersB8CE5997
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/GET/Resource
+  RestAPIapiv1usersPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiv1users8EDD7E21:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/v1/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.v1.users
+  RestAPIapiv1usersPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiv1usersD487E697:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/v1/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.v1.users
+  RestAPIapiv1usersPOST70E25F17:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1usersB8CE5997
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/users/POST/Resource
+  RestAPIapiv1servicerequests26B472C9:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv10D9C47E5
+      PathPart: service-requests
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/Resource
+  RestAPIapiv1servicerequestsOPTIONS501ECBF7:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1servicerequests26B472C9
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/OPTIONS/Resource
+  RestAPIapiv1servicerequestsGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiv1servicerequests057CA6F1:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/v1/service-requests
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.service-requests
+  RestAPIapiv1servicerequestsGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiv1servicerequests270E6748:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/v1/service-requests
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.service-requests
+  RestAPIapiv1servicerequestsGET58227EA7:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1servicerequests26B472C9
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/GET/Resource
+  RestAPIapiv1servicerequestsPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiv1servicerequests7E63FEC0:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/v1/service-requests
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.v1.service-requests
+  RestAPIapiv1servicerequestsPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiv1servicerequestsE1C60D9D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/v1/service-requests
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.v1.service-requests
+  RestAPIapiv1servicerequestsPOST09E86169:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1servicerequests26B472C9
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/POST/Resource
+  RestAPIapiv1servicerequestsrequestIdF5F7366A:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv1servicerequests26B472C9
+      PathPart: "{requestId}"
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/Resource
+  RestAPIapiv1servicerequestsrequestIdOPTIONS8A319524:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1servicerequestsrequestIdF5F7366A
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/OPTIONS/Resource
+  RestAPIapiv1servicerequestsrequestIdGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiv1servicerequestsrequestId93F947F0:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/v1/service-requests/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.service-requests.{requestId}
+  RestAPIapiv1servicerequestsrequestIdGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiv1servicerequestsrequestId6296AB3F:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/v1/service-requests/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.service-requests.{requestId}
+  RestAPIapiv1servicerequestsrequestIdGET910DCA5D:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1servicerequestsrequestIdF5F7366A
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/GET/Resource
+  RestAPIapiv1servicerequestsrequestIdPUTApiPermissionAquaChainAPIdevRestAPIEAF89319PUTapiv1servicerequestsrequestIdBCDD6534:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /PUT/api/v1/service-requests/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/PUT/ApiPermission.AquaChainAPIdevRestAPIEAF89319.PUT..api.v1.service-requests.{requestId}
+  RestAPIapiv1servicerequestsrequestIdPUTApiPermissionTestAquaChainAPIdevRestAPIEAF89319PUTapiv1servicerequestsrequestId3E458522:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/PUT/api/v1/service-requests/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/PUT/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.PUT..api.v1.service-requests.{requestId}
+  RestAPIapiv1servicerequestsrequestIdPUTC45DC264:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttServiceRequestFunction026CB382ArnF5140FF4
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1servicerequestsrequestIdF5F7366A
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/service-requests/{requestId}/PUT/Resource
+  RestAPIapiv1audit7ED44836:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv10D9C47E5
+      PathPart: audit
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/Resource
+  RestAPIapiv1auditOPTIONS7EF5551E:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1audit7ED44836
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/OPTIONS/Resource
+  RestAPIapiv1audithashchainEF9D3C27:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiv1audit7ED44836
+      PathPart: hash-chain
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/hash-chain/Resource
+  RestAPIapiv1audithashchainOPTIONSF85D9ACD:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiv1audithashchainEF9D3C27
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/hash-chain/OPTIONS/Resource
+  RestAPIapiv1audithashchainGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiv1audithashchain2278C720:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAuditProcessorFunction3FEB56D7ArnEEAE46B4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/v1/audit/hash-chain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/hash-chain/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.audit.hash-chain
+  RestAPIapiv1audithashchainGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiv1audithashchain4B31B9A6:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAuditProcessorFunction3FEB56D7ArnEEAE46B4
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/v1/audit/hash-chain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/hash-chain/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.v1.audit.hash-chain
+  RestAPIapiv1audithashchainGET0E02B474:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAuditProcessorFunction3FEB56D7ArnEEAE46B4
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiv1audithashchainEF9D3C27
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/v1/audit/hash-chain/GET/Resource
+  RestAPIapiprofileE8EE098C:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapi7AB5A9C8
+      PathPart: profile
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/Resource
+  RestAPIapiprofileOPTIONS81246537:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiprofileE8EE098C
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/OPTIONS/Resource
+  RestAPIapiprofileupdate0C5FA759:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiprofileE8EE098C
+      PathPart: update
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/Resource
+  RestAPIapiprofileupdateOPTIONSA75F2953:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiprofileupdate0C5FA759
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/OPTIONS/Resource
+  RestAPIapiprofileupdateGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiprofileupdate6810B680:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/profile/update
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.profile.update
+  RestAPIapiprofileupdateGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiprofileupdateD89471A4:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/profile/update
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.profile.update
+  RestAPIapiprofileupdateGET38CFAD63:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiprofileupdate0C5FA759
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/GET/Resource
+  RestAPIapiprofileupdatePUTApiPermissionAquaChainAPIdevRestAPIEAF89319PUTapiprofileupdate2258CE03:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /PUT/api/profile/update
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/PUT/ApiPermission.AquaChainAPIdevRestAPIEAF89319.PUT..api.profile.update
+  RestAPIapiprofileupdatePUTApiPermissionTestAquaChainAPIdevRestAPIEAF89319PUTapiprofileupdate0E76AB4B:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/PUT/api/profile/update
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/PUT/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.PUT..api.profile.update
+  RestAPIapiprofileupdatePUTE9D2F6D5:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiprofileupdate0C5FA759
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/update/PUT/Resource
+  RestAPIapiprofilerequestotp6A524B44:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiprofileE8EE098C
+      PathPart: request-otp
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/request-otp/Resource
+  RestAPIapiprofilerequestotpOPTIONS7437C154:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiprofilerequestotp6A524B44
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/request-otp/OPTIONS/Resource
+  RestAPIapiprofilerequestotpPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiprofilerequestotpB5F28E92:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/profile/request-otp
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/request-otp/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.profile.request-otp
+  RestAPIapiprofilerequestotpPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiprofilerequestotpAC133DCA:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/profile/request-otp
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/request-otp/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.profile.request-otp
+  RestAPIapiprofilerequestotpPOST58963E82:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiprofilerequestotp6A524B44
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/request-otp/POST/Resource
+  RestAPIapiprofileverifyandupdateF001F24F:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiprofileE8EE098C
+      PathPart: verify-and-update
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/verify-and-update/Resource
+  RestAPIapiprofileverifyandupdateOPTIONS4E51519E:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiprofileverifyandupdateF001F24F
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/verify-and-update/OPTIONS/Resource
+  RestAPIapiprofileverifyandupdatePUTApiPermissionAquaChainAPIdevRestAPIEAF89319PUTapiprofileverifyandupdate5A42EF99:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /PUT/api/profile/verify-and-update
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/verify-and-update/PUT/ApiPermission.AquaChainAPIdevRestAPIEAF89319.PUT..api.profile.verify-and-update
+  RestAPIapiprofileverifyandupdatePUTApiPermissionTestAquaChainAPIdevRestAPIEAF89319PUTapiprofileverifyandupdateAAB4CEEA:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/PUT/api/profile/verify-and-update
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/verify-and-update/PUT/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.PUT..api.profile.verify-and-update
+  RestAPIapiprofileverifyandupdatePUT608FCE62:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttUserManagementFunction2338B082ArnF9CEF7BB
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiprofileverifyandupdateF001F24F
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/profile/verify-and-update/PUT/Resource
+  RestAPIapiadmin96CCA3E4:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapi7AB5A9C8
+      PathPart: admin
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/Resource
+  RestAPIapiadminOPTIONSF3256B05:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadmin96CCA3E4
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/OPTIONS/Resource
+  RestAPIapiadminusersD04501C4:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmin96CCA3E4
+      PathPart: users
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/Resource
+  RestAPIapiadminusersOPTIONS6DD496C0:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminusersD04501C4
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/OPTIONS/Resource
+  RestAPIapiadminusersGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminusersED511474:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.users
+  RestAPIapiadminusersGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminusersBDA31F73:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.users
+  RestAPIapiadminusersGET562999DA:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminusersD04501C4
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/GET/Resource
+  RestAPIapiadminusersPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiadminusers48260EF2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/admin/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.users
+  RestAPIapiadminusersPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiadminusersE36C97DB:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/admin/users
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.users
+  RestAPIapiadminusersPOSTB994D35B:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminusersD04501C4
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/POST/Resource
+  RestAPIapiadminuserstracklogin583BE1A8:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminusersD04501C4
+      PathPart: track-login
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/track-login/Resource
+  RestAPIapiadminuserstrackloginOPTIONSE3B80E54:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminuserstracklogin583BE1A8
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/track-login/OPTIONS/Resource
+  RestAPIapiadminuserstrackloginPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiadminuserstrackloginF5F068E7:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/admin/users/track-login
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/track-login/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.users.track-login
+  RestAPIapiadminuserstrackloginPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiadminuserstrackloginAA888B49:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/admin/users/track-login
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/track-login/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.users.track-login
+  RestAPIapiadminuserstrackloginPOST592E1AF7:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminuserstracklogin583BE1A8
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/track-login/POST/Resource
+  RestAPIapiadminusersuserIdCCE8E8DB:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminusersD04501C4
+      PathPart: "{userId}"
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/Resource
+  RestAPIapiadminusersuserIdOPTIONS43ECA095:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdCCE8E8DB
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/OPTIONS/Resource
+  RestAPIapiadminusersuserIdPUTApiPermissionAquaChainAPIdevRestAPIEAF89319PUTapiadminusersuserIdF6147ADB:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /PUT/api/admin/users/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/PUT/ApiPermission.AquaChainAPIdevRestAPIEAF89319.PUT..api.admin.users.{userId}
+  RestAPIapiadminusersuserIdPUTApiPermissionTestAquaChainAPIdevRestAPIEAF89319PUTapiadminusersuserId9EDB535D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/PUT/api/admin/users/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/PUT/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.PUT..api.admin.users.{userId}
+  RestAPIapiadminusersuserIdPUT50062A50:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdCCE8E8DB
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/PUT/Resource
+  RestAPIapiadminusersuserIdDELETEApiPermissionAquaChainAPIdevRestAPIEAF89319DELETEapiadminusersuserIdB39A1B54:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /DELETE/api/admin/users/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/DELETE/ApiPermission.AquaChainAPIdevRestAPIEAF89319.DELETE..api.admin.users.{userId}
+  RestAPIapiadminusersuserIdDELETEApiPermissionTestAquaChainAPIdevRestAPIEAF89319DELETEapiadminusersuserIdB7490F97:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/DELETE/api/admin/users/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/DELETE/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.DELETE..api.admin.users.{userId}
+  RestAPIapiadminusersuserIdDELETEFEED46F1:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: DELETE
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdCCE8E8DB
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/DELETE/Resource
+  RestAPIapiadminusersuserIdresetpassword4668D034:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminusersuserIdCCE8E8DB
+      PathPart: reset-password
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/reset-password/Resource
+  RestAPIapiadminusersuserIdresetpasswordOPTIONS0F4407F2:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdresetpassword4668D034
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/reset-password/OPTIONS/Resource
+  RestAPIapiadminusersuserIdresetpasswordPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiadminusersuserIdresetpasswordDDCDFB22:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/admin/users/*/reset-password
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/reset-password/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.users.{userId}.reset-password
+  RestAPIapiadminusersuserIdresetpasswordPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiadminusersuserIdresetpassword23EE13DB:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/admin/users/*/reset-password
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/reset-password/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.users.{userId}.reset-password
+  RestAPIapiadminusersuserIdresetpasswordPOSTA7BBCE4E:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdresetpassword4668D034
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/reset-password/POST/Resource
+  RestAPIapiadminusersuserIdsensitive95585EB6:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminusersuserIdCCE8E8DB
+      PathPart: sensitive
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/sensitive/Resource
+  RestAPIapiadminusersuserIdsensitiveOPTIONSDC474E40:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdsensitive95585EB6
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/sensitive/OPTIONS/Resource
+  RestAPIapiadminusersuserIdsensitiveGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminusersuserIdsensitive1BE81419:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/users/*/sensitive
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/sensitive/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.users.{userId}.sensitive
+  RestAPIapiadminusersuserIdsensitiveGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminusersuserIdsensitiveA899025C:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/users/*/sensitive
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/sensitive/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.users.{userId}.sensitive
+  RestAPIapiadminusersuserIdsensitiveGET4EFCBA47:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminusersuserIdsensitive95585EB6
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/users/{userId}/sensitive/GET/Resource
+  RestAPIapiadminsystem8C496E90:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmin96CCA3E4
+      PathPart: system
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/Resource
+  RestAPIapiadminsystemOPTIONS7682C2C8:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminsystem8C496E90
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/OPTIONS/Resource
+  RestAPIapiadminsystemconfiguration02DE3D66:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminsystem8C496E90
+      PathPart: configuration
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/Resource
+  RestAPIapiadminsystemconfigurationOPTIONSD40C5998:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminsystemconfiguration02DE3D66
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/OPTIONS/Resource
+  RestAPIapiadminsystemconfigurationGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminsystemconfiguration934CA726:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/system/configuration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.system.configuration
+  RestAPIapiadminsystemconfigurationGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminsystemconfiguration6A09AC88:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/system/configuration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.system.configuration
+  RestAPIapiadminsystemconfigurationGET82F35165:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminsystemconfiguration02DE3D66
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/GET/Resource
+  RestAPIapiadminsystemconfigurationPUTApiPermissionAquaChainAPIdevRestAPIEAF89319PUTapiadminsystemconfigurationA19E3A8D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /PUT/api/admin/system/configuration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/PUT/ApiPermission.AquaChainAPIdevRestAPIEAF89319.PUT..api.admin.system.configuration
+  RestAPIapiadminsystemconfigurationPUTApiPermissionTestAquaChainAPIdevRestAPIEAF89319PUTapiadminsystemconfiguration5AA0C4D0:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/PUT/api/admin/system/configuration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/PUT/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.PUT..api.admin.system.configuration
+  RestAPIapiadminsystemconfigurationPUT2C0D971A:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminsystemconfiguration02DE3D66
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/configuration/PUT/Resource
+  RestAPIapiadminsystemhealthA57C427E:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminsystem8C496E90
+      PathPart: health
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/health/Resource
+  RestAPIapiadminsystemhealthOPTIONS40230930:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminsystemhealthA57C427E
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/health/OPTIONS/Resource
+  RestAPIapiadminsystemhealthGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminsystemhealth22225587:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/system/health
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/health/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.system.health
+  RestAPIapiadminsystemhealthGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminsystemhealth3C8BCB36:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/system/health
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/health/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.system.health
+  RestAPIapiadminsystemhealthGETA21C302E:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminsystemhealthA57C427E
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/health/GET/Resource
+  RestAPIapiadminsystemperformance85FB7F76:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminsystem8C496E90
+      PathPart: performance
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/performance/Resource
+  RestAPIapiadminsystemperformanceOPTIONS0F7EA4C1:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminsystemperformance85FB7F76
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/performance/OPTIONS/Resource
+  RestAPIapiadminsystemperformanceGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminsystemperformance102AD0E4:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/system/performance
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/performance/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.system.performance
+  RestAPIapiadminsystemperformanceGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminsystemperformance7A553D27:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/system/performance
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/performance/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.system.performance
+  RestAPIapiadminsystemperformanceGET9B7A68BF:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminsystemperformance85FB7F76
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/system/performance/GET/Resource
+  RestAPIapiadminincidents69254B23:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmin96CCA3E4
+      PathPart: incidents
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/Resource
+  RestAPIapiadminincidentsOPTIONS1FDAD988:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminincidents69254B23
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/OPTIONS/Resource
+  RestAPIapiadminincidentsGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminincidents35B6BF98:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/incidents
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.incidents
+  RestAPIapiadminincidentsGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminincidents75E7644C:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/incidents
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.incidents
+  RestAPIapiadminincidentsGET7F4BF257:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminincidents69254B23
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/GET/Resource
+  RestAPIapiadminincidentsPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiadminincidentsA9986C57:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/admin/incidents
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.incidents
+  RestAPIapiadminincidentsPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiadminincidents6E34FE01:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/admin/incidents
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.admin.incidents
+  RestAPIapiadminincidentsPOSTC7DA854D:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminincidents69254B23
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/POST/Resource
+  RestAPIapiadminincidentsstats825E70BD:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminincidents69254B23
+      PathPart: stats
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/stats/Resource
+  RestAPIapiadminincidentsstatsOPTIONS8609258D:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminincidentsstats825E70BD
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/stats/OPTIONS/Resource
+  RestAPIapiadminincidentsstatsGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminincidentsstatsC6728CE9:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/incidents/stats
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/stats/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.incidents.stats
+  RestAPIapiadminincidentsstatsGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminincidentsstatsF05276C6:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/incidents/stats
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/stats/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.incidents.stats
+  RestAPIapiadminincidentsstatsGET39D46249:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminincidentsstats825E70BD
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/stats/GET/Resource
+  RestAPIapiadminincidentsincidentId7E4882B7:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminincidents69254B23
+      PathPart: "{incidentId}"
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/{incidentId}/Resource
+  RestAPIapiadminincidentsincidentIdOPTIONS39BABEEA:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminincidentsincidentId7E4882B7
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/{incidentId}/OPTIONS/Resource
+  RestAPIapiadminincidentsincidentIdPUTApiPermissionAquaChainAPIdevRestAPIEAF89319PUTapiadminincidentsincidentId1985198D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /PUT/api/admin/incidents/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/{incidentId}/PUT/ApiPermission.AquaChainAPIdevRestAPIEAF89319.PUT..api.admin.incidents.{incidentId}
+  RestAPIapiadminincidentsincidentIdPUTApiPermissionTestAquaChainAPIdevRestAPIEAF89319PUTapiadminincidentsincidentId9225938D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/PUT/api/admin/incidents/*
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/{incidentId}/PUT/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.PUT..api.admin.incidents.{incidentId}
+  RestAPIapiadminincidentsincidentIdPUT9AD49CAE:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminincidentsincidentId7E4882B7
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/incidents/{incidentId}/PUT/Resource
+  RestAPIapiadminaudit90EE8F52:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmin96CCA3E4
+      PathPart: audit
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/Resource
+  RestAPIapiadminauditOPTIONS4B8ACC0A:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminaudit90EE8F52
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/OPTIONS/Resource
+  RestAPIapiadminaudittrailBC0CE72B:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadminaudit90EE8F52
+      PathPart: trail
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/trail/Resource
+  RestAPIapiadminaudittrailOPTIONS392743FE:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadminaudittrailBC0CE72B
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/trail/OPTIONS/Resource
+  RestAPIapiadminaudittrailGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadminaudittrailCB2EDF6C:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/audit/trail
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/trail/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.audit.trail
+  RestAPIapiadminaudittrailGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadminaudittrailBB799751:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/audit/trail
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/trail/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.audit.trail
+  RestAPIapiadminaudittrailGETA1724575:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadminaudittrailBC0CE72B
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/audit/trail/GET/Resource
+  RestAPIapiadmindevices1990D661:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmin96CCA3E4
+      PathPart: devices
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/devices/Resource
+  RestAPIapiadmindevicesOPTIONSC8EBDE1C:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadmindevices1990D661
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/devices/OPTIONS/Resource
+  RestAPIapiadmindevicesGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadmindevices4559B1DB:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/devices
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/devices/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.devices
+  RestAPIapiadmindevicesGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadmindevicesE1831841:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/devices
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/devices/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.devices
+  RestAPIapiadmindevicesGET6DC2782D:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadmindevices1990D661
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/devices/GET/Resource
+  RestAPIapiadmincomplianceF95EE030:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmin96CCA3E4
+      PathPart: compliance
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/Resource
+  RestAPIapiadmincomplianceOPTIONS6948AEE7:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadmincomplianceF95EE030
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/OPTIONS/Resource
+  RestAPIapiadmincompliancereport11EBAB33:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiadmincomplianceF95EE030
+      PathPart: report
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/report/Resource
+  RestAPIapiadmincompliancereportOPTIONSBD520D76:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiadmincompliancereport11EBAB33
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/report/OPTIONS/Resource
+  RestAPIapiadmincompliancereportGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapiadmincompliancereport1DAD7C1A:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/admin/compliance/report
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/report/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.compliance.report
+  RestAPIapiadmincompliancereportGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapiadmincompliancereportBD8DC9A8:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/admin/compliance/report
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/report/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.admin.compliance.report
+  RestAPIapiadmincompliancereportGET532A2DBF:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+              - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttAdminServiceFunction07DC8189ArnF21F5557
+              - /invocations
+      ResourceId:
+        Ref: RestAPIapiadmincompliancereport11EBAB33
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/admin/compliance/report/GET/Resource
+  RestAPIapipaymentsF2BB9EF5:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapi7AB5A9C8
+      PathPart: payments
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/Resource
+  RestAPIapipaymentsOPTIONS07AE6C2E:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapipaymentsF2BB9EF5
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/OPTIONS/Resource
+  RestAPIapipaymentscreaterazorpayorder88EC7BDF:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapipaymentsF2BB9EF5
+      PathPart: create-razorpay-order
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-razorpay-order/Resource
+  RestAPIapipaymentscreaterazorpayorderOPTIONS0DE57831:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapipaymentscreaterazorpayorder88EC7BDF
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-razorpay-order/OPTIONS/Resource
+  RestAPIapipaymentscreaterazorpayorderPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapipaymentscreaterazorpayorder6305CF11:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/payments/create-razorpay-order
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-razorpay-order/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.payments.create-razorpay-order
+  RestAPIapipaymentscreaterazorpayorderPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapipaymentscreaterazorpayorderD7AADD57:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/payments/create-razorpay-order
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-razorpay-order/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.payments.create-razorpay-order
+  RestAPIapipaymentscreaterazorpayorderPOSTC2DED562:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev/invocations
+      ResourceId:
+        Ref: RestAPIapipaymentscreaterazorpayorder88EC7BDF
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-razorpay-order/POST/Resource
+  RestAPIapipaymentsverifypaymentB95224A1:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapipaymentsF2BB9EF5
+      PathPart: verify-payment
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/verify-payment/Resource
+  RestAPIapipaymentsverifypaymentOPTIONS6A1A932A:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapipaymentsverifypaymentB95224A1
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/verify-payment/OPTIONS/Resource
+  RestAPIapipaymentsverifypaymentPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapipaymentsverifypaymentF628D66F:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/payments/verify-payment
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/verify-payment/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.payments.verify-payment
+  RestAPIapipaymentsverifypaymentPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapipaymentsverifypaymentDFB5AEBC:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/payments/verify-payment
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/verify-payment/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.payments.verify-payment
+  RestAPIapipaymentsverifypaymentPOSTC73AD9EC:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev/invocations
+      ResourceId:
+        Ref: RestAPIapipaymentsverifypaymentB95224A1
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/verify-payment/POST/Resource
+  RestAPIapipaymentscreatecodpayment7929BF01:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapipaymentsF2BB9EF5
+      PathPart: create-cod-payment
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-cod-payment/Resource
+  RestAPIapipaymentscreatecodpaymentOPTIONS8EDD16B7:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapipaymentscreatecodpayment7929BF01
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-cod-payment/OPTIONS/Resource
+  RestAPIapipaymentscreatecodpaymentPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapipaymentscreatecodpayment18935EA6:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/payments/create-cod-payment
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-cod-payment/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.payments.create-cod-payment
+  RestAPIapipaymentscreatecodpaymentPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapipaymentscreatecodpayment706B7ADC:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/payments/create-cod-payment
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-cod-payment/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.payments.create-cod-payment
+  RestAPIapipaymentscreatecodpaymentPOSTD69E614A:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev/invocations
+      ResourceId:
+        Ref: RestAPIapipaymentscreatecodpayment7929BF01
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/create-cod-payment/POST/Resource
+  RestAPIapipaymentspaymentstatus04C50984:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapipaymentsF2BB9EF5
+      PathPart: payment-status
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/payment-status/Resource
+  RestAPIapipaymentspaymentstatusOPTIONS13F3D6B5:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapipaymentspaymentstatus04C50984
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/payment-status/OPTIONS/Resource
+  RestAPIapipaymentspaymentstatusGETApiPermissionAquaChainAPIdevRestAPIEAF89319GETapipaymentspaymentstatus0777D3A8:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /GET/api/payments/payment-status
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/payment-status/GET/ApiPermission.AquaChainAPIdevRestAPIEAF89319.GET..api.payments.payment-status
+  RestAPIapipaymentspaymentstatusGETApiPermissionTestAquaChainAPIdevRestAPIEAF89319GETapipaymentspaymentstatusB36726B7:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/GET/api/payments/payment-status
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/payment-status/GET/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.GET..api.payments.payment-status
+  RestAPIapipaymentspaymentstatusGET4655C265:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId:
+        Ref: CognitoAuthorizerF3215DBC
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-payment-service-dev/invocations
+      ResourceId:
+        Ref: RestAPIapipaymentspaymentstatus04C50984
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/payments/payment-status/GET/Resource
+  RestAPIapiwebhooksCA809F0A:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapi7AB5A9C8
+      PathPart: webhooks
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/Resource
+  RestAPIapiwebhooksOPTIONS61AC71A9:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiwebhooksCA809F0A
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/OPTIONS/Resource
+  RestAPIapiwebhooksrazorpay1DC8166D:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: RestAPIapiwebhooksCA809F0A
+      PathPart: razorpay
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/razorpay/Resource
+  RestAPIapiwebhooksrazorpayOPTIONSAE352349:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+            StatusCode: "204"
+        RequestTemplates:
+          application/json: "{ statusCode: 200 }"
+        Type: MOCK
+      MethodResponses:
+        - ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+          StatusCode: "204"
+      ResourceId:
+        Ref: RestAPIapiwebhooksrazorpay1DC8166D
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/razorpay/OPTIONS/Resource
+  RestAPIapiwebhooksrazorpayPOSTApiPermissionAquaChainAPIdevRestAPIEAF89319POSTapiwebhooksrazorpay1F7F0C6D:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-razorpay-webhook-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /
+            - Ref: RestAPIDeploymentStagedev1DE74094
+            - /POST/api/webhooks/razorpay
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/razorpay/POST/ApiPermission.AquaChainAPIdevRestAPIEAF89319.POST..api.webhooks.razorpay
+  RestAPIapiwebhooksrazorpayPOSTApiPermissionTestAquaChainAPIdevRestAPIEAF89319POSTapiwebhooksrazorpay3DE802C5:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-razorpay-webhook-dev
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:aws:execute-api:ap-south-1:758346259059:"
+            - Ref: RestAPI1CC12F26
+            - /test-invoke-stage/POST/api/webhooks/razorpay
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/razorpay/POST/ApiPermission.Test.AquaChainAPIdevRestAPIEAF89319.POST..api.webhooks.razorpay
+  RestAPIapiwebhooksrazorpayPOST07E56E70:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-razorpay-webhook-dev/invocations
+      ResourceId:
+        Ref: RestAPIapiwebhooksrazorpay1DC8166D
+      RestApiId:
+        Ref: RestAPI1CC12F26
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/RestAPI/Default/api/webhooks/razorpay/POST/Resource
+  WebSocketAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Description: AquaChain WebSocket API for real-time updates
+      Name: aquachain-api-websocket-dev
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+      Tags:
+        Environment: dev
+        ManagedBy: CDK
+        Project: AquaChain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/WebSocketAPI
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId:
+        Ref: WebSocketAPI
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 200
+        ThrottlingRateLimit: 100
+      StageName: dev
+      Tags:
+        Environment: dev
+        ManagedBy: CDK
+        Project: AquaChain
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/WebSocketStage
+  WebSocketIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId:
+        Ref: WebSocketAPI
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Join:
+          - ""
+          - - arn:aws:apigateway:ap-south-1:lambda:path/2015-03-31/functions/
+            - Fn::ImportValue: AquaChain-Compute-dev:ExportsOutputFnGetAttWebSocketFunctionF4B8B6B6Arn1488ED6E
+            - /invocations
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/WebSocketIntegration
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: WebSocketAPI
+      RouteKey: $connect
+      Target:
+        Fn::Join:
+          - ""
+          - - integrations/
+            - Ref: WebSocketIntegration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/ConnectRoute
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: WebSocketAPI
+      RouteKey: $disconnect
+      Target:
+        Fn::Join:
+          - ""
+          - - integrations/
+            - Ref: WebSocketIntegration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/DisconnectRoute
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: WebSocketAPI
+      RouteKey: $default
+      Target:
+        Fn::Join:
+          - ""
+          - - integrations/
+            - Ref: WebSocketIntegration
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/DefaultRoute
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      DefaultAction:
+        Allow: {}
+      Description: WAF protection for AquaChain API
+      Name: aquachain-waf-api-protection-dev
+      Rules:
+        - Action:
+            Block: {}
+          Name: RateLimitRule
+          Priority: 1
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 200
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: RateLimitRule
+            SampledRequestsEnabled: true
+        - Name: AWSManagedRulesCommonRuleSet
+          OverrideAction:
+            None: {}
+          Priority: 2
+          Statement:
+            ManagedRuleGroupStatement:
+              Name: AWSManagedRulesCommonRuleSet
+              VendorName: AWS
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: CommonRuleSetMetric
+            SampledRequestsEnabled: true
+        - Name: AWSManagedRulesAmazonIpReputationList
+          OverrideAction:
+            None: {}
+          Priority: 3
+          Statement:
+            ManagedRuleGroupStatement:
+              Name: AWSManagedRulesAmazonIpReputationList
+              VendorName: AWS
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: IpReputationMetric
+            SampledRequestsEnabled: true
+      Scope: REGIONAL
+      Tags:
+        - Key: Environment
+          Value: dev
+        - Key: ManagedBy
+          Value: CDK
+        - Key: Project
+          Value: AquaChain
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: AquaChainWebACL
+        SampledRequestsEnabled: true
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/WebACL
+  WebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn:
+        Fn::Join:
+          - ""
+          - - arn:aws:apigateway:ap-south-1::/restapis/
+            - Ref: RestAPI1CC12F26
+            - /stages/dev
+      WebACLArn:
+        Fn::GetAtt:
+          - WebACL
+          - Arn
+    DependsOn:
+      - RestAPIDeploymentStagedev1DE74094
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/WebACLAssociation
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/2VRXU/DMAz8LbxngXW/oHQCTQIxdUI8oiz1OrM2rhKHqkT576gf64p48tl38V2SRCbJWj7cqdatdHFZVXiU4cBKX4Rq3WeoVH0slAxP3mhGMo/KgchOZg+2RueQTBSaSoNMMrw7sHuiqhfM+Aq2VCs0S+r/5NmSb+YTWYVgeMnfJrsCDCN3/TQKVLUMOVVDtL5GoRosFUOrOhmyMeB1i0s9n8niD9hev+hycJw2OGy5wVRr8obFFpqKunpKsOgOrMrBegQ5OPJWw/BWr8BnKnpyQld2MhnwMu53IkNvOnrPq3eGobSq/4Pxkp4hiladJv0HHNPsRcwodY40DvoY/5i+eW48R7Hv+EzmfiPXG5ncfTnElfWGsQaZj/UXBb7zdh0CAAA=
+    Metadata:
+      aws:cdk:path: AquaChain-API-dev/CDKMetadata/Default
+Outputs:
+  RestAPIEndpointB14C3C54:
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - Ref: RestAPI1CC12F26
+          - .execute-api.ap-south-1.
+          - Ref: AWS::URLSuffix
+          - /
+          - Ref: RestAPIDeploymentStagedev1DE74094
+          - /
+  RestAPIEndpoint:
+    Description: REST API endpoint URL
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - Ref: RestAPI1CC12F26
+          - .execute-api.ap-south-1.
+          - Ref: AWS::URLSuffix
+          - /
+          - Ref: RestAPIDeploymentStagedev1DE74094
+          - /
+  WebSocketAPIEndpoint:
+    Description: WebSocket API endpoint URL
+    Value:
+      Fn::Join:
+        - ""
+        - - wss://
+          - Ref: WebSocketAPI
+          - .execute-api.ap-south-1.amazonaws.com/dev
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value:
+      Ref: UserPool6BA7E5F2
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value:
+      Ref: UserPoolClient2F5918F7
+  ExportsOutputRefRestAPI1CC12F26BB2826BF:
+    Value:
+      Ref: RestAPI1CC12F26
+    Export:
+      Name: AquaChain-API-dev:ExportsOutputRefRestAPI1CC12F26BB2826BF
+Parameters:
+  BootstrapVersion:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /cdk-bootstrap/hnb659fds/version
+    Description: Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]
+

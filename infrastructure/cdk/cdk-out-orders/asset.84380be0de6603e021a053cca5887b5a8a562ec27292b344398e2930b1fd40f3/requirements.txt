@@ -1,0 +1,7 @@
+# Dependencies moved to common layer:
+# - boto3
+# - botocore
+# - PyJWT
+
+# Function-specific dependencies
+cryptography==41.0.0

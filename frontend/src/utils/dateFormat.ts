@@ -43,12 +43,28 @@ export function formatDateLong(date: Date | string): string {
  * Format relative time (e.g., "2h ago", "Just now")
  */
 export function formatRelativeTime(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  // Handle string dates - ensure proper parsing of ISO timestamps with microseconds
+  let d: Date;
+  if (typeof date === 'string') {
+    // Python datetime.isoformat() includes microseconds, which JS Date handles correctly
+    // But we need to ensure it's treated as UTC
+    d = new Date(date);
+    
+    // Debug: Log the parsing
+    console.log(`🕐 Parsing timestamp: ${date}`);
+    console.log(`🕐 Parsed as Date: ${d.toISOString()}`);
+    console.log(`🕐 Local time: ${d.toLocaleString()}`);
+  } else {
+    d = date;
+  }
+  
   const now = new Date();
   const diff = now.getTime() - d.getTime();
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  
+  console.log(`🕐 Time difference: ${minutes} minutes (${hours} hours)`);
 
   if (minutes < 1) {
     return 'Just now';

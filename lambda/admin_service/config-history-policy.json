@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-ConfigHistory",
+        "arn:aws:dynamodb:ap-south-1:758346259059:table/AquaChain-ConfigHistory/index/*"
+      ]
+    }
+  ]
+}

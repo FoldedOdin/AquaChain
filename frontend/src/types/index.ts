@@ -64,7 +64,7 @@ export interface UserProfile {
         latitude: number;
         longitude: number;
       };
-    };
+    } | null;
   };
   deviceIds: string[];
   preferences: {

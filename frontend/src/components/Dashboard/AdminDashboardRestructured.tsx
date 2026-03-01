@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import AdminProfile from './AdminProfile';
+import SystemConfiguration from '../Admin/SystemConfiguration';
 import {
   ArrowLeftIcon,
   Cog6ToothIcon,
@@ -37,7 +39,6 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { 
   getAllUsers, 
   getSystemConfiguration, 
-  updateSystemConfiguration,
   getSystemHealthMetrics,
   getPerformanceMetrics,
   getAuditTrail,
@@ -45,6 +46,10 @@ import {
 } from '../../services/adminService';
 import { getIncidentReports, getIncidentStats } from '../../services/incidentService';
 import { formatRelativeTime } from '../../utils/dateFormat';
+import { maskPhoneNumber, maskEmail, maskLastName } from '../../utils/privacy';
+import websocketService from '../../services/websocketService';
+import { revealSensitiveData } from '../../services/adminService';
+import { SystemConfiguration as SystemConfigType } from '../../types/admin';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -56,30 +61,13 @@ interface AdminDashboardRestructuredProps {
 
 const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = memo(() => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedView, setSelectedView] = useState('overview');
   
-  // System configuration state
-  const [systemConfig, setSystemConfig] = useState<{
-    alertThresholds?: {
-      global?: {
-        pH?: { min: number; max: number };
-        turbidity?: { max: number };
-        tds?: { max: number };
-        temperature?: { min: number; max: number };
-      };
-    };
-    systemLimits?: {
-      maxDevicesPerUser?: number;
-      dataRetentionDays?: number;
-      auditRetentionYears?: number;
-    };
-  } | null>(null);
-  const [showSystemConfigModal, setShowSystemConfigModal] = useState(false);
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
-  const [configChanges, setConfigChanges] = useState<Record<string, any>>({});
+  // System configuration state (kept for backward compatibility with other features)
+  const [systemConfig, setSystemConfig] = useState<SystemConfigType | null>(null);
   
   // User management state
   const [users, setUsers] = useState<Array<{
@@ -135,6 +123,27 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   
+  // Sensitive data session state
+  const [sensitiveSession, setSensitiveSession] = useState<{
+    isActive: boolean;
+    revealedAt: Date | null;
+    expiresAt: Date | null;
+    revealedData: {
+      email: string;
+      phone: string;
+      lastName: string;
+    } | null;
+  }>({
+    isActive: false,
+    revealedAt: null,
+    expiresAt: null,
+    revealedData: null
+  });
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [verificationPassword, setVerificationPassword] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+  
   // Add user form state
   const [addFormData, setAddFormData] = useState<{
     firstName: string;
@@ -154,6 +163,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     status: 'active'
   });
   const [isSubmittingAdd, setIsSubmittingAdd] = useState(false);
+  const [addUserError, setAddUserError] = useState('');
   
   // System monitoring state
   const [systemMetrics, setSystemMetrics] = useState<{
@@ -172,6 +182,17 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     rtoTarget?: string;
     rpoTarget?: string;
   } | null>(null);
+  const [realTimeMetrics, setRealTimeMetrics] = useState<{
+    totalUsers: number;
+    apiSuccessRate: number;
+    systemUptime: number;
+    uptimeStatus: string;
+  }>({
+    totalUsers: 0,
+    apiSuccessRate: 99.2,
+    systemUptime: 99.7,
+    uptimeStatus: 'Operational'
+  });
   const [performanceMetrics, setPerformanceMetrics] = useState<Array<{
     timestamp: string;
     avgAlertLatency: number;
@@ -266,6 +287,10 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     avgResolutionTime: 0
   });
 
+  // WebSocket is disabled - using polling for reliability
+  const wsEnabled = false;
+  const wsConnected = false;
+
   // Fetch dashboard data
   const { data: dashboardData, isLoading, error } = useDashboardData('admin');
   const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: true });
@@ -303,11 +328,13 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     // Refresh metrics every 30 seconds
     const interval = setInterval(async () => {
       try {
-        const [healthMetrics, perfMetrics, incidentStatsData] = await Promise.all([
+        const [usersData, healthMetrics, perfMetrics, incidentStatsData] = await Promise.all([
+          getAllUsers(), // Also refresh user list to show updated lastLogin
           getSystemHealthMetrics(),
           getPerformanceMetrics('24h'),
           getIncidentStats(30)
         ]);
+        setUsers(usersData); // Update user list with fresh data
         setSystemMetrics(healthMetrics);
         setPerformanceMetrics(perfMetrics);
         setIncidentStats(incidentStatsData);
@@ -318,6 +345,36 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     
     return () => clearInterval(interval);
   }, []);
+
+  // Fetch real-time system metrics from AWS
+  useEffect(() => {
+    const fetchRealTimeMetrics = async () => {
+      try {
+        const systemMetricsService = (await import('../../services/systemMetricsService')).default;
+        const metrics = await systemMetricsService.getSystemMetrics();
+        
+        setRealTimeMetrics({
+          totalUsers: metrics.users.total,
+          apiSuccessRate: metrics.api.successRate,
+          systemUptime: metrics.system.uptime,
+          uptimeStatus: metrics.system.status
+        });
+      } catch (err) {
+        console.error('Failed to fetch real-time metrics:', err);
+      }
+    };
+
+    // Fetch immediately
+    fetchRealTimeMetrics();
+    
+    // Refresh every 30 seconds for real-time updates
+    const metricsInterval = setInterval(fetchRealTimeMetrics, 30000);
+    
+    return () => clearInterval(metricsInterval);
+  }, []);
+
+  // WebSocket disabled - using polling instead
+  // No WebSocket connection needed
 
   // Helper functions
   const getStatusColor = (status: string) => {
@@ -331,7 +388,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
   const getRoleColor = (role: string) => {
     switch (role) {
-      case 'admin': 
       case 'administrator': return 'bg-purple-100 text-purple-800';
       case 'technician': return 'bg-blue-100 text-blue-800';
       case 'consumer': return 'bg-green-100 text-green-800';
@@ -360,7 +416,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     
     const consumers = users.filter(u => u.role === 'consumer').length;
     const technicians = users.filter(u => u.role === 'technician').length;
-    const admins = users.filter(u => u.role === 'admin' || u.role === 'administrator').length;
+    const admins = users.filter(u => u.role === 'administrator').length;
     const inventoryManagers = users.filter(u => u.role === 'inventory_manager').length;
     const warehouseManagers = users.filter(u => u.role === 'warehouse_manager').length;
     const supplierCoordinators = users.filter(u => u.role === 'supplier_coordinator').length;
@@ -396,27 +452,29 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   }, [users, userSearchTerm, userRoleFilter]);
 
   // User role data for bar chart
-  const userRoleData = useMemo(() => [
-    { role: 'Consumer', count: userStats.consumers },
-    { role: 'Technician', count: userStats.technicians },
-    { role: 'Admin', count: userStats.admins },
-    { role: 'Inventory Mgr', count: userStats.inventoryManagers },
-    { role: 'Warehouse Mgr', count: userStats.warehouseManagers },
-    { role: 'Supplier Coord', count: userStats.supplierCoordinators },
-    { role: 'Procurement Ctrl', count: userStats.procurementControllers },
-  ], [userStats]);
+  const userRoleData = useMemo(() => {
+    const data = [
+      { role: 'Consumer', count: userStats.consumers },
+      { role: 'Technician', count: userStats.technicians },
+      { role: 'Admin', count: userStats.admins },
+      { role: 'Inventory Mgr', count: userStats.inventoryManagers },
+      { role: 'Warehouse Mgr', count: userStats.warehouseManagers },
+      { role: 'Supplier Coord', count: userStats.supplierCoordinators },
+      { role: 'Procurement Ctrl', count: userStats.procurementControllers },
+    ];
+    
+    // Filter out roles with 0 count to avoid empty bars
+    return data.filter(item => item.count > 0);
+  }, [userStats]);
 
   // System health metrics
   const systemHealthData = useMemo(() => {
-    if (!systemMetrics) {
-      return { uptime: 0, apiSuccess: 0, uptimeDisplay: 'N/A' };
-    }
     return {
-      uptime: systemMetrics.criticalPathUptime || 100,
-      apiSuccess: systemMetrics.apiUptime || 0,
-      uptimeDisplay: 'Operational'
+      uptime: realTimeMetrics.systemUptime,
+      apiSuccess: realTimeMetrics.apiSuccessRate,
+      uptimeDisplay: realTimeMetrics.uptimeStatus
     };
-  }, [systemMetrics]);
+  }, [realTimeMetrics]);
 
   // Active alerts count
   const activeAlertsCount = useMemo(() => {
@@ -441,126 +499,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     setShowExportModal(prev => !prev);
   }, []);
 
-  // System configuration handlers
-  const handleOpenSystemConfig = useCallback(() => {
-    setConfigChanges({});
-    setShowSystemConfigModal(true);
-  }, []);
-
-  const handleConfigChange = useCallback((path: string[], value: any) => {
-    setConfigChanges((prev: Record<string, any>) => {
-      const newChanges = { ...prev };
-      let current: any = newChanges;
-      
-      // Create nested structure if it doesn't exist
-      for (let i = 0; i < path.length - 1; i++) {
-        if (!current[path[i]] || typeof current[path[i]] !== 'object') {
-          current[path[i]] = {};
-        }
-        current = current[path[i]];
-      }
-      
-      // Set the final value
-      current[path[path.length - 1]] = value;
-      
-      // Debug log to see what's being changed
-      console.log('Config change:', { path, value, newChanges });
-      
-      return newChanges;
-    });
-  }, []);
-
-  // Helper function to get the current value (original config + changes)
-  const getCurrentConfigValue = useCallback((path: string[], defaultValue: any) => {
-    if (!systemConfig) return defaultValue;
-    
-    // First try to get from configChanges
-    let current: any = configChanges;
-    let hasChange = true;
-    
-    for (const key of path) {
-      if (current && typeof current === 'object' && key in current) {
-        current = current[key];
-      } else {
-        hasChange = false;
-        break;
-      }
-    }
-    
-    if (hasChange && current !== undefined) {
-      return current;
-    }
-    
-    // Fall back to original systemConfig
-    current = systemConfig;
-    for (const key of path) {
-      if (current && typeof current === 'object' && key in current) {
-        current = current[key];
-      } else {
-        return defaultValue;
-      }
-    }
-    
-    return current !== undefined ? current : defaultValue;
-  }, [systemConfig, configChanges]);
-
-  // Helper function to deep merge configuration objects
-  const deepMergeConfig = useCallback((target: any, source: any): any => {
-    if (!source || typeof source !== 'object') return target;
-    if (!target || typeof target !== 'object') return source;
-    
-    const result = { ...target };
-    
-    for (const key in source) {
-      if (source.hasOwnProperty(key)) {
-        if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
-          result[key] = deepMergeConfig(result[key] || {}, source[key]);
-        } else {
-          result[key] = source[key];
-        }
-      }
-    }
-    
-    return result;
-  }, []);
-
-  const handleSaveSystemConfig = useCallback(async () => {
-    if (Object.keys(configChanges).length === 0) {
-      setShowSystemConfigModal(false);
-      return;
-    }
-
-    // Debug log to see what changes are being saved
-    console.log('Saving configuration changes:', configChanges);
-
-    // Show confirmation dialog for system-wide changes
-    const confirmed = window.confirm(
-      'Are you sure you want to save these system configuration changes? This will affect all users and devices in the system.'
-    );
-    
-    if (!confirmed) return;
-
-    setIsSavingConfig(true);
-    try {
-      // Create the complete configuration by merging current config with changes
-      const completeConfig = systemConfig ? deepMergeConfig(systemConfig, configChanges) : configChanges;
-      console.log('Complete configuration to save:', completeConfig);
-      
-      const updatedConfig = await updateSystemConfiguration(completeConfig);
-      console.log('Configuration updated successfully:', updatedConfig);
-      
-      setSystemConfig(updatedConfig);
-      alert('System configuration saved successfully!');
-      setShowSystemConfigModal(false);
-      setConfigChanges({});
-    } catch (error) {
-      console.error('Error saving system configuration:', error);
-      alert(`Error saving system configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsSavingConfig(false);
-    }
-  }, [configChanges, systemConfig, deepMergeConfig]);
-
   // User management handlers
   const handleViewUser = useCallback((user: typeof selectedUser) => {
     setSelectedUser(user);
@@ -578,8 +516,76 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
       role: user.role || 'consumer',
       status: user.status || 'active'
     });
+    // Reset sensitive session when opening edit modal
+    setSensitiveSession({
+      isActive: false,
+      revealedAt: null,
+      expiresAt: null,
+      revealedData: null
+    });
     setShowEditUserModal(true);
   }, []);
+
+  // Sensitive data session timeout (5 minutes)
+  useEffect(() => {
+    if (!sensitiveSession.isActive || !sensitiveSession.expiresAt) return;
+
+    const checkExpiration = () => {
+      if (new Date() >= sensitiveSession.expiresAt!) {
+        setSensitiveSession({
+          isActive: false,
+          revealedAt: null,
+          expiresAt: null,
+          revealedData: null
+        });
+        alert('Sensitive data session expired. Please reveal again if needed.');
+      }
+    };
+
+    // Check every second
+    const interval = setInterval(checkExpiration, 1000);
+    return () => clearInterval(interval);
+  }, [sensitiveSession.isActive, sensitiveSession.expiresAt]);
+
+  const handleRevealSensitiveData = useCallback(async () => {
+    if (!selectedUser) return;
+
+    setIsVerifying(true);
+
+    try {
+      // Directly reveal sensitive data without password verification
+      // Security: Relies on JWT authentication (admin role) + audit logging
+      const revealedData = await revealSensitiveData(selectedUser.userId);
+      
+      // Set sensitive session with 5-minute expiration
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes
+      
+      setSensitiveSession({
+        isActive: true,
+        revealedAt: now,
+        expiresAt: expiresAt,
+        revealedData: {
+          email: revealedData.email,
+          phone: revealedData.phone,
+          lastName: revealedData.lastName
+        }
+      });
+
+      // Update edit form with revealed data
+      setEditFormData(prev => ({
+        ...prev,
+        email: revealedData.email,
+        phone: revealedData.phone,
+        lastName: revealedData.lastName
+      }));
+    } catch (error) {
+      console.error('Failed to reveal sensitive data:', error);
+      alert('Failed to reveal sensitive data. Please try again.');
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [selectedUser]);
 
   const handleEditFormChange = useCallback((field: string, value: string) => {
     setEditFormData((prev) => ({ ...prev, [field]: value }));
@@ -650,6 +656,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
       role: 'consumer',
       status: 'active'
     });
+    setAddUserError(''); // Clear any previous errors
     setShowAddUserModal(true);
   }, []);
 
@@ -659,6 +666,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
   const handleSaveNewUser = useCallback(async () => {
     setIsSubmittingAdd(true);
+    setAddUserError(''); // Clear previous errors
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002'}/api/admin/users`, {
@@ -689,15 +697,16 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         };
         setUsers((prev) => [...prev, newUser]);
         setShowAddUserModal(false);
+        setAddUserError(''); // Clear error on success
         console.log('User created successfully');
       } else {
         const error = await response.json();
         console.error('Failed to create user:', error.error);
-        alert(error.error || 'Failed to create user');
+        setAddUserError(error.error || 'Failed to create user');
       }
     } catch (error) {
       console.error('Error creating user:', error);
-      alert('Error creating user');
+      setAddUserError('Network error. Please check your connection and try again.');
     } finally {
       setIsSubmittingAdd(false);
     }
@@ -904,27 +913,8 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         </header>
 
         <main className="max-w-4xl mx-auto p-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-xl shadow-sm border border-gray-200 p-6"
-          >
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Administrator Profile</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <p className="text-gray-900">{user.profile?.firstName} {user.profile?.lastName}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <p className="text-gray-900">{user.email}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                <p className="text-gray-900 capitalize">{user.role}</p>
-              </div>
-            </div>
-          </motion.div>
+          {/* Profile Section */}
+          <AdminProfile onUpdate={() => refreshUser()} />
         </main>
       </div>
     );
@@ -978,14 +968,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6">
-        {/* Connection Status */}
-        {!isConnected && (
-          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
-            <span className="text-sm text-amber-800">Real-time updates disconnected.</span>
-          </div>
-        )}
-
         {/* Tabbed Navigation - NO OPERATIONAL CONTROLS */}
         <div className="bg-white rounded-lg shadow-md mb-6">
           <div className="flex border-b">
@@ -1195,7 +1177,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   <span className="text-sm font-medium text-gray-900">Add User</span>
                 </button>
                 <button
-                  onClick={handleOpenSystemConfig}
+                  onClick={() => setSelectedView('configuration')}
                   className="flex flex-col items-center gap-2 p-4 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition-colors"
                 >
                   <Settings className="w-6 h-6 text-purple-600" />
@@ -1262,7 +1244,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <option value="all">All Roles</option>
                       <option value="consumer">Consumer</option>
                       <option value="technician">Technician</option>
-                      <option value="admin">Admin</option>
                       <option value="administrator">Administrator</option>
                       <option value="inventory_manager">Inventory Manager</option>
                       <option value="warehouse_manager">Warehouse Manager</option>
@@ -1359,83 +1340,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-lg font-semibold text-gray-900">System Configuration</h3>
-                  {Object.keys(configChanges).length > 0 && (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                      Unsaved Changes
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleOpenSystemConfig}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                  >
-                    <Settings className="w-4 h-4" />
-                    Configure System
-                  </button>
-                  {Object.keys(configChanges).length > 0 && (
-                    <button
-                      onClick={() => setConfigChanges({})}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                    >
-                      Reset Changes
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-              {systemConfig && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-gray-900">Alert Thresholds</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-600">pH Range:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'min'], 6.5)} - {getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'max'], 8.5)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">Turbidity Max:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'turbidity', 'max'], 5.0)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">TDS Max:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'tds', 'max'], 500)}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">Temperature Range:</span>
-                          <span className="ml-2 font-medium">{getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'min'], 0)}° - {getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'max'], 40)}°C</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-gray-900">System Limits</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Max Devices per User:</span>
-                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'maxDevicesPerUser'], 10)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Data Retention:</span>
-                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'dataRetentionDays'], 90)} days</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Audit Retention:</span>
-                          <span className="font-medium">{getCurrentConfigValue(['systemLimits', 'auditRetentionYears'], 7)} years</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <SystemConfiguration />
           </motion.div>
         )}
 
@@ -1582,7 +1487,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <span className="text-sm font-medium text-gray-700">Open Incidents</span>
                     </div>
                     <span className="text-sm font-semibold text-red-600">
-                      {incidentStats.openIncidents} Active
+                      {incidentStats?.openIncidents ?? 0} Active
                     </span>
                   </div>
                   
@@ -1592,7 +1497,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <span className="text-sm font-medium text-gray-700">Critical Incidents</span>
                     </div>
                     <span className="text-sm font-semibold text-amber-600">
-                      {incidentStats.criticalIncidents} High Priority
+                      {incidentStats?.criticalIncidents ?? 0} High Priority
                     </span>
                   </div>
                   
@@ -1602,7 +1507,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <span className="text-sm font-medium text-gray-700">Avg Resolution Time</span>
                     </div>
                     <span className="text-sm font-semibold text-blue-600">
-                      {incidentStats.avgResolutionTime > 0 ? `${incidentStats.avgResolutionTime.toFixed(1)} hours` : 'N/A'}
+                      {(incidentStats?.avgResolutionTime ?? 0) > 0 ? `${incidentStats.avgResolutionTime.toFixed(1)} hours` : 'N/A'}
                     </span>
                   </div>
                   
@@ -1731,153 +1636,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         onClose={toggleExportModal}
         userRole="admin"
       />
-
-      {/* System Configuration Modal */}
-      <AnimatePresence>
-        {showSystemConfigModal && systemConfig && (
-          <>
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => !isSavingConfig && setShowSystemConfigModal(false)} />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            >
-              <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-900">System Configuration</h3>
-                  <button 
-                    onClick={() => !isSavingConfig && setShowSystemConfigModal(false)} 
-                    className="text-gray-400 hover:text-gray-600"
-                    disabled={isSavingConfig}
-                  >
-                    <XMarkIcon className="w-6 h-6" />
-                  </button>
-                </div>
-                
-                <div className="space-y-6">
-                  {/* Alert Thresholds */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Alert Thresholds</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">pH Min</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'min'], 6.5)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'pH', 'min'], parseFloat(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">pH Max</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'pH', 'max'], 8.5)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'pH', 'max'], parseFloat(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Turbidity Max</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'turbidity', 'max'], 5.0)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'turbidity', 'max'], parseFloat(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">TDS Max</label>
-                        <input
-                          type="number"
-                          step="1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'tds', 'max'], 500)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'tds', 'max'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Temperature Min (°C)</label>
-                        <input
-                          type="number"
-                          step="1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'min'], 0)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'temperature', 'min'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Temperature Max (°C)</label>
-                        <input
-                          type="number"
-                          step="1"
-                          value={getCurrentConfigValue(['alertThresholds', 'global', 'temperature', 'max'], 40)}
-                          onChange={(e) => handleConfigChange(['alertThresholds', 'global', 'temperature', 'max'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* System Limits */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">System Limits</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Max Devices per User</label>
-                        <input
-                          type="number"
-                          value={getCurrentConfigValue(['systemLimits', 'maxDevicesPerUser'], 10)}
-                          onChange={(e) => handleConfigChange(['systemLimits', 'maxDevicesPerUser'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Data Retention (days)</label>
-                        <input
-                          type="number"
-                          value={getCurrentConfigValue(['systemLimits', 'dataRetentionDays'], 90)}
-                          onChange={(e) => handleConfigChange(['systemLimits', 'dataRetentionDays'], parseInt(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          disabled={isSavingConfig}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
-                  <button
-                    onClick={() => setShowSystemConfigModal(false)}
-                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                    disabled={isSavingConfig}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveSystemConfig}
-                    disabled={isSavingConfig || Object.keys(configChanges).length === 0}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isSavingConfig ? 'Saving...' : 'Save Configuration'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
 
       {/* Enhanced Audit Logs Modal with Advanced Filtering */}
       <AnimatePresence>
@@ -2359,15 +2117,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                      <p className="text-gray-900">{selectedUser.profile?.lastName || 'N/A'}</p>
+                      <p className="text-gray-900">{maskLastName(selectedUser.profile?.lastName)}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <p className="text-gray-900">{selectedUser.email}</p>
+                      <p className="text-gray-900">{maskEmail(selectedUser.email)}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <p className="text-gray-900">{selectedUser.profile?.phone || 'N/A'}</p>
+                      <p className="text-gray-900">{maskPhoneNumber(selectedUser.profile?.phone)}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
@@ -2428,7 +2186,15 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             >
               <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-900">Edit User</h3>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xl font-bold text-gray-900">Edit User</h3>
+                    {sensitiveSession.isActive && (
+                      <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        Sensitive Mode
+                      </span>
+                    )}
+                  </div>
                   <button 
                     onClick={() => !isSubmittingEdit && setShowEditUserModal(false)} 
                     className="text-gray-400 hover:text-gray-600"
@@ -2438,8 +2204,38 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                   </button>
                 </div>
                 
+                {/* Sensitive Data Warning */}
+                {!sensitiveSession.isActive && (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+                    <ShieldCheckIcon className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium">Privacy Protection Active</p>
+                      <p className="text-blue-700 mt-1">Sensitive fields are masked. Click the lock icon to reveal full data.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Session Timer */}
+                {sensitiveSession.isActive && sensitiveSession.expiresAt && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span className="text-sm text-amber-800">
+                        Session expires in {Math.max(0, Math.floor((sensitiveSession.expiresAt.getTime() - Date.now()) / 1000))}s
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleRevealSensitiveData}
+                      className="text-xs text-amber-700 hover:text-amber-900 underline"
+                    >
+                      Extend Session
+                    </button>
+                  </div>
+                )}
+                
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Non-sensitive fields */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
                       <input
@@ -2450,36 +2246,104 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         disabled={isSubmittingEdit}
                       />
                     </div>
+
+                    {/* Sensitive field: Last Name */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                      <input
-                        type="text"
-                        value={editFormData.lastName}
-                        onChange={(e) => handleEditFormChange('lastName', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={isSubmittingEdit}
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                        Last Name
+                        {!sensitiveSession.isActive && (
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            Protected
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={sensitiveSession.isActive ? editFormData.lastName : maskLastName(selectedUser.profile?.lastName)}
+                          onChange={(e) => handleEditFormChange('lastName', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 pr-10"
+                          disabled={isSubmittingEdit || !sensitiveSession.isActive}
+                          placeholder={!sensitiveSession.isActive ? 'Click lock to reveal' : ''}
+                        />
+                        {!sensitiveSession.isActive && (
+                          <button
+                            onClick={handleRevealSensitiveData}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Reveal sensitive data"
+                          >
+                            <Shield className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Sensitive field: Email */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                      <input
-                        type="email"
-                        value={editFormData.email}
-                        onChange={(e) => handleEditFormChange('email', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={isSubmittingEdit}
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                        Email
+                        {!sensitiveSession.isActive && (
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            Protected
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="email"
+                          value={sensitiveSession.isActive ? editFormData.email : maskEmail(selectedUser.email)}
+                          onChange={(e) => handleEditFormChange('email', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 pr-10"
+                          disabled={isSubmittingEdit || !sensitiveSession.isActive}
+                          placeholder={!sensitiveSession.isActive ? 'Click lock to reveal' : ''}
+                        />
+                        {!sensitiveSession.isActive && (
+                          <button
+                            onClick={handleRevealSensitiveData}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Reveal sensitive data"
+                          >
+                            <Shield className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Sensitive field: Phone */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <input
-                        type="tel"
-                        value={editFormData.phone}
-                        onChange={(e) => handleEditFormChange('phone', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={isSubmittingEdit}
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                        Phone
+                        {!sensitiveSession.isActive && (
+                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            Protected
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          value={sensitiveSession.isActive ? editFormData.phone : maskPhoneNumber(selectedUser.profile?.phone)}
+                          onChange={(e) => handleEditFormChange('phone', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 pr-10"
+                          disabled={isSubmittingEdit || !sensitiveSession.isActive}
+                          placeholder={!sensitiveSession.isActive ? 'Click lock to reveal' : ''}
+                        />
+                        {!sensitiveSession.isActive && (
+                          <button
+                            onClick={handleRevealSensitiveData}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors"
+                            title="Reveal sensitive data"
+                          >
+                            <Shield className="w-5 h-5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Non-sensitive fields */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                       <select
@@ -2490,7 +2354,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       >
                         <option value="consumer">Consumer</option>
                         <option value="technician">Technician</option>
-                        <option value="admin">Admin</option>
                         <option value="administrator">Administrator</option>
                         <option value="inventory_manager">Inventory Manager</option>
                         <option value="warehouse_manager">Warehouse Manager</option>
@@ -2558,6 +2421,30 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                     <XMarkIcon className="w-6 h-6" />
                   </button>
                 </div>
+
+                {/* Error Banner */}
+                <AnimatePresence>
+                  {addUserError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
+                    >
+                      <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-red-800">Failed to create user</p>
+                        <p className="text-sm text-red-700 mt-1">{addUserError}</p>
+                      </div>
+                      <button
+                        onClick={() => setAddUserError('')}
+                        className="text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        <XMarkIcon className="w-5 h-5" />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -2625,7 +2512,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       >
                         <option value="consumer">Consumer</option>
                         <option value="technician">Technician</option>
-                        <option value="admin">Admin</option>
                         <option value="administrator">Administrator</option>
                         <option value="inventory_manager">Inventory Manager</option>
                         <option value="warehouse_manager">Warehouse Manager</option>

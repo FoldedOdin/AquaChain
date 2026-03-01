@@ -41,7 +41,6 @@ import NotificationCenter from './NotificationCenter';
 import AddDeviceModal from './AddDeviceModal';
 import EditProfileModal from './EditProfileModal';
 import DataExportModal from './DataExportModal';
-import RequestDeviceModal from './RequestDeviceModal';
 import MyOrdersPage from './MyOrdersPage';
 import OrderingFlow from './OrderingFlow';
 import DemoDeviceModal from './DemoDeviceModal';
@@ -72,7 +71,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     }
   }, [showAddDevice]);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [showRequestDevice, setShowRequestDevice] = useState(false);
   const [showMyOrders, setShowMyOrders] = useState(false);
   const [showOrderingFlow, setShowOrderingFlow] = useState(false);
   const [showDemoDevice, setShowDemoDevice] = useState(false);
@@ -128,8 +126,14 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
   // ✅ Auto-select first device when devices load
   useEffect(() => {
+    console.log('📊 Devices loaded:', devices.length, 'devices');
+    console.log('📊 Device IDs:', devices.map((d: any) => d.device_id || d.deviceId || 'NO_ID'));
+    console.log('📊 Current selectedDeviceId:', selectedDeviceId);
+    
     if (devices.length > 0 && !selectedDeviceId) {
-      setSelectedDeviceId(devices[0].device_id);
+      const firstDeviceId = devices[0].device_id || devices[0].deviceId;
+      console.log('✅ Auto-selecting first device:', firstDeviceId);
+      setSelectedDeviceId(firstDeviceId);
     }
   }, [devices, selectedDeviceId]);
 
@@ -242,44 +246,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
     return !!(hasAddress && hasPhone);
   }, [user]);
 
-  const toggleRequestDevice = useCallback(() => {
-    if (!isProfileComplete) {
-      // Show modal for incomplete profile
-      const address = user?.profile?.address;
-      
-      // Check if address exists and has content
-      const hasAddress = address && (
-        // String format
-        (typeof address === 'string' && (address as string).trim().length > 0) ||
-        // Object format - check for any of the common address fields
-        (typeof address === 'object' && (
-          !!(address as any)?.formatted ||
-          !!(address as any)?.flatHouse ||
-          !!(address as any)?.areaStreet ||
-          !!(address as any)?.street ||
-          !!(address as any)?.city
-        ))
-      );
-      
-      const phone = user?.profile?.phone;
-      const hasPhone = phone && typeof phone === 'string' && (phone as string).trim().length > 0;
-      
-      const missing: string[] = [];
-      if (!hasAddress) missing.push('Address');
-      if (!hasPhone) missing.push('Phone Number');
-      
-      setMissingProfileFields(missing);
-      setShowProfileIncompleteModal(true);
-      return;
-    }
 
-    setShowRequestDevice(prev => !prev);
-  }, [user, isProfileComplete]);
-
-  const handleDeviceRequested = useCallback(() => {
-    // Refresh dashboard data after device request
-    refetch();
-  }, [refetch]);
 
   const toggleMyOrders = useCallback(() => {
     setShowMyOrders(prev => !prev);
@@ -331,10 +298,20 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const handleConfirmRemoveDevice = useCallback(async () => {
     if (!deviceToRemove) return;
 
+    // Get device ID with fallback
+    const deviceId = deviceToRemove.device_id || deviceToRemove.deviceId;
+    if (!deviceId) {
+      console.error('❌ Cannot remove device: No device ID found', deviceToRemove);
+      alert('Error: Device ID not found');
+      setIsRemovingDevice(false);
+      return;
+    }
+
+    console.log('🗑️ Removing device:', deviceId);
     setIsRemovingDevice(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/devices/${deviceToRemove.device_id}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev'}/api/devices/${deviceId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -394,7 +371,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
       // Call API to submit issue
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch('http://localhost:3002/api/issues', {
+      const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev'}/api/issues`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -612,15 +589,30 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Profile Information</h2>
-                <button
-                  onClick={toggleEditProfile}
-                  className="flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200 font-medium"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                  <span>Edit Profile</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      setIsRefreshing(true);
+                      await refreshUser();
+                      setIsRefreshing(false);
+                    }}
+                    disabled={isRefreshing}
+                    className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors duration-200 font-medium disabled:opacity-50"
+                    title="Refresh profile data"
+                  >
+                    <ArrowPathIcon className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Refresh</span>
+                  </button>
+                  <button
+                    onClick={toggleEditProfile}
+                    className="flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200 font-medium"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit Profile</span>
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -685,22 +677,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                       day: 'numeric' 
                     })}
                   </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Dashboard Preferences */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Dashboard Preferences</h2>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">Real-time Updates</h3>
-                    <p className="text-sm text-gray-600">Receive live water quality updates</p>
-                  </div>
-                  <div className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent ${isConnected ? 'bg-aqua-600' : 'bg-gray-200'} transition-colors duration-200 ease-in-out`}>
-                    <span className={`${isConnected ? 'translate-x-5' : 'translate-x-0'} pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}></span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -857,24 +833,41 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
             
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
               {devices.map((device: any) => {
-                const isSelected = device.device_id === selectedDeviceId;
+                const deviceId = device.device_id || device.deviceId;
+                const isSelected = deviceId === selectedDeviceId;
                 const isOnline = device.status === 'active' || device.status === 'online';
+                
+                // Debug logging
+                console.log('🔍 Device Render:', {
+                  deviceId: deviceId,
+                  deviceName: device.name,
+                  selectedDeviceId: selectedDeviceId,
+                  isSelected: isSelected,
+                  comparison: `"${deviceId}" === "${selectedDeviceId}"`
+                });
                 
                 return (
                   <div
-                    key={device.device_id}
+                    key={deviceId || `device-${device.name}`}
                     className={`
-                      flex-shrink-0 rounded-lg border-2 transition-all min-w-[200px] relative
+                      flex-shrink-0 rounded-lg border-2 transition-all min-w-[200px] relative cursor-pointer
                       ${isSelected 
                         ? 'border-cyan-500 bg-cyan-50 shadow-md' 
-                        : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-cyan-300 hover:shadow-sm'
                       }
                     `}
+                    onClick={() => {
+                      console.log('🖱️ Device clicked:', deviceId);
+                      if (deviceId) {
+                        setSelectedDeviceId(deviceId);
+                        console.log('✅ Set selected device to:', deviceId);
+                      } else {
+                        console.error('❌ Device has no ID!', device);
+                      }
+                    }}
+                    style={{ pointerEvents: 'auto' }}
                   >
-                    <button
-                      onClick={() => setSelectedDeviceId(device.device_id)}
-                      className="w-full px-4 py-3 text-left"
-                    >
+                    <div className="w-full px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className={`
                           w-10 h-10 rounded-full flex items-center justify-center
@@ -897,14 +890,15 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                           </div>
                         </div>
                       </div>
-                    </button>
+                    </div>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleRemoveDeviceClick(device);
                       }}
-                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors"
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors z-10"
                       title="Remove device"
+                      style={{ pointerEvents: 'auto' }}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1091,7 +1085,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               {Object.entries(waterQualityMetrics.metrics).map(([key, param]: [string, any]) => {
                 const Icon = param.icon;
                 return (
-                  <div key={key} className={`border-2 rounded-lg p-4 ${getParamColor(param.status)}`}>
+                  <div key={`param-${key}`} className={`border-2 rounded-lg p-4 ${getParamColor(param.status)}`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center space-x-2">
                         <Icon className="w-5 h-5 text-gray-700" />
@@ -1271,7 +1265,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button 
               onClick={(e) => {
                 e.preventDefault();
@@ -1291,25 +1285,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                 <span className="text-xs text-green-600">New water monitor</span>
               </div>
             </button>
-            <button 
-              onClick={toggleRequestDevice}
-              className={`relative flex items-center space-x-3 p-4 border-2 rounded-lg transition ${
-                isProfileComplete 
-                  ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50' 
-                  : 'border-amber-200 bg-amber-50 hover:border-amber-400'
-              }`}
-            >
-              <Plus className={`w-6 h-6 ${isProfileComplete ? 'text-blue-600' : 'text-amber-600'}`} />
-              <div className="flex flex-col items-start">
-                <span className="font-medium text-gray-700">Request Device</span>
-                {!isProfileComplete && (
-                  <span className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    Complete profile first
-                  </span>
-                )}
-              </div>
-            </button>
+
             <button 
               onClick={toggleDemoDevice}
               className="flex items-center space-x-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-400 hover:bg-blue-100 transition"
@@ -1656,7 +1632,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                       {Object.entries(waterQualityMetrics.metrics).map(([key, param]: [string, any]) => {
                         const Icon = param.icon;
                         return (
-                          <div key={key} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <div key={`report-param-${key}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center space-x-2">
                                 <Icon className="w-5 h-5 text-gray-700" />
@@ -1854,16 +1830,6 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           isOpen={showDemoDevice}
           onClose={toggleDemoDevice}
           onDemoDeviceAdded={handleDemoDeviceAdded}
-        />,
-        document.body
-      )}
-
-      {/* Request Device Modal */}
-      {createPortal(
-        <RequestDeviceModal
-          isOpen={showRequestDevice}
-          onClose={toggleRequestDevice}
-          onSuccess={handleDeviceRequested}
         />,
         document.body
       )}

@@ -34,7 +34,7 @@ def get_environment_config(environment: str) -> Dict[str, Any]:
             "domain_name": "dev.aquachain.io",
             "certificate_arn": None,  # Use default certificate
             "enable_deletion_protection": False,
-            "enable_point_in_time_recovery": False,
+            "enable_point_in_time_recovery": True,  # ✅ SECURITY FIX: Enable PITR for data recovery
             "dynamodb_billing_mode": "PAY_PER_REQUEST",
             "lambda_reserved_concurrency": 10,
             "api_throttle_rate_limit": 100,
@@ -171,6 +171,16 @@ def get_resource_name(config: Dict[str, Any], resource_type: str, resource_name:
     Returns:
         Standardized resource name
     """
+    # Import legacy table names
+    from .legacy_table_names import get_legacy_table_name
+    
+    # For DynamoDB tables, check if legacy name exists
+    if resource_type == "table":
+        legacy_name = get_legacy_table_name(resource_name)
+        if legacy_name:
+            return legacy_name
+    
+    # Standard naming for new resources
     project = config["project_name"]
     env = config["environment"]
     

@@ -15,6 +15,7 @@ export interface SignupData {
   email: string;
   password: string;
   confirmPassword: string;
+  phone?: string;
   role: 'consumer' | 'technician';
   acceptTerms: boolean;
   csrfToken?: string;

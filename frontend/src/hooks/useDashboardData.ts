@@ -112,12 +112,11 @@ export function useDashboardData(userRole: UserRole) {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 300000); // Refetch every 5 minutes (300 seconds)
-
-    return () => {
-      clearInterval(interval);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Polling disabled - use manual refresh button instead
+    // This prevents excessive 401 errors when token expires
+    // Uncomment below to re-enable polling:
+    // const interval = setInterval(fetchData, 300000); // 5 minutes
+    // return () => clearInterval(interval);
   }, [userRole]); // Only refetch when userRole changes
 
   return { data, isLoading, error, refetch: fetchData };

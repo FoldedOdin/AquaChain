@@ -50,26 +50,7 @@ class AquaChainMLModelRegistryStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             versioned=True,
-            removal_policy=RemovalPolicy.RETAIN,  # Always retain models
-            lifecycle_rules=[
-                # Archive old model versions to Glacier
-                s3.LifecycleRule(
-                    id="ArchiveOldVersions",
-                    noncurrent_version_transitions=[
-                        s3.NoncurrentVersionTransition(
-                            storage_class=s3.StorageClass.GLACIER,
-                            transition_after=Duration.days(90)
-                        )
-                    ],
-                    enabled=True
-                ),
-                # Delete very old versions
-                s3.LifecycleRule(
-                    id="DeleteVeryOldVersions",
-                    noncurrent_version_expiration=Duration.days(365),
-                    enabled=True
-                )
-            ]
+            removal_policy=RemovalPolicy.RETAIN  # Always retain models
         )
         
         return bucket
@@ -90,9 +71,7 @@ class AquaChainMLModelRegistryStack(Stack):
                 type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
-                point_in_time_recovery_enabled=True
-            ),
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN,  # Always retain registry
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
@@ -107,20 +86,6 @@ class AquaChainMLModelRegistryStack(Stack):
             sort_key=dynamodb.Attribute(
                 name="created_at",
                 type=dynamodb.AttributeType.STRING
-            ),
-            projection_type=dynamodb.ProjectionType.ALL
-        )
-        
-        # Add GSI for querying by traffic percentage
-        table.add_global_secondary_index(
-            index_name="TrafficIndex",
-            partition_key=dynamodb.Attribute(
-                name="model_name",
-                type=dynamodb.AttributeType.STRING
-            ),
-            sort_key=dynamodb.Attribute(
-                name="traffic_percentage",
-                type=dynamodb.AttributeType.NUMBER
             ),
             projection_type=dynamodb.ProjectionType.ALL
         )
