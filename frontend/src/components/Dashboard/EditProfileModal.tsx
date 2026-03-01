@@ -193,6 +193,10 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
       if (needsVerification) {
         // Request OTP
+        console.log('🔐 Requesting OTP for profile update...');
+        console.log('📧 Email:', currentProfile.email);
+        console.log('📝 Changes:', updates);
+        
         const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/request-otp`, {
           method: 'POST',
           headers: {
@@ -206,9 +210,42 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         });
 
         const result = await response.json();
+        console.log('📬 OTP Request Response:', result);
 
         if (!response.ok) {
-          throw new Error(result.error || 'Failed to send OTP');
+          console.error('❌ OTP Request Failed:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: result.error,
+            message: result.message,
+            details: result.details
+          });
+          
+          // Show detailed error message
+          let errorMsg = 'Failed to send OTP';
+          if (result.error?.includes('SES') || result.error?.includes('email')) {
+            errorMsg = 'Email service error. Please contact support or try again later.';
+          } else if (result.message) {
+            errorMsg = result.message;
+          } else if (result.error) {
+            errorMsg = result.error;
+          }
+          
+          throw new Error(errorMsg);
+        }
+
+        // Log success details
+        console.log('✅ OTP sent successfully');
+        console.log('📮 Delivery method:', result.deliveryMethod);
+        console.log('📧 Sent to:', result.deliveryTarget);
+        
+        // In dev mode, show OTP in console and alert
+        if (result.devOtp) {
+          console.log('🔑 DEV MODE - OTP:', result.devOtp);
+          console.log('⚠️ This OTP is only visible in development mode');
+          
+          // Show alert with OTP for easy testing
+          alert(`🔑 DEV MODE\n\nYour OTP is: ${result.devOtp}\n\nThis is only shown in development mode.`);
         }
 
         setOtpSentTo(currentProfile.email);
@@ -305,6 +342,9 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         address: addressObj
       };
 
+      console.log('🔐 Verifying OTP...');
+      console.log('📝 Submitting OTP verification with updates:', updates);
+
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/verify-and-update`, {
         method: 'PUT',
         headers: {
@@ -318,9 +358,41 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       });
 
       const result = await response.json();
+      console.log('📬 OTP Verification Response:', result);
 
       if (!response.ok) {
-        throw new Error(result.error || 'Invalid OTP');
+        console.error('❌ OTP Verification Failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: result.error,
+          message: result.message
+        });
+        
+        let errorMsg = 'Invalid OTP';
+        if (result.message) {
+          errorMsg = result.message;
+        } else if (result.error) {
+          errorMsg = result.error;
+        }
+        
+        throw new Error(errorMsg);
+      }
+
+      console.log('✅ Profile updated successfully');
+
+      // Update localStorage with new profile data
+      const storedUser = localStorage.getItem('aquachain_user');
+      if (storedUser) {
+        const userData = JSON.parse(storedUser);
+        userData.profile = {
+          ...userData.profile,
+          firstName: updates.firstName,
+          lastName: updates.lastName,
+          phone: updates.phone,
+          address: updates.address
+        };
+        localStorage.setItem('aquachain_user', JSON.stringify(userData));
+        console.log('✅ Updated profile in localStorage after OTP verification');
       }
 
       setStep('success');
@@ -330,7 +402,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       }, 2000);
 
     } catch (error: any) {
-      console.error('OTP verification error:', error);
+      console.error('❌ OTP verification error:', error);
       setOtpError(error.message || 'Invalid OTP. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -379,15 +451,41 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       });
 
       const result = await response.json();
+      console.log('📬 Resend OTP Response:', result);
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to resend OTP');
+        console.error('❌ Resend OTP Failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: result.error,
+          message: result.message
+        });
+        
+        let errorMsg = 'Failed to resend OTP';
+        if (result.error?.includes('SES') || result.error?.includes('email')) {
+          errorMsg = 'Email service error. Please contact support or try again later.';
+        } else if (result.message) {
+          errorMsg = result.message;
+        } else if (result.error) {
+          errorMsg = result.error;
+        }
+        
+        throw new Error(errorMsg);
+      }
+
+      console.log('✅ OTP resent successfully');
+      
+      // In dev mode, show OTP
+      if (result.devOtp) {
+        console.log('🔑 DEV MODE - New OTP:', result.devOtp);
+        alert(`🔑 DEV MODE\n\nYour new OTP is: ${result.devOtp}\n\nThis is only shown in development mode.`);
       }
 
       setResendTimer(60);
       setOtp(['', '', '', '', '', '']);
       
     } catch (error: any) {
+      console.error('❌ Resend OTP error:', error);
       setOtpError(error.message || 'Failed to resend OTP');
     } finally {
       setIsSubmitting(false);
