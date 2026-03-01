@@ -28,6 +28,14 @@ interface InventoryItem {
   minQuantity?: number;
 }
 
+interface CheckedOutItem {
+  partId: string;
+  name: string;
+  quantity: number;
+  checkedOutAt: string;
+  taskId?: string;
+}
+
 interface InventoryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -35,6 +43,7 @@ interface InventoryModalProps {
 
 const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [myCheckouts, setMyCheckouts] = useState<CheckedOutItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -43,6 +52,7 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
   const [checkoutQuantity, setCheckoutQuantity] = useState(1);
   const [checkoutTaskId, setCheckoutTaskId] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'available' | 'my-checkouts'>('available');
 
   // Fetch inventory
   useEffect(() => {
@@ -143,12 +153,35 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
       });
 
       if (response.ok) {
+        const data = await response.json();
+        
         // Update local inventory
         setInventory(prev => prev.map(item => 
           item.partId === selectedItem.partId 
             ? { ...item, quantity: item.quantity - checkoutQuantity }
             : item
         ));
+        
+        // Add to my checkouts
+        setMyCheckouts(prev => {
+          const existing = prev.find(c => c.partId === selectedItem.partId && c.taskId === checkoutTaskId);
+          if (existing) {
+            return prev.map(c => 
+              c.partId === selectedItem.partId && c.taskId === checkoutTaskId
+                ? { ...c, quantity: c.quantity + checkoutQuantity }
+                : c
+            );
+          } else {
+            return [...prev, {
+              partId: selectedItem.partId,
+              name: selectedItem.name,
+              quantity: checkoutQuantity,
+              checkedOutAt: data.checkedOutAt || new Date().toISOString(),
+              taskId: checkoutTaskId || undefined
+            }];
+          }
+        });
+        
         setShowCheckoutModal(false);
         setSelectedItem(null);
         alert(`Successfully checked out ${checkoutQuantity} ${selectedItem.name}`);
@@ -190,6 +223,24 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
             ? { ...i, quantity: i.quantity + parseInt(quantity) }
             : i
         ));
+        
+        // Remove from my checkouts
+        setMyCheckouts(prev => {
+          const checkout = prev.find(c => c.partId === item.partId);
+          if (checkout) {
+            if (checkout.quantity <= parseInt(quantity)) {
+              return prev.filter(c => c.partId !== item.partId);
+            } else {
+              return prev.map(c => 
+                c.partId === item.partId
+                  ? { ...c, quantity: c.quantity - parseInt(quantity) }
+                  : c
+              );
+            }
+          }
+          return prev;
+        });
+        
         alert(`Successfully returned ${quantity} ${item.name}`);
       } else {
         const error = await response.json();
@@ -266,7 +317,10 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">Parts & Tools Inventory</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {filteredInventory.length} item{filteredInventory.length !== 1 ? 's' : ''} available
+                    {activeTab === 'available' 
+                      ? `${filteredInventory.length} item${filteredInventory.length !== 1 ? 's' : ''} available`
+                      : `${myCheckouts.length} item${myCheckouts.length !== 1 ? 's' : ''} checked out`
+                    }
                   </p>
                 </div>
                 <button 
@@ -277,9 +331,39 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
 
-              {/* Statistics */}
-              <div className="p-4 border-b bg-gray-50">
-                <div className="grid grid-cols-4 gap-4">
+              {/* Tabs */}
+              <div className="flex border-b bg-gray-50">
+                <button
+                  onClick={() => setActiveTab('available')}
+                  className={`flex-1 px-6 py-3 font-medium transition-colors ${
+                    activeTab === 'available'
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Available Inventory
+                </button>
+                <button
+                  onClick={() => setActiveTab('my-checkouts')}
+                  className={`flex-1 px-6 py-3 font-medium transition-colors relative ${
+                    activeTab === 'my-checkouts'
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  My Checkouts
+                  {myCheckouts.length > 0 && (
+                    <span className="ml-2 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-blue-600 rounded-full">
+                      {myCheckouts.reduce((sum, item) => sum + item.quantity, 0)}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Statistics - Only show for Available tab */}
+              {activeTab === 'available' && (
+                <div className="p-4 border-b bg-gray-50">
+                  <div className="grid grid-cols-4 gap-4">
                   <div className="bg-white rounded-lg p-3 border border-gray-200">
                     <div className="flex items-center gap-2 mb-1">
                       <Package className="w-4 h-4 text-blue-600" />
@@ -310,8 +394,10 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
               </div>
+              )}
 
-              {/* Search and Filter */}
+              {/* Search and Filter - Only show for Available tab */}
+              {activeTab === 'available' && (
               <div className="p-4 border-b bg-gray-50">
                 <div className="flex gap-4">
                   <div className="flex-1 relative">
@@ -339,10 +425,13 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
               </div>
+              )}
 
-              {/* Inventory List */}
+              {/* Content Area */}
               <div className="flex-1 overflow-y-auto p-6">
-                {isLoading ? (
+                {activeTab === 'available' ? (
+                  /* Available Inventory */
+                  isLoading ? (
                   <div className="text-center py-12">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                     <p className="text-gray-600">Loading inventory...</p>
@@ -435,6 +524,64 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ isOpen, onClose }) => {
                         : 'No inventory items available.'}
                     </p>
                   </div>
+                )
+                ) : (
+                  /* My Checkouts */
+                  myCheckouts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {myCheckouts.map((checkout, index) => (
+                        <div 
+                          key={`${checkout.partId}-${checkout.taskId || index}`}
+                          className="border-2 border-blue-200 bg-blue-50 rounded-lg p-4"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                                <Package className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-gray-900">{checkout.name}</h4>
+                                <p className="text-xs text-gray-600">
+                                  Checked out {new Date(checkout.checkedOutAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2 mb-3">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-gray-600">Quantity:</span>
+                              <span className="font-bold text-blue-600 text-lg">{checkout.quantity}</span>
+                            </div>
+                            {checkout.taskId && (
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-600">Task ID:</span>
+                                <span className="text-gray-900 font-mono text-xs">{checkout.taskId}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const item = inventory.find(i => i.partId === checkout.partId);
+                              if (item) handleReturn(item);
+                            }}
+                            className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                          >
+                            Return Items
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <CheckCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">No Checked Out Items</h3>
+                      <p className="text-gray-600">
+                        You haven't checked out any items yet. Switch to Available Inventory to checkout items.
+                      </p>
+                    </div>
+                  )
                 )}
               </div>
 

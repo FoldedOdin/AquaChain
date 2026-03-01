@@ -37,7 +37,7 @@ interface OrderingFlowProps {
  * Requirements: 1.1, 1.2, 2.1, 3.1, 4.1, 7.1
  */
 const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete }) => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { state, setPaymentMethod, createOrder, clearError, resetOrderFlow } = useOrdering();
   
   // Flow state
@@ -45,6 +45,8 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
   const [selectedDeviceType, setSelectedDeviceType] = useState<string>('');
   const [selectedServiceType, setSelectedServiceType] = useState<string>('');
   const [orderAmount, setOrderAmount] = useState<number>(0);
+  const [showProfileIncompleteModal, setShowProfileIncompleteModal] = useState(false);
+  const [missingProfileFields, setMissingProfileFields] = useState<string[]>([]);
 
   // Device and service options
   const deviceTypes = [
@@ -66,13 +68,61 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
     setOrderAmount(total);
   }, [selectedDeviceType, selectedServiceType]);
 
+  // Validate user profile completeness
+  const validateProfileComplete = useCallback((): { isValid: boolean; missingFields: string[] } => {
+    const missingFields: string[] = [];
+    
+    // Check phone number
+    if (!user?.profile?.phone || user.profile.phone.trim() === '') {
+      missingFields.push('Phone Number');
+    }
+    
+    // Check address - accept if address exists and has at least one meaningful field
+    const userAddress = user?.profile?.address;
+    let hasValidAddress = false;
+    
+    if (userAddress && typeof userAddress === 'object') {
+      // Address is an object with street, city, etc.
+      hasValidAddress = !!(
+        (userAddress.street && userAddress.street.trim() !== '') ||
+        (userAddress.city && userAddress.city.trim() !== '')
+      );
+    }
+    
+    if (!hasValidAddress) {
+      missingFields.push('Delivery Address');
+    }
+    
+    return {
+      isValid: missingFields.length === 0,
+      missingFields
+    };
+  }, [user]);
+
   // Handle device selection
-  const handleDeviceSelection = useCallback(() => {
+  const handleDeviceSelection = useCallback(async () => {
     if (!selectedDeviceType || !selectedServiceType) {
       return;
     }
+    
+    // Refresh user profile from API to get latest data (including phone/address updates)
+    try {
+      await refreshUser();
+    } catch (error) {
+      console.warn('Failed to refresh user profile, using cached data:', error);
+    }
+    
+    // Validate profile before proceeding
+    const validation = validateProfileComplete();
+    if (!validation.isValid) {
+      // Show modal with missing fields
+      setMissingProfileFields(validation.missingFields);
+      setShowProfileIncompleteModal(true);
+      return;
+    }
+    
     setCurrentStep('payment-method');
-  }, [selectedDeviceType, selectedServiceType]);
+  }, [selectedDeviceType, selectedServiceType, validateProfileComplete, refreshUser]);
 
   // Handle payment method selection
   const handlePaymentMethodSelect = useCallback((method: PaymentMethod) => {
@@ -88,6 +138,15 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
   // Handle COD confirmation
   const handleCODConfirm = useCallback(async () => {
     try {
+      // Re-validate profile before creating order (in case data changed)
+      const validation = validateProfileComplete();
+      if (!validation.isValid) {
+        setMissingProfileFields(validation.missingFields);
+        setShowProfileIncompleteModal(true);
+        setCurrentStep('device-selection'); // Go back to start
+        return;
+      }
+
       // Convert user profile address to proper Address format
       const userAddress = user?.profile?.address;
       let deliveryAddress: Address;
@@ -137,12 +196,28 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
         amount: orderAmount,
       };
 
+      // Validate required fields before submitting
+      if (!orderRequest.contactInfo.phone) {
+        throw new Error('Phone number is required. Please update your profile with a valid phone number.');
+      }
+
       await createOrder(orderRequest);
       setCurrentStep('order-tracking');
     } catch (error) {
       console.error('Failed to create COD order:', error);
+      // Show user-friendly error
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
+      if (errorMessage.includes('phone') || errorMessage.includes('address')) {
+        // Profile validation error - show modal
+        setMissingProfileFields(errorMessage.includes('phone') ? ['Phone Number'] : ['Delivery Address']);
+        setShowProfileIncompleteModal(true);
+        setCurrentStep('device-selection');
+      } else {
+        // Other error - let the OrderingContext handle it
+        throw error;
+      }
     }
-  }, [user, selectedDeviceType, selectedServiceType, orderAmount, createOrder]);
+  }, [user, selectedDeviceType, selectedServiceType, orderAmount, createOrder, validateProfileComplete]);
 
   // Handle COD cancellation
   const handleCODCancel = useCallback(() => {
@@ -152,6 +227,15 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
   // Handle online payment success
   const handlePaymentSuccess = useCallback(async (paymentId: string) => {
     try {
+      // Re-validate profile before creating order (in case data changed)
+      const validation = validateProfileComplete();
+      if (!validation.isValid) {
+        setMissingProfileFields(validation.missingFields);
+        setShowProfileIncompleteModal(true);
+        setCurrentStep('device-selection'); // Go back to start
+        return;
+      }
+
       // Convert user profile address to proper Address format
       const userAddress = user?.profile?.address;
       let deliveryAddress: Address;
@@ -202,12 +286,28 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
         paymentId,
       };
 
+      // Validate required fields before submitting
+      if (!orderRequest.contactInfo.phone) {
+        throw new Error('Phone number is required. Please update your profile with a valid phone number.');
+      }
+
       await createOrder(orderRequest);
       setCurrentStep('order-tracking');
     } catch (error) {
       console.error('Failed to create online order:', error);
+      // Show user-friendly error
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
+      if (errorMessage.includes('phone') || errorMessage.includes('address')) {
+        // Profile validation error - show modal
+        setMissingProfileFields(errorMessage.includes('phone') ? ['Phone Number'] : ['Delivery Address']);
+        setShowProfileIncompleteModal(true);
+        setCurrentStep('device-selection');
+      } else {
+        // Other error - let the OrderingContext handle it
+        throw error;
+      }
     }
-  }, [user, selectedDeviceType, selectedServiceType, orderAmount, createOrder]);
+  }, [user, selectedDeviceType, selectedServiceType, orderAmount, createOrder, validateProfileComplete]);
 
   // Handle payment failure
   const handlePaymentFailure = useCallback((error: any) => {
@@ -517,6 +617,8 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
                     orderId={state.currentOrder.id}
                     currentStatus={state.currentOrder.status}
                     statusHistory={state.currentOrder.statusHistory || []}
+                    demoMode={true}
+                    progressInterval={20}
                   />
                   
                   {/* Order Complete Button */}
@@ -568,6 +670,71 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
             </div>
           )}
         </motion.div>
+
+        {/* Profile Incomplete Modal */}
+        <AnimatePresence>
+          {showProfileIncompleteModal && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black bg-opacity-50 z-50"
+                onClick={() => setShowProfileIncompleteModal(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              >
+                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className="flex-shrink-0">
+                      <AlertTriangle className="w-12 h-12 text-orange-500" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        Complete Your Profile
+                      </h3>
+                      <p className="text-gray-600 mb-4">
+                        Please add the following information to your profile before placing an order:
+                      </p>
+                      <ul className="space-y-2 mb-4">
+                        {missingProfileFields.map((field) => (
+                          <li key={field} className="flex items-center gap-2 text-gray-700">
+                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                            <span className="font-medium">{field}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-sm text-gray-500">
+                        This information is required for order delivery and communication.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setShowProfileIncompleteModal(false);
+                        onClose(); // Close ordering flow so user can edit profile
+                      }}
+                      className="flex-1 bg-cyan-500 text-white px-4 py-3 rounded-lg hover:bg-cyan-600 transition-colors font-medium"
+                    >
+                      Edit Profile Now
+                    </button>
+                    <button
+                      onClick={() => setShowProfileIncompleteModal(false)}
+                      className="px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </OrderingErrorBoundary>,
     document.body

@@ -1,0 +1,16 @@
+# AquaChain ML Inference Lambda Requirements
+
+# Dependencies moved to common layer:
+# - boto3
+# - botocore
+# - python-dateutil
+
+# Dependencies moved to ML layer:
+# - scikit-learn
+# - numpy
+# - pandas
+# - scipy
+# - sagemaker
+
+# Function-specific dependencies only
+# (none currently - all dependencies are in layers)

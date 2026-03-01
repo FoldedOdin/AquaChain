@@ -187,8 +187,7 @@ export class PerformanceMonitor {
 
   private startObservers(): void {
     if (!('PerformanceObserver' in window) || this.observers.length === 0) {
-      console.warn('PerformanceObserver not available or no observers configured');
-      return;
+      return; // Silently skip if not supported
     }
 
     try {
@@ -198,15 +197,16 @@ export class PerformanceMonitor {
       this.observers.forEach((observer, index) => {
         try {
           const entryType = supportedEntryTypes[index];
-          if (entryType) {
+          // Check if entry type is supported before observing
+          if (entryType && PerformanceObserver.supportedEntryTypes?.includes(entryType)) {
             observer.observe({ entryTypes: [entryType] });
           }
         } catch (error) {
-          console.warn(`Failed to start observer for ${supportedEntryTypes[index]}:`, error);
+          // Silently ignore unsupported entry types
         }
       });
     } catch (error) {
-      console.warn('Error starting performance observers:', error);
+      // Silently ignore observer errors
     }
   }
 

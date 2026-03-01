@@ -3,14 +3,39 @@ import { LoginCredentials, SignupData } from '../components/LandingPage/AuthModa
 // AWS Amplify imports (loaded dynamically for production)
 let amplifyAuth: any = null;
 
-// Lazy load AWS Amplify Auth for production
+// Lazy load AWS Amplify Auth for production or AWS mode
 const loadAmplifyAuth = async () => {
-  if (!amplifyAuth && process.env.NODE_ENV === 'production') {
+  const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+  
+  if (!amplifyAuth && useAWS) {
     try {
-      const { signIn, signUp, confirmSignUp, getCurrentUser, signOut } = await import('aws-amplify/auth');
-      amplifyAuth = { signIn, signUp, confirmSignUp, getCurrentUser, signOut };
+      const authModule = await import('aws-amplify/auth');
+      const { Amplify } = await import('aws-amplify');
+      
+      const userPoolId = process.env.REACT_APP_USER_POOL_ID || '';
+      const userPoolClientId = process.env.REACT_APP_USER_POOL_CLIENT_ID || '';
+      
+      console.log('Configuring Amplify with:', {
+        userPoolId,
+        userPoolClientId,
+        hasUserPoolId: !!userPoolId,
+        hasClientId: !!userPoolClientId
+      });
+      
+      // Configure Amplify with v6 API
+      Amplify.configure({
+        Auth: {
+          Cognito: {
+            userPoolId,
+            userPoolClientId,
+          }
+        }
+      });
+      
+      amplifyAuth = authModule;
+      console.log('AWS Amplify configured successfully');
     } catch (error) {
-      console.warn('AWS Amplify not available:', error);
+      console.error('AWS Amplify configuration failed:', error);
     }
   }
   return amplifyAuth;
@@ -59,8 +84,11 @@ class AuthService {
    */
   async initialize(): Promise<void> {
     try {
-      if (process.env.NODE_ENV === 'production') {
-        // Load AWS Amplify for production
+      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (useAWS) {
+        // Load AWS Amplify for production or AWS mode
         await loadAmplifyAuth();
         
         // Try to get current authenticated user
@@ -75,7 +103,7 @@ class AuthService {
           }
         }
       } else {
-        // Development mode - no initialization needed
+        // Development mode with local backend - no initialization needed
         this.currentUser = null;
         this.currentSession = null;
       }
@@ -91,8 +119,11 @@ class AuthService {
    */
   async signIn(credentials: LoginCredentials): Promise<AuthResult> {
     try {
-      // In development, use the dev server
-      if (process.env.NODE_ENV === 'development') {
+      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (!useAWS) {
+        // Development mode with local backend
         const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signin`, {
           method: 'POST',
           headers: {
@@ -141,19 +172,42 @@ class AuthService {
           });
 
           const user = result.user || await auth.getCurrentUser();
-          const session = { isValid: () => true, ...result };
+          
+          // Extract token from Amplify session and store in localStorage
+          // This ensures compatibility with the rest of the app
+          // Don't fetch AWS credentials to avoid Identity Pool calls
+          const session = await auth.fetchAuthSession({ forceRefresh: false });
+          const idToken = session.tokens?.idToken?.toString();
+          
           const userRole: UserRole = user.attributes?.['custom:role'] || 'consumer';
           const redirectPath = this.getRedirectPath(userRole);
 
           this.currentUser = user;
-          this.currentSession = session;
+          this.currentSession = { isValid: () => true, ...result, tokens: session.tokens };
+
+          // Store token and user info in localStorage for persistence
+          // This makes the app work consistently across auth modes
+          if (idToken) {
+            localStorage.setItem('aquachain_token', idToken);
+            localStorage.setItem('aquachain_user', JSON.stringify({
+              id: user.userId || user.username,
+              email: user.attributes?.email || credentials.email,
+              name: user.attributes?.name || user.attributes?.email,
+              role: userRole,
+              emailVerified: user.attributes?.email_verified || false
+            }));
+            localStorage.setItem('aquachain_role', userRole);
+            console.log('Token stored in localStorage for AWS Cognito mode');
+          } else {
+            console.warn('No ID token found in Amplify session');
+          }
 
           // Track login event
           await this.trackAuthEvent('login', userRole);
 
           return {
             user,
-            session,
+            session: this.currentSession,
             userRole,
             redirectPath
           };
@@ -178,63 +232,43 @@ class AuthService {
    */
   async signUp(userData: SignupData): Promise<{ user: any; confirmationRequired: boolean }> {
     try {
-      // In development, use the dev server
-      if (process.env.NODE_ENV === 'development') {
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signup`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(userData),
-        });
+      // Always use custom OTP registration endpoint
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      const response = await fetch(`${apiEndpoint}/api/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: userData.email,
+          password: userData.password,
+          firstName: userData.name.split(' ')[0] || userData.name,
+          lastName: userData.name.split(' ').slice(1).join(' ') || '',
+          phone: userData.phone || '',
+          role: userData.role || 'consumer'
+        }),
+      });
 
-        const result = await response.json();
-        
-        if (!response.ok) {
-          throw new AuthError(result.error || 'Signup failed', 'SIGNUP_FAILED');
-        }
-
-        // Track signup event
-        await this.trackAuthEvent('signup', userData.role);
-
-        return {
-          user: { email: userData.email, userId: result.userId },
-          confirmationRequired: result.confirmationRequired
-        };
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new AuthError(
+          result.error || 'Registration failed', 
+          result.code || 'SIGNUP_FAILED'
+        );
       }
 
-      // Production: Use AWS Amplify Cognito
-      const auth = await loadAmplifyAuth();
-      if (auth) {
-        try {
-          const result = await auth.signUp({
-            username: userData.email,
-            password: userData.password,
-            attributes: {
-              email: userData.email,
-              name: userData.name,
-              'custom:role': userData.role
-            }
-          });
+      // Track signup event
+      await this.trackAuthEvent('signup', userData.role);
 
-          // Track signup event
-          await this.trackAuthEvent('signup', userData.role);
-
-          return {
-            user: result.user,
-            confirmationRequired: !result.isSignUpComplete
-          };
-        } catch (error: any) {
-          throw new AuthError(
-            error.message || 'Signup failed',
-            error.code || 'SIGNUP_FAILED',
-            error
-          );
-        }
-      }
-
-      // Fallback if Amplify not available
-      throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
+      return {
+        user: { 
+          email: result.email, 
+          userId: result.userId 
+        },
+        confirmationRequired: true // Always require OTP confirmation
+      };
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -245,35 +279,49 @@ class AuthService {
    */
   async confirmSignUp(email: string, confirmationCode: string): Promise<void> {
     try {
-      // Check if using mock auth (local development)
-      const useMockAuth = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
-      const localOtpCode = process.env.REACT_APP_LOCAL_OTP_CODE || '123456';
+      // Always use custom OTP verification endpoint
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      const response = await fetch(`${apiEndpoint}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email,
+          otp: confirmationCode
+        }),
+      });
 
-      if (useMockAuth) {
-        // Local development mode - validate against hardcoded OTP
-        console.log(`Local Dev: Validating OTP for ${email}`);
-        
-        if (confirmationCode === localOtpCode) {
-          console.log(`✅ Local Dev: OTP verified successfully for ${email}`);
-          return;
+      const result = await response.json();
+      
+      if (!response.ok) {
+        // Handle specific error codes
+        if (result.code === 'INVALID_OTP') {
+          throw new AuthError(
+            result.error || 'Invalid verification code',
+            'CodeMismatchException',
+            { remainingAttempts: result.remainingAttempts }
+          );
+        } else if (result.code === 'OTP_EXPIRED') {
+          throw new AuthError(
+            'Verification code expired. Please request a new one.',
+            'ExpiredCodeException'
+          );
+        } else if (result.code === 'MAX_ATTEMPTS_EXCEEDED') {
+          throw new AuthError(
+            'Too many failed attempts. Please request a new code.',
+            'LimitExceededException'
+          );
         } else {
           throw new AuthError(
-            `Invalid verification code. Use ${localOtpCode} for local development.`,
-            'CodeMismatchException'
+            result.error || 'Verification failed',
+            result.code || 'VERIFICATION_FAILED'
           );
         }
       }
 
-      // Production: Use AWS Amplify Cognito
-      const auth = await loadAmplifyAuth();
-      if (auth) {
-        await auth.confirmSignUp({
-          username: email,
-          confirmationCode
-        });
-      } else {
-        throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
-      }
+      console.log('✅ Email verified successfully');
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -284,24 +332,45 @@ class AuthService {
    */
   async resendConfirmationCode(email: string): Promise<void> {
     try {
-      // Check if using mock auth (local development)
-      const useMockAuth = process.env.REACT_APP_USE_MOCK_AUTH === 'true';
-      const localOtpCode = process.env.REACT_APP_LOCAL_OTP_CODE || '123456';
+      // Always use custom OTP request endpoint
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      const response = await fetch(`${apiEndpoint}/api/auth/request-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
 
-      if (useMockAuth) {
-        // Local development mode - show hardcoded OTP in console
-        console.log(`📧 Local Dev: Verification code for ${email}: ${localOtpCode}`);
-        console.log(`💡 Tip: Use code "${localOtpCode}" to verify your email`);
-        return;
+      const result = await response.json();
+      
+      if (!response.ok) {
+        // Handle specific error codes
+        if (result.code === 'RATE_LIMITED') {
+          throw new AuthError(
+            'Please wait 2 minutes before requesting a new code',
+            'TooManyRequestsException'
+          );
+        } else if (result.code === 'USER_NOT_FOUND') {
+          throw new AuthError(
+            'User not found. Please register first.',
+            'UserNotFoundException'
+          );
+        } else if (result.code === 'ALREADY_VERIFIED') {
+          throw new AuthError(
+            'Email already verified. You can log in now.',
+            'InvalidParameterException'
+          );
+        } else {
+          throw new AuthError(
+            result.error || 'Failed to resend code',
+            result.code || 'RESEND_FAILED'
+          );
+        }
       }
 
-      // Production: Use AWS Amplify Cognito
-      const auth = await loadAmplifyAuth();
-      if (auth) {
-        await auth.resendSignUp({ username: email });
-      } else {
-        throw new AuthError('Authentication service not available', 'SERVICE_UNAVAILABLE');
-      }
+      console.log('📧 Verification code sent successfully');
     } catch (error: any) {
       throw this.handleAuthError(error);
     }
@@ -365,7 +434,8 @@ class AuthService {
       
       // Get authenticated user
       const user = await getCurrentUser();
-      const session = await fetchAuthSession();
+      // Don't fetch AWS credentials to avoid Identity Pool calls
+      const session = await fetchAuthSession({ forceRefresh: false });
       
       const userRole: UserRole = user.signInDetails?.loginId?.includes('admin') 
         ? 'admin' 
@@ -397,7 +467,10 @@ class AuthService {
     try {
       const userRole = this.getCurrentUserRole();
       
-      if (process.env.NODE_ENV === 'development') {
+      // Check auth mode
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      if (!useAWS) {
         // Development mode - clear local state
         this.currentUser = null;
         this.currentSession = null;
@@ -405,6 +478,7 @@ class AuthService {
         // Clear localStorage
         localStorage.removeItem('aquachain_user');
         localStorage.removeItem('aquachain_token');
+        localStorage.removeItem('aquachain_role');
       } else {
         // Production: Use AWS Amplify v6
         const { signOut } = await import('aws-amplify/auth');
@@ -412,6 +486,11 @@ class AuthService {
         
         this.currentUser = null;
         this.currentSession = null;
+        
+        // Clear localStorage (important for AWS mode too!)
+        localStorage.removeItem('aquachain_user');
+        localStorage.removeItem('aquachain_token');
+        localStorage.removeItem('aquachain_role');
       }
 
       // Track logout event
@@ -446,7 +525,8 @@ class AuthService {
 
     try {
       const { fetchAuthSession } = await import('aws-amplify/auth');
-      const session = await fetchAuthSession();
+      // Don't fetch AWS credentials to avoid Identity Pool calls
+      const session = await fetchAuthSession({ forceRefresh: false });
       
       // Check if session is valid
       if (session.tokens?.accessToken) {
@@ -507,13 +587,33 @@ class AuthService {
    */
   async getAuthToken(): Promise<string | null> {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        const token = localStorage.getItem('aquachain_token');
-        return token;
+      // Check auth mode
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      
+      // First, try to get token from localStorage (works for both modes now)
+      const storedToken = localStorage.getItem('aquachain_token');
+      if (storedToken) {
+        return storedToken;
       }
 
-      const session = await this.getCurrentSession();
-      return session?.tokens?.idToken?.toString() || null;
+      // If not in localStorage and using AWS, try to fetch from Amplify
+      if (useAWS) {
+        const auth = await loadAmplifyAuth();
+        if (auth) {
+          // Don't fetch AWS credentials to avoid Identity Pool calls
+          const session = await auth.fetchAuthSession({ forceRefresh: false });
+          const idToken = session.tokens?.idToken?.toString();
+          
+          // Store it for next time
+          if (idToken) {
+            localStorage.setItem('aquachain_token', idToken);
+          }
+          
+          return idToken || null;
+        }
+      }
+
+      return null;
     } catch (error) {
       console.error('Failed to get auth token:', error);
       return null;

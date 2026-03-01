@@ -1,0 +1,279 @@
+{
+    "items": [
+        {
+            "id": "011kmw",
+            "parentId": "blsh9l",
+            "pathPart": "performance",
+            "path": "/api/admin/system/performance",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "0yz9z0",
+            "parentId": "j6acmy",
+            "pathPart": "admin",
+            "path": "/api/admin",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "1sz6gd",
+            "parentId": "42ge9a",
+            "pathPart": "report",
+            "path": "/api/admin/compliance/report",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "3j5bbl",
+            "parentId": "j6acmy",
+            "pathPart": "v1",
+            "path": "/api/v1",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "42ge9a",
+            "parentId": "0yz9z0",
+            "pathPart": "compliance",
+            "path": "/api/admin/compliance",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "4qguw7",
+            "parentId": "m8vvc9",
+            "pathPart": "{requestId}",
+            "path": "/api/v1/service-requests/{requestId}",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {},
+                "PUT": {}
+            }
+        },
+        {
+            "id": "6q69z515cl",
+            "path": "/",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "85jbld",
+            "parentId": "s60nz3",
+            "pathPart": "stats",
+            "path": "/api/admin/incidents/stats",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "akrzvl",
+            "parentId": "qcab95",
+            "pathPart": "hash-chain",
+            "path": "/api/v1/audit/hash-chain",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "blsh9l",
+            "parentId": "0yz9z0",
+            "pathPart": "system",
+            "path": "/api/admin/system",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "dlok9v",
+            "parentId": "3j5bbl",
+            "pathPart": "readings",
+            "path": "/api/v1/readings",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "fqiwpd",
+            "parentId": "blsh9l",
+            "pathPart": "configuration",
+            "path": "/api/admin/system/configuration",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {},
+                "PUT": {}
+            }
+        },
+        {
+            "id": "j6acmy",
+            "parentId": "6q69z515cl",
+            "pathPart": "api",
+            "path": "/api",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "m38eai",
+            "parentId": "rowuku",
+            "pathPart": "history",
+            "path": "/api/v1/readings/{deviceId}/history",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "m8vvc9",
+            "parentId": "3j5bbl",
+            "pathPart": "service-requests",
+            "path": "/api/v1/service-requests",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {},
+                "POST": {}
+            }
+        },
+        {
+            "id": "mhxb80",
+            "parentId": "0yz9z0",
+            "pathPart": "devices",
+            "path": "/api/admin/devices",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "nakzvp",
+            "parentId": "0yz9z0",
+            "pathPart": "audit",
+            "path": "/api/admin/audit",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "pa29du",
+            "parentId": "tme29l",
+            "pathPart": "{userId}",
+            "path": "/api/admin/users/{userId}",
+            "resourceMethods": {
+                "DELETE": {},
+                "OPTIONS": {},
+                "PUT": {}
+            }
+        },
+        {
+            "id": "qcab95",
+            "parentId": "3j5bbl",
+            "pathPart": "audit",
+            "path": "/api/v1/audit",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "qs64be",
+            "parentId": "pa29du",
+            "pathPart": "reset-password",
+            "path": "/api/admin/users/{userId}/reset-password",
+            "resourceMethods": {
+                "OPTIONS": {},
+                "POST": {}
+            }
+        },
+        {
+            "id": "rowuku",
+            "parentId": "dlok9v",
+            "pathPart": "{deviceId}",
+            "path": "/api/v1/readings/{deviceId}",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "s60nz3",
+            "parentId": "0yz9z0",
+            "pathPart": "incidents",
+            "path": "/api/admin/incidents",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {},
+                "POST": {}
+            }
+        },
+        {
+            "id": "tme29l",
+            "parentId": "0yz9z0",
+            "pathPart": "users",
+            "path": "/api/admin/users",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {},
+                "POST": {}
+            }
+        },
+        {
+            "id": "v4riy9",
+            "parentId": "j6acmy",
+            "pathPart": "webhooks",
+            "path": "/api/webhooks",
+            "resourceMethods": {
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "vjf3h6",
+            "parentId": "blsh9l",
+            "pathPart": "health",
+            "path": "/api/admin/system/health",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "vx0bur",
+            "parentId": "s60nz3",
+            "pathPart": "{incidentId}",
+            "path": "/api/admin/incidents/{incidentId}",
+            "resourceMethods": {
+                "OPTIONS": {},
+                "PUT": {}
+            }
+        },
+        {
+            "id": "wjy00f",
+            "parentId": "nakzvp",
+            "pathPart": "trail",
+            "path": "/api/admin/audit/trail",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {}
+            }
+        },
+        {
+            "id": "xxo7os",
+            "parentId": "3j5bbl",
+            "pathPart": "users",
+            "path": "/api/v1/users",
+            "resourceMethods": {
+                "GET": {},
+                "OPTIONS": {},
+                "POST": {}
+            }
+        }
+    ]
+}

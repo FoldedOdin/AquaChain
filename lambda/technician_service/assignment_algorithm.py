@@ -10,8 +10,8 @@ from typing import Dict, List, Optional, Tuple
 import json
 from decimal import Decimal
 
-from .location_service import LocationService
-from .availability_manager import TechnicianAvailabilityManager
+from location_service import LocationService
+from availability_manager import TechnicianAvailabilityManager
 
 # Import structured logging
 import sys

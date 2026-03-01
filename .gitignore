@@ -384,6 +384,25 @@ iot-simulator/simulation/*.pyc
 *.zip
 lambda-packages/
 
+# Lambda dependencies (should be in layers, not committed)
+lambda/*/boto3/
+lambda/*/boto3-*.dist-info/
+lambda/*/botocore/
+lambda/*/botocore-*.dist-info/
+lambda/*/s3transfer/
+lambda/*/s3transfer-*.dist-info/
+lambda/*/jmespath/
+lambda/*/jmespath-*.dist-info/
+lambda/*/dateutil/
+lambda/*/python_dateutil-*.dist-info/
+lambda/*/urllib3/
+lambda/*/urllib3-*.dist-info/
+lambda/*/six.py
+lambda/*/six-*.dist-info/
+
+# Configuration backups from maintenance scripts
+config-backup-*.json
+
 # CDK context (may contain account info)
 cdk.context.json
 
@@ -438,6 +457,24 @@ internal-docs/
 *.swp
 *.swo
 
+# Temporary fix summaries and debugging files
+CORS-FIX-SUMMARY.md
+*-FIX-SUMMARY.md
+
+# Temporary deployment and testing scripts (one-off fixes)
+scripts/deployment/deploy-cors-fix.*
+scripts/deployment/fix-api-gateway-drift.*
+scripts/deployment/force-api-gateway-redeploy.*
+scripts/testing/test-cors-fix.*
+scripts/testing/check-token-claims.html
+scripts/testing/test-403-error-message.ps1
+
+# Temporary integration tests for specific bugfixes
+tests/integration/test_*_bugfix.py
+tests/integration/test_*_bugfix_README.md
+tests/integration/test_*_preservation.py
+tests/integration/test_*_preservation_README.md
+
 # Archive files that might contain sensitive data
 *.tar
 *.tar.gz
@@ -471,3 +508,11 @@ DOCS/
 !*.example
 !*.template
 !*.sample 
+
+backups/*
+
+# CDK infrastructure backups (temporary)
+infrastructure/cdk/backups/
+
+# Temporary deployment scripts (one-off fixes)
+scripts/deployment/deploy-admin-lambda.bat

@@ -11,16 +11,16 @@ from typing import Dict, List, Optional, Tuple
 import logging
 from decimal import Decimal
 
-from .location_service import LocationService
-from .availability_manager import TechnicianAvailabilityManager
-from .assignment_algorithm import TechnicianAssignmentAlgorithm
-from .service_request_manager import ServiceRequestManager
-
 # Add shared utilities to path
 import sys
-import os
 sys.path.append('/opt/python')  # Lambda layer path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+
+# Import local modules using absolute imports (Lambda-compatible)
+from location_service import LocationService
+from availability_manager import TechnicianAvailabilityManager
+from assignment_algorithm import TechnicianAssignmentAlgorithm
+from service_request_manager import ServiceRequestManager
 
 # Import structured logging
 from structured_logger import get_logger
@@ -69,7 +69,9 @@ def lambda_handler(event, context):
         logger.info(f"Processing {http_method} {resource} for user {user_info.get('userId')}")
         
         # Route to appropriate handler
-        if resource == '/api/v1/service-requests' and http_method == 'POST':
+        if resource == '/api/v1/service-requests' and http_method == 'GET':
+            return list_service_requests(query_parameters, user_info)
+        elif resource == '/api/v1/service-requests' and http_method == 'POST':
             return create_service_request(body, user_info)
         elif resource == '/api/v1/service-requests/{requestId}' and http_method == 'GET':
             return get_service_request(path_parameters['requestId'], user_info)
@@ -83,6 +85,16 @@ def lambda_handler(event, context):
             return update_technician_availability(path_parameters['technicianId'], body, user_info)
         elif resource == '/api/v1/technicians/{technicianId}/schedule' and http_method == 'PUT':
             return update_technician_schedule(path_parameters['technicianId'], body, user_info)
+        elif resource == '/api/v1/technician/inventory' and http_method == 'GET':
+            return get_technician_inventory(query_parameters, user_info)
+        elif resource == '/api/v1/technician/inventory/checkout' and http_method == 'POST':
+            return checkout_inventory_item(body, user_info)
+        elif resource == '/api/v1/technician/inventory/return' and http_method == 'POST':
+            return return_inventory_item(body, user_info)
+        elif resource == '/api/v1/technician/inventory/request-restock' and http_method == 'POST':
+            return request_inventory_restock(body, user_info)
+        elif http_method == 'OPTIONS':
+            return create_response(204, {})
         else:
             return create_response(404, {'error': 'Not found'})
             
@@ -96,12 +108,33 @@ def extract_user_from_token(event):
     request_context = event.get('requestContext', {})
     authorizer = request_context.get('authorizer', {})
     
-    return {
-        'userId': authorizer.get('sub'),
-        'email': authorizer.get('email'),
-        'role': authorizer.get('custom:role', 'consumer'),
-        'groups': authorizer.get('cognito:groups', [])
+    # Cognito User Pool authorizer puts claims under 'claims' key
+    claims = authorizer.get('claims', {})
+    
+    # Extract groups from cognito:groups claim
+    groups_str = claims.get('cognito:groups', '') or authorizer.get('cognito:groups', '')
+    groups = groups_str.split(',') if groups_str else []
+    
+    # Determine role from groups (priority: administrators > technicians > consumers)
+    role = 'consumer'  # Default role
+    if 'administrators' in groups:
+        role = 'admin'
+    elif 'technicians' in groups:
+        role = 'technician'
+    elif 'consumers' in groups:
+        role = 'consumer'
+    
+    user_info = {
+        'userId': claims.get('sub') or authorizer.get('sub'),
+        'email': claims.get('email') or authorizer.get('email'),
+        'role': role,
+        'groups': groups
     }
+    
+    # Log for debugging
+    logger.info(f"Extracted user info - userId: {user_info['userId']}, role: {user_info['role']}, groups: {groups}")
+    
+    return user_info
 
 
 def create_response(status_code: int, body: dict, headers: dict = None):
@@ -162,6 +195,80 @@ def create_service_request(request_data: dict, user_info: dict):
     except Exception as e:
         logger.error(f"Error creating service request: {str(e)}")
         return create_response(500, {'error': 'Failed to create service request'})
+
+
+def list_service_requests(query_params: dict, user_info: dict):
+    """List service requests with optional status filter"""
+    try:
+        # Get status filter if provided (can be comma-separated)
+        status_filter = query_params.get('status', '')
+        statuses = [s.strip() for s in status_filter.split(',')] if status_filter else []
+        
+        limit = int(query_params.get('limit', 50))
+        
+        # For technicians, only show their assigned requests
+        if user_info['role'] == 'technician':
+            result = service_request_manager.get_service_request_history(
+                user_info['userId'], 
+                'technician',
+                limit,
+                status_filter
+            )
+            
+            if not result['success']:
+                return create_response(400, {'error': result['error']})
+            
+            return create_response(200, {
+                'serviceRequests': result['service_requests'],
+                'count': len(result['service_requests'])
+            })
+        
+        # For admins, show all requests (optionally filtered by status)
+        elif user_info['role'] == 'administrator':
+            if statuses:
+                # Query by status using GSI or scan with filter
+                items = []
+                for status in statuses:
+                    response = service_requests_table.scan(
+                        FilterExpression='#status = :status',
+                        ExpressionAttributeNames={'#status': 'status'},
+                        ExpressionAttributeValues={':status': status},
+                        Limit=limit
+                    )
+                    items.extend(response.get('Items', []))
+            else:
+                # Get all service requests
+                response = service_requests_table.scan(Limit=limit)
+                items = response.get('Items', [])
+            
+            return create_response(200, {
+                'serviceRequests': items,
+                'count': len(items)
+            })
+        
+        # For consumers, show only their requests
+        elif user_info['role'] == 'consumer':
+            result = service_request_manager.get_service_request_history(
+                user_info['userId'], 
+                'consumer',
+                limit,
+                status_filter
+            )
+            
+            if not result['success']:
+                return create_response(400, {'error': result['error']})
+            
+            return create_response(200, {
+                'serviceRequests': result['service_requests'],
+                'count': len(result['service_requests'])
+            })
+        
+        else:
+            return create_response(403, {'error': 'Access denied'})
+        
+    except Exception as e:
+        logger.error(f"Error listing service requests: {str(e)}")
+        return create_response(500, {'error': 'Failed to list service requests'})
 
 
 
@@ -381,3 +488,214 @@ def _format_relative_time(iso_timestamp: str) -> str:
             return "Just now"
     except:
         return iso_timestamp
+
+
+
+def get_technician_inventory(query_params: dict, user_info: dict):
+    """Get inventory items available to technician"""
+    try:
+        # Log user info for debugging
+        logger.info(f"User info: {json.dumps(user_info)}")
+        
+        # Only technicians can access inventory
+        if user_info.get('role') != 'technician':
+            logger.warning(f"Access denied for user {user_info.get('userId')} with role {user_info.get('role')}")
+            return create_response(403, {'error': 'Access denied', 'userRole': user_info.get('role')})
+        
+        # Mock inventory data - in production, this would query DynamoDB inventory table
+        inventory_items = [
+            {
+                'partId': 'item-001',
+                'name': 'pH Sensor',
+                'category': 'Sensors',
+                'quantity': 15,
+                'checkedOut': 3,
+                'available': 12,
+                'location': 'Warehouse A',
+                'lastRestocked': '2024-02-15T10:30:00Z'
+            },
+            {
+                'partId': 'item-002',
+                'name': 'TDS Sensor',
+                'category': 'Sensors',
+                'quantity': 20,
+                'checkedOut': 5,
+                'available': 15,
+                'location': 'Warehouse A',
+                'lastRestocked': '2024-02-14T14:20:00Z'
+            },
+            {
+                'partId': 'item-003',
+                'name': 'Turbidity Sensor',
+                'category': 'Sensors',
+                'quantity': 12,
+                'checkedOut': 2,
+                'available': 10,
+                'location': 'Warehouse B',
+                'lastRestocked': '2024-02-16T09:15:00Z'
+            },
+            {
+                'partId': 'item-004',
+                'name': 'Temperature Sensor',
+                'category': 'Sensors',
+                'quantity': 25,
+                'checkedOut': 4,
+                'available': 21,
+                'location': 'Warehouse A',
+                'lastRestocked': '2024-02-13T11:45:00Z'
+            },
+            {
+                'partId': 'item-005',
+                'name': 'Calibration Solution',
+                'category': 'Supplies',
+                'quantity': 30,
+                'checkedOut': 8,
+                'available': 22,
+                'location': 'Warehouse C',
+                'lastRestocked': '2024-02-17T08:00:00Z'
+            }
+        ]
+        
+        return create_response(200, {
+            'inventory': inventory_items,
+            'count': len(inventory_items)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting technician inventory: {str(e)}")
+        return create_response(500, {'error': 'Failed to get inventory'})
+
+
+def checkout_inventory_item(checkout_data: dict, user_info: dict):
+    """Checkout an inventory item"""
+    try:
+        # Only technicians can checkout inventory
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Accept both partId and itemId for backward compatibility
+        part_id = checkout_data.get('partId') or checkout_data.get('itemId')
+        quantity = checkout_data.get('quantity', 1)
+        task_id = checkout_data.get('taskId')
+        
+        if not part_id:
+            return create_response(400, {'error': 'Part ID is required'})
+        
+        if quantity <= 0:
+            return create_response(400, {'error': 'Quantity must be greater than 0'})
+        
+        # In production, this would update DynamoDB inventory table
+        logger.info(f"Technician {user_info['userId']} checked out {quantity} of part {part_id}" + 
+                   (f" for task {task_id}" if task_id else ""))
+        
+        return create_response(200, {
+            'success': True,
+            'message': f'Successfully checked out {quantity} item(s)',
+            'partId': part_id,
+            'quantity': quantity,
+            'taskId': task_id,
+            'technicianId': user_info['userId'],
+            'checkedOutAt': datetime.utcnow().isoformat() + 'Z'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error checking out inventory item: {str(e)}")
+        return create_response(500, {'error': 'Failed to checkout item'})
+
+
+def return_inventory_item(return_data: dict, user_info: dict):
+    """Return an inventory item"""
+    try:
+        # Only technicians can return inventory
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Accept both partId and itemId for backward compatibility
+        part_id = return_data.get('partId') or return_data.get('itemId')
+        quantity = return_data.get('quantity', 1)
+        condition = return_data.get('condition', 'good')
+        
+        if not part_id:
+            return create_response(400, {'error': 'Part ID is required'})
+        
+        if quantity <= 0:
+            return create_response(400, {'error': 'Quantity must be greater than 0'})
+        
+        # In production, this would update DynamoDB inventory table
+        logger.info(f"Technician {user_info['userId']} returned {quantity} of part {part_id} in {condition} condition")
+        
+        return create_response(200, {
+            'success': True,
+            'message': f'Successfully returned {quantity} item(s)',
+            'partId': part_id,
+            'quantity': quantity,
+            'condition': condition,
+            'technicianId': user_info['userId'],
+            'returnedAt': datetime.utcnow().isoformat() + 'Z'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error returning inventory item: {str(e)}")
+        return create_response(500, {'error': 'Failed to return item'})
+
+
+def request_inventory_restock(restock_data: dict, user_info: dict):
+    """Request restock of an inventory item"""
+    try:
+        # Only technicians can request restocks
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Accept both partId and itemId for backward compatibility
+        part_id = restock_data.get('partId') or restock_data.get('itemId')
+        part_name = restock_data.get('partName', 'Unknown Part')
+        quantity = restock_data.get('quantity', 1)
+        urgency = restock_data.get('urgency', 'normal')
+        reason = restock_data.get('reason', '')
+        current_stock = restock_data.get('currentStock', 0)
+        
+        if not part_id:
+            return create_response(400, {'error': 'Part ID is required'})
+        
+        if quantity <= 0:
+            return create_response(400, {'error': 'Quantity must be greater than 0'})
+        
+        # In production, this would create a restock request in DynamoDB
+        logger.info(f"Technician {user_info['userId']} requested restock of {quantity} of part {part_id} ({part_name}) with {urgency} urgency")
+        
+        # Optionally notify admin via SNS
+        if ADMIN_TOPIC_ARN:
+            try:
+                sns.publish(
+                    TopicArn=ADMIN_TOPIC_ARN,
+                    Subject=f"Inventory Restock Request - {urgency.upper()}",
+                    Message=json.dumps({
+                        'type': 'restock_request',
+                        'partId': part_id,
+                        'partName': part_name,
+                        'quantity': quantity,
+                        'currentStock': current_stock,
+                        'urgency': urgency,
+                        'reason': reason,
+                        'requestedBy': user_info['userId'],
+                        'requestedAt': datetime.utcnow().isoformat() + 'Z'
+                    })
+                )
+            except Exception as sns_error:
+                logger.warning(f"Failed to send SNS notification: {str(sns_error)}")
+        
+        return create_response(200, {
+            'success': True,
+            'message': 'Restock request submitted successfully',
+            'requestId': f"restock-{int(datetime.utcnow().timestamp())}",
+            'partId': part_id,
+            'partName': part_name,
+            'quantity': quantity,
+            'urgency': urgency,
+            'requestedBy': user_info['userId'],
+            'requestedAt': datetime.utcnow().isoformat() + 'Z'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error requesting inventory restock: {str(e)}")
+        return create_response(500, {'error': 'Failed to submit restock request'})

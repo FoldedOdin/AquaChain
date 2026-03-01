@@ -194,6 +194,18 @@ class AquaChainComputeStack(Stack):
             )
         )
         
+        # Grant SES permissions for sending OTP emails
+        self.user_management_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ses:SendEmail",
+                    "ses:SendRawEmail"
+                ],
+                resources=["*"]  # SES doesn't support resource-level permissions for SendEmail
+            )
+        )
+        
         # Service Request Management Lambda
         self.service_request_function = lambda_python.PythonFunction(
             self, "ServiceRequestFunction",
@@ -303,7 +315,7 @@ class AquaChainComputeStack(Stack):
                     "cognito-idp:AdminListGroupsForUser",
                     "cognito-idp:AdminAddUserToGroup",
                     "cognito-idp:AdminRemoveUserFromGroup",
-                    # CloudWatch permissions for system health
+                    # CloudWatch permissions for system health monitoring
                     "cloudwatch:GetMetricStatistics",
                     "cloudwatch:ListMetrics",
                     # DynamoDB permissions for all admin operations
@@ -312,7 +324,11 @@ class AquaChainComputeStack(Stack):
                     "dynamodb:UpdateItem",
                     "dynamodb:DeleteItem",
                     "dynamodb:Query",
-                    "dynamodb:Scan"
+                    "dynamodb:Scan",
+                    # DynamoDB DescribeTable for health checks (Phase 3c)
+                    "dynamodb:DescribeTable",
+                    # IoT permissions for health checks (Phase 3c)
+                    "iot:DescribeEndpoint"
                 ],
                 resources=["*"]  # Admin needs broad access
             )

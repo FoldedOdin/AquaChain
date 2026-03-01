@@ -192,10 +192,30 @@ export interface AuditTrailEntry {
 export interface SystemConfiguration {
   alertThresholds: {
     global: {
-      pH: { min: number; max: number; };
-      turbidity: { max: number; };
-      tds: { max: number; };
-      temperature: { min: number; max: number; };
+      pH: {
+        // Backward compatible: if no severity levels, use min/max as critical
+        min?: number;
+        max?: number;
+        // New severity levels
+        critical?: { min: number; max: number; };
+        warning?: { min: number; max: number; };
+      };
+      turbidity: {
+        max?: number;
+        critical?: { max: number; };
+        warning?: { max: number; };
+      };
+      tds: {
+        max?: number;
+        critical?: { max: number; };
+        warning?: { max: number; };
+      };
+      temperature: {
+        min?: number;
+        max?: number;
+        critical?: { min: number; max: number; };
+        warning?: { min: number; max: number; };
+      };
       wqi: { critical: number; warning: number; };
     };
   };
@@ -218,4 +238,31 @@ export interface SystemConfiguration {
     message?: string;
     allowedRoles: string[];
   };
+  // Phase 3a: ML Configuration (optional, for future)
+  mlSettings?: {
+    anomalyDetectionEnabled: boolean;
+    modelVersion: string;
+    confidenceThreshold: number;
+    retrainingFrequencyDays: number;
+    driftDetectionEnabled: boolean;
+  };
+}
+
+// Phase 3c: System Health Monitoring Types
+
+export interface ServiceHealth {
+  name: string;
+  status: 'healthy' | 'degraded' | 'down' | 'unknown';
+  lastCheck: string;
+  metrics?: {
+    [key: string]: number;
+  };
+  message?: string;
+}
+
+export interface SystemHealthResponse {
+  services: ServiceHealth[];
+  overallStatus: 'healthy' | 'degraded' | 'down';
+  checkedAt: string;
+  cacheHit: boolean;
 }

@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { fetchWithAuth } from '../utils/apiInterceptor';
 
 export interface IncidentReport {
   id: string;
@@ -50,13 +51,15 @@ export const getIncidentReports = async (
     if (severity) params.append('severity', severity);
     params.append('limit', limit.toString());
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/incidents?${params}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/incidents?${params}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     if (!response.ok) {
       // If the endpoint doesn't exist yet, return empty array silently
@@ -92,13 +95,15 @@ export const getIncidentStats = async (days: number = 30): Promise<IncidentStats
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/incidents/stats?days=${days}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/incidents/stats?days=${days}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     if (!response.ok) {
       // If the endpoint doesn't exist yet, return empty stats silently

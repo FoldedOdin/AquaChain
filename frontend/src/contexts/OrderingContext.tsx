@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useReducer, useCallback, ReactNode } from 'react';
 import { Order, OrderStatus, PaymentMethod, CreateOrderRequest } from '../types/ordering';
 
+// Feature flag for orders service
+const ORDERS_FEATURE_ENABLED = true;
+
 // Ordering State Interface
 interface OrderingState {
   currentOrder: Order | null;
@@ -147,7 +150,20 @@ interface OrderingProviderProps {
 }
 
 // API Base URL
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3002';
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+
+// Helper function to convert API order response to Order type with proper Date objects
+const normalizeOrder = (apiOrder: any): Order => {
+  return {
+    ...apiOrder,
+    createdAt: new Date(apiOrder.createdAt),
+    updatedAt: new Date(apiOrder.updatedAt),
+    statusHistory: (apiOrder.statusHistory || []).map((update: any) => ({
+      ...update,
+      timestamp: new Date(update.timestamp)
+    }))
+  };
+};
 
 // Provider Component
 export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) => {
@@ -185,6 +201,15 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
 
   // Create order
   const createOrder = useCallback(async (orderRequest: CreateOrderRequest) => {
+    // Check feature flag
+    if (!ORDERS_FEATURE_ENABLED) {
+      dispatch({ 
+        type: 'SET_ERROR', 
+        payload: 'Device ordering feature is currently being configured. Please contact support@aquachain.com to place an order.' 
+      });
+      return;
+    }
+
     try {
       dispatch({ type: 'START_ORDER_CREATION', payload: orderRequest });
 
@@ -193,7 +218,9 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
         body: JSON.stringify(orderRequest),
       });
 
-      dispatch({ type: 'ORDER_CREATED', payload: response.order });
+      // Normalize the order response to convert string timestamps to Date objects
+      const normalizedOrder = normalizeOrder(response.order);
+      dispatch({ type: 'ORDER_CREATED', payload: normalizedOrder });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
       dispatch({ type: 'SET_ERROR', payload: errorMessage });
@@ -211,7 +238,8 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
         body: JSON.stringify({ status }),
       });
 
-      dispatch({ type: 'ORDER_UPDATED', payload: response.order });
+      const normalizedOrder = normalizeOrder(response.order);
+      dispatch({ type: 'ORDER_UPDATED', payload: normalizedOrder });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update order status';
       dispatch({ type: 'SET_ERROR', payload: errorMessage });

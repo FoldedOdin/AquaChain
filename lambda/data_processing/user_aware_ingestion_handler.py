@@ -285,6 +285,12 @@ def lambda_handler(event, context):
     print(f"📥 Received event: {json.dumps(event)}")
     
     try:
+        # Import security audit logger
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+        from security_audit_logger import audit_logger
+        
         # Extract payload
         device_id = event.get('deviceId')
         reading = event.get('reading', {})
@@ -330,6 +336,24 @@ def lambda_handler(event, context):
             print(f"⚠️  Alert detected: {alert_level} for user {user_id}")
             # TODO: Trigger SNS notification to user
         
+        # 7️⃣ Calculate WQI for security audit log
+        wqi = calculate_wqi(reading)
+        anomaly_type = map_alert_to_anomaly(alert_level, reading)
+        
+        # 8️⃣ Log to security audit trail
+        try:
+            audit_logger.log_reading_processed(
+                device_id=device_id,
+                wqi=wqi,
+                anomaly_type=anomaly_type,
+                timestamp=timestamp,
+                user_id=user_id,
+                readings=reading
+            )
+        except Exception as audit_error:
+            print(f"⚠️  Security audit logging failed: {audit_error}")
+            # Don't fail the main process
+        
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -337,7 +361,8 @@ def lambda_handler(event, context):
                 'user_id': user_id,
                 'device_id': device_id,
                 'timestamp': timestamp,
-                'alert_level': alert_level
+                'alert_level': alert_level,
+                'wqi': wqi
             })
         }
         
@@ -357,3 +382,40 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'error': 'Internal server error'})
         }
+
+
+def calculate_wqi(reading: Dict[str, Any]) -> float:
+    """
+    Calculate Water Quality Index from sensor readings
+    Simplified calculation for audit logging
+    """
+    pH = reading['pH']
+    turbidity = reading['turbidity']
+    tds = reading['tds']
+    
+    # Simple WQI calculation (0-100 scale)
+    # Ideal values: pH 7.0, turbidity 0, TDS 100
+    pH_score = max(0, 100 - abs(pH - 7.0) * 20)
+    turbidity_score = max(0, 100 - turbidity * 10)
+    tds_score = max(0, 100 - abs(tds - 100) / 5)
+    
+    wqi = (pH_score + turbidity_score + tds_score) / 3
+    return round(wqi, 1)
+
+
+def map_alert_to_anomaly(alert_level: str, reading: Dict[str, Any]) -> str:
+    """
+    Map alert level to anomaly type for security audit
+    """
+    if alert_level == 'critical':
+        # Determine specific anomaly type
+        if reading['turbidity'] > 5:
+            return 'contamination'
+        elif reading['pH'] < 6.0 or reading['pH'] > 8.5:
+            return 'contamination'
+        else:
+            return 'sensor_fault'
+    elif alert_level == 'warning':
+        return 'calibration_needed'
+    else:
+        return 'normal'

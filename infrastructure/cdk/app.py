@@ -32,6 +32,8 @@ from stacks.dashboard_overhaul_stack import DashboardOverhaulStack
 from stacks.deployment_pipeline_stack import DeploymentPipelineStack
 from stacks.production_monitoring_stack import ProductionMonitoringStack
 from stacks.enhanced_consumer_ordering_stack import EnhancedConsumerOrderingStack
+from stacks.websocket_stack import WebSocketStack
+from stacks.security_audit_stack import SecurityAuditStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -158,16 +160,17 @@ def main():
     )
     
     # 9a. Cache Stack (ElastiCache Redis for caching)
-    cache_stack = AquaChainCacheStack(
-        app,
-        f"AquaChain-Cache-{env_name}",
-        config=config,
-        vpc=vpc_stack.vpc,
-        lambda_security_group=vpc_stack.lambda_security_group,
-        env=aws_env,
-        description=f"AquaChain Cache Layer - {env_name}"
-    )
-    cache_stack.add_dependency(vpc_stack)
+    # DISABLED: Not used - code uses Lambda memory cache instead to save ~$12/month
+    # cache_stack = AquaChainCacheStack(
+    #     app,
+    #     f"AquaChain-Cache-{env_name}",
+    #     config=config,
+    #     vpc=vpc_stack.vpc,
+    #     lambda_security_group=vpc_stack.lambda_security_group,
+    #     env=aws_env,
+    #     description=f"AquaChain Cache Layer - {env_name}"
+    # )
+    # cache_stack.add_dependency(vpc_stack)
     
     # 10. Backup Stack (Automated backup and restore for DynamoDB)
     backup_stack = AquaChainBackupStack(
@@ -212,13 +215,14 @@ def main():
     iot_security_stack.add_dependency(security_stack)
     
     # 14. ML Model Registry Stack (Model versioning and A/B testing)
-    ml_registry_stack = AquaChainMLModelRegistryStack(
-        app,
-        f"AquaChain-MLRegistry-{env_name}",
-        config=config,
-        env=aws_env,
-        description=f"AquaChain ML Model Registry - {env_name}"
-    )
+    # DISABLED: Requires services that may not be available in AWS Educate/limited accounts
+    # ml_registry_stack = AquaChainMLModelRegistryStack(
+    #     app,
+    #     f"AquaChain-MLRegistry-{env_name}",
+    #     config=config,
+    #     env=aws_env,
+    #     description=f"AquaChain ML Model Registry - {env_name}"
+    # )
     
     # 15. Phase 3 Infrastructure Stack (ML monitoring, certificate rotation, automation)
     phase3_stack = AquaChainPhase3InfrastructureStack(
@@ -310,13 +314,14 @@ def main():
     dashboard_overhaul_stack.add_dependency(security_stack)
     
     # 23. Deployment Pipeline Stack (Blue-green deployment, feature flags, canary deployment)
-    deployment_pipeline_stack = DeploymentPipelineStack(
-        app,
-        f"AquaChain-DeploymentPipeline-{env_name}",
-        config=config,
-        env=aws_env,
-        description=f"AquaChain Dashboard Deployment Pipeline - {env_name}"
-    )
+    # DISABLED: Requires AWS CodeDeploy which is not available in AWS Educate/limited accounts
+    # deployment_pipeline_stack = DeploymentPipelineStack(
+    #     app,
+    #     f"AquaChain-DeploymentPipeline-{env_name}",
+    #     config=config,
+    #     env=aws_env,
+    #     description=f"AquaChain Dashboard Deployment Pipeline - {env_name}"
+    # )
     # Deployment pipeline is independent infrastructure
     
     # 24. Production Monitoring Stack (Comprehensive monitoring, alerting, and incident response)
@@ -341,6 +346,27 @@ def main():
     )
     enhanced_ordering_stack.add_dependency(security_stack)
     enhanced_ordering_stack.add_dependency(lambda_layers_stack)
+    
+    # 26. WebSocket Stack (Real-time updates via WebSocket API)
+    websocket_stack = WebSocketStack(
+        app,
+        f"AquaChain-WebSocket-{env_name}",
+        config=config,
+        env=aws_env,
+        description=f"AquaChain WebSocket API for Real-time Updates - {env_name}"
+    )
+    # WebSocket is independent infrastructure
+    
+    # 27. Security Audit Stack (Enhanced audit logging with real-time capture)
+    security_audit_stack = SecurityAuditStack(
+        app,
+        f"AquaChain-SecurityAudit-{env_name}",
+        config=config,
+        kms_key=security_stack.data_key,
+        env=aws_env,
+        description=f"AquaChain Security Audit Logging - {env_name}"
+    )
+    security_audit_stack.add_dependency(security_stack)
     
     # Synthesize the app
     app.synth()

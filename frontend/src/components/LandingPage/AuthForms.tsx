@@ -7,6 +7,7 @@ import GoogleOAuthButton from './GoogleOAuthButton';
 import EmailVerificationStatus from './EmailVerificationStatus';
 import EmailVerificationModal from './EmailVerificationModal';
 import PasswordResetModal from './PasswordResetModal';
+import ChangeTemporaryPasswordModal from './ChangeTemporaryPasswordModal';
 import authService from '../../services/authService';
 import { InputSanitizer, RateLimiter, RecaptchaService, csrfTokenManager } from '../../utils/security';
 
@@ -122,6 +123,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
   const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [tempPasswordData, setTempPasswordData] = useState<{ email: string; password: string } | null>(null);
 
   // Real-time validation
   useEffect(() => {
@@ -214,7 +217,34 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       // Reset rate limit on successful login
       RateLimiter.resetRateLimit(rateLimitKey);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Login failed. Please try again.';
+      
+      // Check if user needs email verification
+      if (errorMessage === 'UNCONFIRMED_USER') {
+        setError('Your email is not verified. Please check your inbox for the verification code.');
+        // Store email for verification page
+        sessionStorage.setItem('unverified_email', formData.email);
+        // Show option to resend OTP
+        setTimeout(() => {
+          if (window.confirm('Would you like to verify your email now?')) {
+            // Redirect to verification page or show verification modal
+            window.location.href = `/verify?email=${encodeURIComponent(formData.email)}`;
+          }
+        }, 1000);
+      } else if (errorMessage === 'NEW_PASSWORD_REQUIRED') {
+        setError('You must change your temporary password before logging in.');
+        // Store credentials and show change password modal
+        setTempPasswordData({ email: formData.email, password: formData.password });
+        setShowChangePassword(true);
+      } else if (errorMessage === 'MFA_SMS_REQUIRED' || errorMessage === 'MFA_TOTP_REQUIRED') {
+        setError('Multi-factor authentication is required. Please complete MFA setup.');
+        // TODO: Redirect to MFA verification flow
+      } else if (errorMessage.includes('Sign in requires additional step')) {
+        setError('Additional authentication step required. Please contact support.');
+        console.error('Unhandled auth step:', errorMessage);
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -418,6 +448,27 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         isOpen={showPasswordReset}
         onClose={() => setShowPasswordReset(false)}
       />
+
+      {/* Change Temporary Password Modal */}
+      {tempPasswordData && (
+        <ChangeTemporaryPasswordModal
+          isOpen={showChangePassword}
+          onClose={() => {
+            setShowChangePassword(false);
+            setTempPasswordData(null);
+            setError(null);
+          }}
+          email={tempPasswordData.email}
+          temporaryPassword={tempPasswordData.password}
+          onSuccess={() => {
+            // After successful password change, attempt login again
+            setSuccess('Password changed successfully! Logging you in...');
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          }}
+        />
+      )}
     </motion.form>
   );
 };

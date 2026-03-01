@@ -1,0 +1,13 @@
+{
+  "userId": {"S": "51a3ed4a-c0b1-70e8-a7d7-19d7ca035fe0"},
+  "email": {"S": "karthikkpradeep123@gmail.com"},
+  "role": {"S": "consumer"},
+  "profile": {"M": {
+    "firstName": {"S": "Karthik"},
+    "lastName": {"S": "Pradeep"},
+    "phone": {"S": "+919876543210"}
+  }},
+  "deviceIds": {"L": []},
+  "createdAt": {"S": "2026-02-18T09:00:00Z"},
+  "updatedAt": {"S": "2026-02-18T09:00:00Z"}
+}

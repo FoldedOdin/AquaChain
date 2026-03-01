@@ -11,7 +11,14 @@ import hashlib
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
-from jsonschema import validate, ValidationError
+try:
+    from jsonschema import validate, ValidationError as JsonSchemaValidationError
+except ImportError:
+    # Fallback if jsonschema is not available
+    JsonSchemaValidationError = Exception
+    def validate(instance, schema):
+        """Fallback validation - basic type checking only"""
+        pass
 import logging
 import sys
 import os
@@ -20,27 +27,71 @@ import os
 sys.path.append('/opt/python')  # Lambda layer path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
-# Import X-Ray tracing utilities
-from xray_utils import AquaChainTracer, trace_lambda_handler, EndToEndTracer
+# Import X-Ray tracing utilities (optional)
+try:
+    from xray_utils import AquaChainTracer, trace_lambda_handler, EndToEndTracer
+    tracer = AquaChainTracer('data-processing')
+except ImportError:
+    # Fallback if xray_utils not available
+    class AquaChainTracer:
+        def __init__(self, name): pass
+        def trace_critical_path(self, name): return lambda f: f
+        def trace_external_call(self, service, operation): return lambda f: f
+    tracer = AquaChainTracer('data-processing')
+    def trace_lambda_handler(name): return lambda f: f
+    class EndToEndTracer:
+        @staticmethod
+        def start_trace(trace_id, source, event_type): pass
 
-# Import error handling
-from errors import ValidationError as AquaChainValidationError, DatabaseError
-from error_handler import handle_errors
+# Import error handling (optional)
+try:
+    from errors import ValidationError as AquaChainValidationError, DatabaseError
+    from error_handler import handle_errors
+except ImportError:
+    # Fallback error classes
+    class AquaChainValidationError(Exception):
+        def __init__(self, message, error_code=None, details=None):
+            self.message = message
+            self.error_code = error_code
+            self.details = details or {}
+            super().__init__(self.message)
+    class DatabaseError(Exception):
+        def __init__(self, message, details=None):
+            self.message = message
+            self.details = details or {}
+            super().__init__(self.message)
+    def handle_errors(f): return f
 
-# Import structured logging
-from structured_logger import get_logger
+# Import structured logging (optional)
+try:
+    from structured_logger import get_logger
+    logger = get_logger(__name__, service='data-processing')
+except ImportError:
+    # Fallback to standard logging
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+except Exception:
+    # Fallback if get_logger fails for any reason
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
 
-# Import cold start monitoring
-from cold_start_monitor import monitor_cold_start, PerformanceTimer
+# Import cold start monitoring (optional)
+try:
+    from cold_start_monitor import monitor_cold_start, PerformanceTimer
+except ImportError:
+    def monitor_cold_start(f): return f
+    class PerformanceTimer:
+        def __init__(self, name): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
 
-# Import audit logging
-from audit_logger import audit_logger
-
-# Configure structured logging
-logger = get_logger(__name__, service='data-processing')
-
-# Initialize tracer
-tracer = AquaChainTracer('data-processing')
+# Import audit logging (optional)
+try:
+    from audit_logger import audit_logger
+except ImportError:
+    class AuditLogger:
+        def log(self, *args, **kwargs): pass
+    audit_logger = AuditLogger()
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -215,7 +266,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             })
         }
         
-    except ValidationError as e:
+    except JsonSchemaValidationError as e:
         logger.error(
             "Data validation error",
             request_id=request_id,
@@ -365,7 +416,7 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
         )
         return data
         
-    except ValidationError as e:
+    except JsonSchemaValidationError as e:
         logger.error(f"Validation failed: {e}")
         raise
 

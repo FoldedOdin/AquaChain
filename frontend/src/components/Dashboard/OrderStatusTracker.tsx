@@ -34,7 +34,9 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   orderId,
   currentStatus,
   statusHistory,
-  estimatedDelivery
+  estimatedDelivery,
+  demoMode = false,
+  progressInterval = 20
 }) => {
   // Safety check for orderId to prevent WebSocket connection issues
   if (!orderId) {
@@ -67,7 +69,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   // Enhanced error notification
   const { showErrorNotification } = useErrorNotification();
 
-  // WebSocket subscription for real-time updates
+  // WebSocket subscription for real-time updates (disabled for now - no WebSocket endpoint deployed)
   const {
     latestUpdate,
     isConnected,
@@ -75,7 +77,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     reconnectAttempts,
     connect,
     disconnect
-  } = useRealTimeUpdates(`order-${orderId}`, { autoConnect: true });
+  } = useRealTimeUpdates(`order-${orderId}`, { autoConnect: false });
 
   // Handle real-time status updates with enhanced error handling
   useEffect(() => {
@@ -284,6 +286,40 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     OrderStatus.DELIVERED
   ], []);
 
+  // Demo mode: Auto-progression of order status
+  useEffect(() => {
+    if (!demoMode) return;
+
+    const currentStatusStr = String(localCurrentStatus);
+    const currentIndex = statusProgression.findIndex(s => String(s) === currentStatusStr);
+    
+    // Don't progress if already at final status or cancelled/failed
+    if (currentIndex === -1 || 
+        currentIndex >= statusProgression.length - 1 || 
+        ['CANCELLED', 'FAILED', 'cancelled', 'failed'].includes(currentStatusStr)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const nextStatus = statusProgression[currentIndex + 1];
+      const config = statusConfig[nextStatus];
+      
+      setLocalCurrentStatus(nextStatus);
+      
+      const newStatusUpdate: StatusUpdate = {
+        status: nextStatus,
+        timestamp: new Date(),
+        message: `${config.label} - Demo mode auto-progression`,
+        metadata: { demoMode: true }
+      };
+      
+      setLocalStatusHistory(prev => [newStatusUpdate, ...prev]);
+      setLastUpdateTime(new Date());
+    }, progressInterval * 1000);
+
+    return () => clearTimeout(timer);
+  }, [demoMode, progressInterval, localCurrentStatus, statusProgression, statusConfig]);
+
   const getCurrentProgressPercentage = useCallback(() => {
     // Convert to string for comparison to handle both enum and string values
     const currentStatusStr = String(localCurrentStatus);
@@ -404,6 +440,19 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      {/* Demo Mode Indicator */}
+      {demoMode && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center space-x-2">
+          <ClockIcon className="h-5 w-5 text-yellow-600 animate-pulse" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-yellow-900">Demo Mode Active</p>
+            <p className="text-xs text-yellow-700">
+              Order status will automatically progress every {progressInterval} seconds
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-3">

@@ -286,15 +286,17 @@ class ErrorHandler:
         """Handle unknown/unexpected errors"""
         
         # Log full error details for debugging
-        logger.error(
-            "Unexpected error occurred",
-            service=self.service_name,
-            error_type=type(error).__name__,
-            error_message=str(error),
-            correlation_id=correlation_id,
-            user_id=user_id,
-            stack_trace=traceback.format_exc() if self.enable_debug else None
-        )
+        error_details = {
+            'service': self.service_name,
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'correlation_id': correlation_id,
+            'user_id': user_id
+        }
+        if self.enable_debug:
+            error_details['stack_trace'] = traceback.format_exc()
+        
+        logger.error(f"Unexpected error occurred: {json.dumps(error_details)}")
         
         # Create generic response (don't expose internal details)
         response = {
@@ -477,3 +479,21 @@ def validate_and_handle_input(validator_func: callable, input_data: Dict[str, An
 
 # Global error handler instance
 default_error_handler = ErrorHandler('aquachain-service')
+
+
+def handle_errors(func):
+    """
+    Decorator to handle errors in Lambda functions
+    Wraps the function and catches exceptions, returning proper error responses
+    """
+    def wrapper(event, context):
+        try:
+            return func(event, context)
+        except AquaChainError as e:
+            # Handle known AquaChain errors
+            return default_error_handler.handle_error(e)
+        except Exception as e:
+            # Handle unknown errors
+            return default_error_handler.handle_error(e)
+    
+    return wrapper

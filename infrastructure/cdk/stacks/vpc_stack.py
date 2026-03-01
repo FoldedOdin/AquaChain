@@ -40,13 +40,19 @@ class AquaChainVPCStack(Stack):
     def _create_vpc(self) -> ec2.Vpc:
         """
         Create VPC with public and private subnets
+        Cost-optimized: dev uses 1 NAT Gateway, prod uses 2 for redundancy
         """
+        # Environment-based NAT Gateway configuration
+        # Dev: 1 NAT Gateway (saves ~$35/month)
+        # Prod: 2 NAT Gateways for high availability
+        nat_gateway_count = 1 if self.config['environment'] == 'dev' else 2
+        
         vpc = ec2.Vpc(
             self, "AquaChainVPC",
             vpc_name=f"aquachain-vpc-{self.config['environment']}",
             ip_addresses=ec2.IpAddresses.cidr("10.0.0.0/16"),
             max_azs=3,  # Use 3 availability zones for high availability
-            nat_gateways=2,  # 2 NAT gateways for redundancy
+            nat_gateways=nat_gateway_count,  # Cost-optimized based on environment
             subnet_configuration=[
                 # Public subnets for NAT gateways and load balancers
                 ec2.SubnetConfiguration(
@@ -129,6 +135,7 @@ class AquaChainVPCStack(Stack):
     def _create_vpc_endpoints(self):
         """
         Create VPC endpoints for AWS services to avoid NAT gateway costs
+        Cost-optimized: dev uses fewer interface endpoints
         """
         # DynamoDB endpoint (Gateway endpoint - free)
         self.vpc.add_gateway_endpoint(
@@ -145,6 +152,7 @@ class AquaChainVPCStack(Stack):
         )
         
         # Secrets Manager endpoint (Interface endpoint - costs apply)
+        # Keep for all environments - critical for security
         self.vpc.add_interface_endpoint(
             "SecretsManagerEndpoint",
             service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
@@ -153,6 +161,7 @@ class AquaChainVPCStack(Stack):
         )
         
         # KMS endpoint (Interface endpoint)
+        # Keep for all environments - critical for encryption
         self.vpc.add_interface_endpoint(
             "KMSEndpoint",
             service=ec2.InterfaceVpcEndpointAwsService.KMS,
@@ -161,12 +170,14 @@ class AquaChainVPCStack(Stack):
         )
         
         # CloudWatch Logs endpoint (Interface endpoint)
-        self.vpc.add_interface_endpoint(
-            "CloudWatchLogsEndpoint",
-            service=ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
-            security_groups=[self.lambda_security_group]
-        )
+        # Only create for production - dev can use NAT Gateway (saves ~$7.30/month)
+        if self.config['environment'] != 'dev':
+            self.vpc.add_interface_endpoint(
+                "CloudWatchLogsEndpoint",
+                service=ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
+                subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+                security_groups=[self.lambda_security_group]
+            )
     
     def _create_outputs(self):
         """

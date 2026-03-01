@@ -1,0 +1,9 @@
+Deploying core stacks for environment: dev
+Core stacks configured successfully
+Stacks to be deployed:
+  1. AquaChain-Security-dev
+  2. AquaChain-Core-dev
+  3. AquaChain-Data-dev
+  4. AquaChain-Compute-dev
+  5. AquaChain-API-dev
+  6. AquaChain-Monitoring-dev

@@ -8,11 +8,25 @@ import {
   TechnicianManagementData,
   ComplianceReport,
   AuditTrailEntry,
-  SystemConfiguration
+  SystemConfiguration,
+  SystemHealthResponse
 } from '../types/admin';
+import { fetchWithAuth } from '../utils/apiInterceptor';
 
 // API Base URL
 const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+
+/**
+ * Get logout function from AuthContext
+ * This is used by the API interceptor to handle 401 errors
+ */
+const getLogoutFunction = async () => {
+  // Import dynamically to avoid circular dependencies
+  const { useAuth } = await import('../contexts/AuthContext');
+  // Note: This won't work outside React components
+  // The interceptor will handle logout directly via localStorage and redirect
+  return undefined;
+};
 
 // Mock data for development - will be replaced with actual API calls
 
@@ -41,13 +55,15 @@ export const getDeviceFleetStatus = async (): Promise<DeviceFleetStatus[]> => {
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/devices`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/devices`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to fetch devices');
@@ -136,13 +152,15 @@ export const getAllUsers = async (): Promise<UserManagementData[]> => {
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/users`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/users`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
     if (!response.ok) {
       throw new Error('Failed to fetch users');
@@ -150,21 +168,28 @@ export const getAllUsers = async (): Promise<UserManagementData[]> => {
 
     const data = await response.json();
     
+    console.log('📊 Raw user data from backend:', data.users?.slice(0, 2)); // Log first 2 users for debugging
+    console.log('📊 Full first user object:', JSON.stringify(data.users?.[0], null, 2)); // Log complete structure
+    
     // Transform dev server user data to match UserManagementData interface
-    return data.users.map((user: any) => ({
-      userId: user.userId,
-      email: user.email,
-      role: user.role,
-      status: user.emailVerified ? 'active' : 'pending',
-      createdAt: user.createdAt,
-      lastLogin: user.lastLogin || null,
-      deviceCount: 0, // Will be calculated from devices
-      profile: {
-        firstName: user.firstName || user.name?.split(' ')[0] || '',
-        lastName: user.lastName || user.name?.split(' ').slice(1).join(' ') || '',
-        phone: user.phone || ''
-      }
-    }));
+    return data.users.map((user: any) => {
+      const mappedUser = {
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        status: user.status || 'pending',  // Use status from backend
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin || null,
+        deviceCount: 0, // Will be calculated from devices
+        profile: {
+          firstName: user.firstName || user.name?.split(' ')[0] || '',
+          lastName: user.lastName || user.name?.split(' ').slice(1).join(' ') || '',
+          phone: user.phone || ''
+        }
+      };
+      console.log(`👤 Mapped user ${user.email}: lastLogin = ${mappedUser.lastLogin}`);
+      return mappedUser;
+    });
   } catch (error) {
     console.error('Error fetching users:', error);
     // Return empty array on error instead of dummy data
@@ -192,19 +217,65 @@ export const createUser = async (userData: Partial<UserManagementData>): Promise
 };
 
 export const updateUser = async (userId: string, updates: Partial<UserManagementData>): Promise<UserManagementData> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
-  
-  const users = await getAllUsers();
-  const user = users.find(u => u.userId === userId);
-  
-  if (!user) {
-    throw new Error('User not found');
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    // Transform the data to match backend expectations
+    const updatePayload: any = {};
+    
+    if (updates.profile) {
+      updatePayload.firstName = updates.profile.firstName;
+      updatePayload.lastName = updates.profile.lastName;
+      updatePayload.phone = updates.profile.phone;
+    }
+    
+    if (updates.email) {
+      updatePayload.email = updates.email;
+    }
+    
+    if (updates.status !== undefined) {
+      // Map frontend status to Cognito enabled flag
+      updatePayload.enabled = updates.status === 'active';
+    }
+
+    console.log('Updating user:', userId, 'with payload:', updatePayload);
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/users/${userId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatePayload)
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to update user');
+    }
+
+    const result = await response.json();
+    console.log('User update response:', result);
+    
+    // Fetch the updated user data
+    const users = await getAllUsers();
+    const updatedUser = users.find(u => u.userId === userId);
+    
+    if (!updatedUser) {
+      throw new Error('User not found after update');
+    }
+    
+    return updatedUser;
+  } catch (error) {
+    console.error('Error updating user:', error);
+    throw error;
   }
-  
-  return {
-    ...user,
-    ...updates
-  };
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
@@ -459,37 +530,81 @@ export const verifyHashChain = async (startSequence: number, endSequence: number
 };
 
 export const getSystemConfiguration = async (): Promise<SystemConfiguration> => {
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  return {
-    alertThresholds: {
-      global: {
-        pH: { min: 6.5, max: 8.5 },
-        turbidity: { max: 5.0 },
-        tds: { max: 500 },
-        temperature: { min: 0, max: 40 },
-        wqi: { critical: 40, warning: 60 }
-      }
-    },
-    notificationSettings: {
-      criticalAlertChannels: ['sms', 'email', 'push'],
-      warningAlertChannels: ['email', 'push'],
-      rateLimits: {
-        smsPerHour: 100,
-        emailPerHour: 500
-      }
-    },
-    systemLimits: {
-      maxDevicesPerUser: 10,
-      maxConcurrentDevices: 10000,
-      dataRetentionDays: 90,
-      auditRetentionYears: 7
-    },
-    maintenanceMode: {
-      enabled: false,
-      allowedRoles: ['administrator']
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-  };
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch system configuration');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching system configuration:', error);
+    // Return default configuration as fallback
+    return {
+      alertThresholds: {
+        global: {
+          pH: { 
+            warning: { min: 5.5, max: 8.5 },
+            critical: { min: 6.0, max: 8.0 }
+          },
+          turbidity: { 
+            warning: { max: 4.0 },
+            critical: { max: 5.0 }
+          },
+          tds: { 
+            warning: { max: 400 },
+            critical: { max: 500 }
+          },
+          temperature: { 
+            warning: { min: 0.5, max: 39.5 },
+            critical: { min: 0, max: 40 }
+          },
+          wqi: { critical: 40, warning: 60 }
+        }
+      },
+      notificationSettings: {
+        criticalAlertChannels: ['sms', 'email', 'push'],
+        warningAlertChannels: ['email', 'push'],
+        rateLimits: {
+          smsPerHour: 100,
+          emailPerHour: 500
+        }
+      },
+      systemLimits: {
+        maxDevicesPerUser: 10,
+        maxConcurrentDevices: 10000,
+        dataRetentionDays: 90,
+        auditRetentionYears: 7
+      },
+      maintenanceMode: {
+        enabled: false,
+        allowedRoles: ['administrator']
+      },
+      mlSettings: {
+        anomalyDetectionEnabled: true,
+        modelVersion: 'latest',
+        confidenceThreshold: 0.85,
+        retrainingFrequencyDays: 30,
+        driftDetectionEnabled: true
+      }
+    };
+  }
 };
 
 export const updateSystemConfiguration = async (config: Partial<SystemConfiguration>): Promise<SystemConfiguration> => {
@@ -500,14 +615,16 @@ export const updateSystemConfiguration = async (config: Partial<SystemConfigurat
       throw new Error('No authentication token found');
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/admin/system/configuration`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(config)
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+      }
+    );
 
     if (!response.ok) {
       // If the endpoint doesn't exist yet, simulate the update locally
@@ -520,21 +637,318 @@ export const updateSystemConfiguration = async (config: Partial<SystemConfigurat
           ...config
         };
       }
-      throw new Error('Failed to update system configuration');
+      
+      // Parse validation errors from backend
+      const errorData = await response.json();
+      if (errorData.validationErrors && Array.isArray(errorData.validationErrors)) {
+        const errorMessage = errorData.validationErrors.join('\n');
+        throw new Error(errorMessage);
+      }
+      
+      throw new Error(errorData.error || 'Failed to update system configuration');
     }
 
     const data = await response.json();
     return data.configuration;
   } catch (error) {
     console.error('Error updating system configuration:', error);
-    
-    // Fallback: simulate the update locally for development
-    console.warn('Falling back to local simulation of configuration update');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const currentConfig = await getSystemConfiguration();
-    return {
-      ...currentConfig,
-      ...config
-    };
+    throw error; // Re-throw to let the caller handle it
   }
+};
+
+export const updateProfile = async (updates: { profile: { firstName: string; lastName: string; phone: string } }): Promise<void> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    // Transform nested structure to flat structure expected by Lambda
+    // Frontend component sends: {profile: {firstName, lastName, phone}}
+    // Lambda expects: {firstName, lastName, phone}
+    const flatUpdates = {
+      firstName: updates.profile.firstName,
+      lastName: updates.profile.lastName,
+      phone: updates.profile.phone
+    };
+
+    console.log('Sending profile update request:', flatUpdates);
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/profile/update`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(flatUpdates)
+      }
+    );
+
+    console.log('Profile update response status:', response.status);
+
+    // Try to parse response as JSON
+    let data;
+    try {
+      const text = await response.text();
+      console.log('Profile update response text:', text);
+      data = text ? JSON.parse(text) : {};
+    } catch (parseError) {
+      console.error('Failed to parse response:', parseError);
+      throw new Error('Invalid response from server');
+    }
+
+    if (!response.ok) {
+      const errorMessage = data.error || data.message || `Server error: ${response.status}`;
+      console.error('Profile update failed:', errorMessage, data);
+      throw new Error(errorMessage);
+    }
+
+    // Update localStorage with new profile data
+    const storedUser = localStorage.getItem('aquachain_user');
+    if (storedUser) {
+      const userData = JSON.parse(storedUser);
+      userData.profile = {
+        ...userData.profile,
+        ...updates.profile
+      };
+      localStorage.setItem('aquachain_user', JSON.stringify(userData));
+    }
+    
+    console.log('Profile updated successfully:', data);
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    throw error;
+  }
+};
+
+export const revealSensitiveData = async (userId: string): Promise<{
+  userId: string;
+  email: string;
+  phone: string;
+  lastName: string;
+  revealedAt: string;
+  expiresIn: number;
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    // Simplified approach: Just fetch user data directly
+    // Security: JWT authentication (admin role required) + audit logging in Lambda
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/users/${userId}?reveal=true`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to reveal sensitive data');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error revealing sensitive data:', error);
+    throw error;
+  }
+};
+
+export const getSystemHealth = async (forceRefresh: boolean = false): Promise<SystemHealthResponse> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const queryParam = forceRefresh ? '?refresh=true' : '';
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/health${queryParam}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch system health');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching system health:', error);
+    throw error;
+  }
+};
+
+export const getConfigurationHistory = async (limit: number = 50): Promise<{
+  history: Array<{
+    version: string;
+    updatedBy: string;
+    updatedAt: string;
+    previousVersion: string;
+    changes: Record<string, { old: any; new: any }>;
+    ipAddress: string;
+  }>;
+  count: number;
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration/history?limit=${limit}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch configuration history');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching configuration history:', error);
+    throw error;
+  }
+};
+
+export const validateConfiguration = async (config: Partial<SystemConfiguration>): Promise<{ 
+  valid: boolean; 
+  errors: string[] 
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration/validate`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+      }
+    );
+
+    if (!response.ok) {
+      // Try to get detailed error message
+      try {
+        const errorData = await response.json();
+        console.error('Validation failed:', errorData);
+        
+        // If it's a 403 with details, show specific error
+        if (response.status === 403 && errorData.details) {
+          const { requiredGroup, yourGroups, email } = errorData.details;
+          return { 
+            valid: false, 
+            errors: [
+              `Access Denied: Admin privileges required`,
+              `Your account (${email}) has groups: ${yourGroups.join(', ') || 'none'}`,
+              `Required group: ${requiredGroup}`,
+              `Please contact your administrator or log out and log back in if you were recently granted admin access.`
+            ] 
+          };
+        }
+        
+        return { valid: false, errors: [errorData.message || 'Validation service unavailable'] };
+      } catch (parseError) {
+        return { valid: false, errors: ['Validation service unavailable'] };
+      }
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error validating configuration:', error);
+    return { valid: false, errors: ['Validation service unavailable'] };
+  }
+};
+
+export const rollbackConfiguration = async (version: string): Promise<{
+  message: string;
+  version: string;
+  rolledBackFrom: string;
+  rolledBackTo: string;
+  changes: Record<string, { old: any; new: any }>;
+}> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/admin/system/configuration/rollback`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ version })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to rollback configuration');
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error rolling back configuration:', error);
+    throw error;
+  }
+};
+
+export default {
+  getSystemHealthMetrics,
+  getDeviceFleetStatus,
+  getPerformanceMetrics,
+  getAlertAnalytics,
+  getAllUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  getAllDevices,
+  registerDevice,
+  updateDevice,
+  getAllTechnicians,
+  updateTechnician,
+  generateComplianceReport,
+  getAuditTrail,
+  verifyHashChain,
+  getSystemConfiguration,
+  updateSystemConfiguration,
+  getConfigurationHistory,
+  validateConfiguration,
+  rollbackConfiguration,
+  updateProfile,
+  revealSensitiveData,
+  getSystemHealth
 };
