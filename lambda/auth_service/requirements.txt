@@ -5,4 +5,4 @@
 # - botocore
 
 # Function-specific dependencies
-cryptography==41.0.7
+cryptography>=44.0.1,<46

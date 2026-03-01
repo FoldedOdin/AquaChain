@@ -8,4 +8,4 @@ pandas==2.0.3
 scipy==1.11.1
 
 # SageMaker SDK
-sagemaker==2.175.0
+sagemaker>=2.214.0,<3

@@ -118,6 +118,9 @@ obj/
 
 # CDK outputs
 cdk.out/
+infrastructure/cdk/cdk-out-orders/
+infrastructure/cdk/cdk.out.orders/
+infrastructure/cdk/cdk.out.temp/
 *.d.ts
 cdk.context.json
 
