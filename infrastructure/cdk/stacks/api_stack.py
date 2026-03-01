@@ -399,6 +399,45 @@ class AquaChainApiStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO
         )
         
+        # /api/v1/technician - Technician-specific endpoints
+        technician_resource = api_v1.add_resource("technician")
+        
+        # /api/v1/technician/inventory
+        technician_inventory_resource = technician_resource.add_resource("inventory")
+        technician_inventory_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/inventory/checkout
+        technician_inventory_checkout_resource = technician_inventory_resource.add_resource("checkout")
+        technician_inventory_checkout_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/inventory/return
+        technician_inventory_return_resource = technician_inventory_resource.add_resource("return")
+        technician_inventory_return_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/inventory/request-restock
+        technician_inventory_restock_resource = technician_inventory_resource.add_resource("request-restock")
+        technician_inventory_restock_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
         # /api/v1/audit
         audit_resource = api_v1.add_resource("audit")
         hash_chain_resource = audit_resource.add_resource("hash-chain")
@@ -851,6 +890,113 @@ class AquaChainApiStack(Stack):
                     )
                 ]
             )
+        
+        # /api/admin/security - Security audit endpoints
+        # Import security audit Lambda if it exists
+        try:
+            security_audit_lambda = lambda_.Function.from_function_name(
+                self, "SecurityAuditLambda",
+                function_name=f"AquaChain-SecurityAudit-{self.config['environment']}"
+            )
+            
+            # Add wildcard permission for security audit Lambda
+            lambda_.CfnPermission(
+                self, "SecurityAuditLambdaApiGatewayPermission",
+                action="lambda:InvokeFunction",
+                function_name=security_audit_lambda.function_name,
+                principal="apigateway.amazonaws.com",
+                source_arn=f"arn:aws:execute-api:{self.region}:{self.account}:{self.rest_api.rest_api_id}/*/*"
+            )
+            
+            # Create integration
+            security_audit_integration = apigateway.LambdaIntegration(
+                security_audit_lambda,
+                proxy=True,
+                allow_test_invoke=False
+            )
+            
+            # /api/admin/security
+            admin_security_resource = api_admin.add_resource("security")
+            
+            # /api/admin/security/audit
+            admin_security_audit_resource = admin_security_resource.add_resource("audit")
+            admin_security_audit_resource.add_method(
+                "GET",
+                security_audit_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+            
+            # /api/admin/security/audit/export
+            admin_security_audit_export_resource = admin_security_audit_resource.add_resource("export")
+            admin_security_audit_export_resource.add_method(
+                "POST",
+                security_audit_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+            
+            # /api/admin/security/integrity
+            admin_security_integrity_resource = admin_security_resource.add_resource("integrity")
+            admin_security_integrity_resource.add_method(
+                "GET",
+                security_audit_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+            
+            # /api/admin/security/integrity/verify
+            admin_security_integrity_verify_resource = admin_security_integrity_resource.add_resource("verify")
+            admin_security_integrity_verify_resource.add_method(
+                "POST",
+                security_audit_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
+        except Exception as e:
+            # Security audit Lambda doesn't exist yet, skip
+            print(f"Security audit Lambda not found, skipping API integration: {e}")
+            pass
         
         # /api/payments - Payment endpoints (authenticated)
         if "payment_service" in self.lambda_functions:

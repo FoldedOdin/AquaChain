@@ -33,6 +33,7 @@ from stacks.deployment_pipeline_stack import DeploymentPipelineStack
 from stacks.production_monitoring_stack import ProductionMonitoringStack
 from stacks.enhanced_consumer_ordering_stack import EnhancedConsumerOrderingStack
 from stacks.websocket_stack import WebSocketStack
+from stacks.security_audit_stack import SecurityAuditStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -159,16 +160,17 @@ def main():
     )
     
     # 9a. Cache Stack (ElastiCache Redis for caching)
-    cache_stack = AquaChainCacheStack(
-        app,
-        f"AquaChain-Cache-{env_name}",
-        config=config,
-        vpc=vpc_stack.vpc,
-        lambda_security_group=vpc_stack.lambda_security_group,
-        env=aws_env,
-        description=f"AquaChain Cache Layer - {env_name}"
-    )
-    cache_stack.add_dependency(vpc_stack)
+    # DISABLED: Not used - code uses Lambda memory cache instead to save ~$12/month
+    # cache_stack = AquaChainCacheStack(
+    #     app,
+    #     f"AquaChain-Cache-{env_name}",
+    #     config=config,
+    #     vpc=vpc_stack.vpc,
+    #     lambda_security_group=vpc_stack.lambda_security_group,
+    #     env=aws_env,
+    #     description=f"AquaChain Cache Layer - {env_name}"
+    # )
+    # cache_stack.add_dependency(vpc_stack)
     
     # 10. Backup Stack (Automated backup and restore for DynamoDB)
     backup_stack = AquaChainBackupStack(
@@ -354,6 +356,17 @@ def main():
         description=f"AquaChain WebSocket API for Real-time Updates - {env_name}"
     )
     # WebSocket is independent infrastructure
+    
+    # 27. Security Audit Stack (Enhanced audit logging with real-time capture)
+    security_audit_stack = SecurityAuditStack(
+        app,
+        f"AquaChain-SecurityAudit-{env_name}",
+        config=config,
+        kms_key=security_stack.data_key,
+        env=aws_env,
+        description=f"AquaChain Security Audit Logging - {env_name}"
+    )
+    security_audit_stack.add_dependency(security_stack)
     
     # Synthesize the app
     app.synth()

@@ -12,6 +12,7 @@ import {
   Clock, 
   AlertTriangle, 
   MapPin, 
+  Navigation,
   Calendar, 
   User, 
   Filter, 
@@ -31,7 +32,7 @@ import { ShipmentStatusResponse } from '../../types/shipment';
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
 import EditProfileModal from './EditProfileModal';
-import MapModal from './MapModal';
+// MapModal disabled - AWS Location Service not configured
 import InventoryModal from './InventoryModal';
 
 interface TechnicianDashboardProps {
@@ -44,7 +45,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [showMapModal, setShowMapModal] = useState(false);
+  // showMapModal disabled - AWS Location Service not configured
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showTaskDetails, setShowTaskDetails] = useState(false);
   const [showDeclineModal, setShowDeclineModal] = useState(false);
@@ -405,10 +406,6 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     }
   }, [refetch, user]);
 
-  const handleViewMap = useCallback(() => {
-    setShowMapModal(true);
-  }, []);
-
   const handleViewInventory = useCallback(() => {
     setShowInventoryModal(true);
   }, []);
@@ -652,6 +649,27 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     return matchesFilter && matchesSearch;
   });
 
+  // Navigate to task location using Google Maps (regular function, not a hook)
+  const handleNavigateToTask = () => {
+    // Get the first active task (assigned or in_progress)
+    const activeTask = tasks.find((t: any) => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'accepted' || t.status === 'installing');
+    
+    if (activeTask && activeTask.location) {
+      const address = typeof activeTask.location === 'object' 
+        ? activeTask.location.address 
+        : activeTask.location;
+      
+      if (address) {
+        const encodedAddress = encodeURIComponent(address);
+        window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`, '_blank');
+      } else {
+        alert('No address available for navigation');
+      }
+    } else {
+      alert('No active tasks to navigate to');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -691,8 +709,8 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Connection Status */}
-        {!isConnected && (
+        {/* Connection Status - Only show in production */}
+        {!isConnected && process.env.NODE_ENV === 'production' && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
             <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-1.964-1.333-2.732 0L3.732 16c-.77 1.333.192 3 1.732 3z" />
@@ -810,9 +828,28 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                           <p className="text-sm text-gray-600 mb-3">{task.description || 'No description'}</p>
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             {task.location && (
-                              <div className="flex items-center space-x-2 text-gray-600">
-                                <MapPin className="w-4 h-4" />
-                                <span>{typeof task.location === 'object' ? task.location.address || 'Location' : task.location}</span>
+                              <div className="flex items-center justify-between col-span-2">
+                                <div className="flex items-center space-x-2 text-gray-600">
+                                  <MapPin className="w-4 h-4" />
+                                  <span>{typeof task.location === 'object' ? task.location.address || 'Location' : task.location}</span>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const address = typeof task.location === 'object' 
+                                      ? task.location.address 
+                                      : task.location;
+                                    if (address) {
+                                      const encodedAddress = encodeURIComponent(address);
+                                      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`, '_blank');
+                                    }
+                                  }}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition"
+                                  title="Navigate to location"
+                                >
+                                  <Navigation className="w-3 h-3" />
+                                  Navigate
+                                </button>
                               </div>
                             )}
                             {task.dueDate && (
@@ -984,11 +1021,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                   <span className="font-medium text-gray-700">View Reports</span>
                 </button>
                 <button 
-                  onClick={handleViewMap}
-                  className="w-full flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition"
+                  onClick={handleNavigateToTask}
+                  className="w-full flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition"
                 >
-                  <MapPin className="w-5 h-5 text-blue-600" />
-                  <span className="font-medium text-gray-700">View Map</span>
+                  <Navigation className="w-5 h-5 text-green-600" />
+                  <span className="font-medium text-gray-700">Navigate to Task</span>
                 </button>
                 <button 
                   onClick={handleViewInventory}
@@ -1025,11 +1062,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       />
 
       {/* Map Modal */}
-      <MapModal
-        isOpen={showMapModal}
-        onClose={() => setShowMapModal(false)}
-        tasks={tasks}
-      />
+      {/* MapModal disabled - AWS Location Service not configured */}
 
       {/* Inventory Modal */}
       <InventoryModal

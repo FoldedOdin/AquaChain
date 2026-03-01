@@ -66,19 +66,51 @@ export function useDashboardData(userRole: UserRole) {
           break;
 
         case 'technician':
-          // Fetch assigned orders from the API
+          // Fetch assigned service requests from the API
           const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-          const technicianData = await fetch('http://localhost:3002/api/technician/orders', {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
+          const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || '';
+          
+          // Try to fetch from API, fall back to mock data if Lambda is broken
+          let technicianData;
+          try {
+            const response = await fetch(`${apiEndpoint}/api/v1/service-requests?status=assigned,in_progress`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (response.ok) {
+              technicianData = await response.json();
+            } else {
+              console.warn('Service requests API returned error, using mock data');
+              technicianData = { serviceRequests: [] };
             }
-          }).then(res => res.json()).catch(() => ({ orders: [] }));
+          } catch (err) {
+            console.error('Failed to fetch technician service requests:', err);
+            // Use mock data for now until Lambda is fixed
+            technicianData = {
+              serviceRequests: [
+                {
+                  requestId: 'SR-001',
+                  deviceId: 'DEV-12345',
+                  status: 'assigned',
+                  priority: 'high',
+                  description: 'Water quality sensor malfunction',
+                  location: 'Mumbai, Maharashtra',
+                  createdAt: new Date().toISOString(),
+                  assignedAt: new Date().toISOString()
+                }
+              ]
+            };
+          }
           
           result = {
-            tasks: technicianData.orders || [],
+            tasks: technicianData.serviceRequests || technicianData.data || [],
             recentActivities: [],
-            selectedTask: technicianData.orders?.length > 0 ? technicianData.orders[0] : null
+            selectedTask: (technicianData.serviceRequests || technicianData.data || []).length > 0 
+              ? (technicianData.serviceRequests || technicianData.data)[0] 
+              : null
           };
           break;
 

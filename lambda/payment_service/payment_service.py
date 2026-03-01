@@ -408,16 +408,18 @@ class PaymentService:
             # The order_id parameter is Razorpay's order ID, not our internal order ID
             logger.info(f"Searching for payment with razorpayOrderId: {order_id}")
             
+            # Note: Scan without Limit to ensure we check all items
+            # TODO: Add GSI on razorpayOrderId for better performance
             scan_response = payments_table.scan(
                 FilterExpression='razorpayOrderId = :razorpay_order_id',
                 ExpressionAttributeValues={
                     ':razorpay_order_id': order_id
-                },
-                Limit=1
+                }
             )
             
             if not scan_response.get('Items'):
                 logger.error(f"Payment record not found for Razorpay order ID: {order_id}")
+                logger.error(f"Scanned {scan_response.get('ScannedCount', 0)} items, found {scan_response.get('Count', 0)} matches")
                 raise ValueError("Payment record not found")
             
             payment_record = scan_response['Items'][0]
@@ -572,13 +574,18 @@ class PaymentService:
             
             payment_record = response['Items'][0]
             
+            # Convert Decimal to float for JSON serialization
+            amount = payment_record['amount']
+            if isinstance(amount, Decimal):
+                amount = float(amount)
+            
             return {
                 'success': True,
                 'data': {
                     'paymentId': payment_record['paymentId'],
                     'status': payment_record['status'],
                     'paymentMethod': payment_record['paymentMethod'],
-                    'amount': payment_record['amount'],
+                    'amount': amount,
                     'createdAt': payment_record['createdAt'],
                     'updatedAt': payment_record['updatedAt']
                 }
