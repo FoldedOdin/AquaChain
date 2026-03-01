@@ -520,3 +520,6 @@ infrastructure/cdk/backups/
 
 # Temporary deployment scripts (one-off fixes)
 scripts/deployment/deploy-admin-lambda.bat
+
+# CDK tests
+infrastructure/cdk/tests/
