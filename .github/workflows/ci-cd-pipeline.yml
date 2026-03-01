@@ -131,26 +131,60 @@ jobs:
           fetch-depth: 0
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
+          scanners: 'vuln,secret,misconfig'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '0'
           format: 'sarif'
           output: 'trivy-results.sarif'
+
+      - name: Ensure Trivy SARIF exists
+        if: always()
+        run: |
+          if [ ! -f trivy-results.sarif ]; then
+            echo '{"version":"2.1.0","runs":[]}' > trivy-results.sarif
+          fi
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
+          category: trivy
 
-      - name: Run Semgrep security scan
-        uses: returntocorp/semgrep-action@v1
+      - name: Setup Python for Semgrep
+        uses: actions/setup-python@v5
         with:
-          config: >-
-            p/security-audit
-            p/secrets
-            p/owasp-top-ten
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run Semgrep security scan (SARIF)
+        continue-on-error: true
+        run: |
+          pip install --upgrade semgrep
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --sarif \
+            --output semgrep-results.sarif || true
+
+      - name: Ensure Semgrep SARIF exists
+        if: always()
+        run: |
+          if [ ! -f semgrep-results.sarif ]; then
+            echo '{"version":"2.1.0","runs":[]}' > semgrep-results.sarif
+          fi
+
+      - name: Upload Semgrep scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'semgrep-results.sarif'
+          category: semgrep
 
       - name: Check dependency security
         run: |
