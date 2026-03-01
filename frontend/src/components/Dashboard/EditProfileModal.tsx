@@ -391,11 +391,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         address: addressObj
       };
 
-<<<<<<< HEAD
-      console.log('🔐 Verifying OTP...');
-=======
->>>>>>> afterDeploy
-      console.log('📝 Submitting OTP verification with updates:', updates);
+      console.log('🔐 Verifying OTP with updates:', updates);
 
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/verify-and-update`, {
         method: 'PUT',
