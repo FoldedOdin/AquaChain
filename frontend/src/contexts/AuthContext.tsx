@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Amplify } from 'aws-amplify';
-import { signOut, fetchAuthSession } from 'aws-amplify/auth';
+import { signOut } from 'aws-amplify/auth';
+import { fetchAuthSession } from '@aws-amplify/core';
 import { UserProfile } from '../types';
 
 // Clear any cached AWS credentials from previous sessions
