@@ -104,7 +104,7 @@
     ]
   },
   "devDependencies": {
-    "@axe-core/react": "^4.10.2",
+    "@axe-core/react": "^4.11.1",
     "@craco/craco": "^7.1.0",
     "@lhci/cli": "^0.15.1",
     "@storybook/addon-a11y": "^9.1.13",
@@ -117,13 +117,13 @@
     "@storybook/react-webpack5": "^9.1.13",
     "@types/jest-axe": "^3.5.9",
     "@types/node": "^24.8.1",
-    "autoprefixer": "^10.4.21",
+    "autoprefixer": "^10.4.27",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "concurrently": "^8.2.2",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-storybook": "^9.1.13",
-    "eslint-webpack-plugin": "^5.0.2",
+    "eslint-webpack-plugin": "^5.0.3",
     "express": "^4.21.2",
     "fast-check": "^4.5.3",
     "husky": "^9.1.7",
@@ -134,15 +134,15 @@
     "imagemin-svgo": "^10.0.1",
     "imagemin-webp": "^8.0.0",
     "jest-axe": "^10.0.0",
-    "lint-staged": "^16.2.4",
+    "lint-staged": "^16.3.1",
     "postcss": "^8.5.6",
-    "prettier": "^3.6.2",
+    "prettier": "^3.8.1",
     "prop-types": "^15.8.1",
     "storybook": "^9.1.13",
     "tailwindcss": "^3.4.18",
     "webpack": "^5.102.1",
     "webpack-bundle-analyzer": "^4.10.2",
-    "ws": "^8.18.3"
+    "ws": "^8.19.0"
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx}": [
