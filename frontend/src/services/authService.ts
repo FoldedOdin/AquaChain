@@ -119,12 +119,28 @@ class AuthService {
    */
   async signIn(credentials: LoginCredentials): Promise<AuthResult> {
     try {
-      // Check auth mode: use AWS Cognito if REACT_APP_AUTH_MODE is 'aws' or in production
-      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws' || process.env.NODE_ENV === 'production';
+      // Validate credentials before proceeding
+      if (!credentials.email || !credentials.password) {
+        throw new AuthError('Email and password are required', 'INVALID_CREDENTIALS');
+      }
+
+      // Check auth mode: use AWS Cognito ONLY if explicitly set to 'aws'
+      // Don't use AWS mode just because NODE_ENV is production
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws';
       
-      if (!useAWS) {
+      // Check if we have a local backend endpoint
+      const hasLocalBackend = process.env.REACT_APP_API_ENDPOINT && 
+                             (process.env.REACT_APP_API_ENDPOINT.includes('localhost') || 
+                              process.env.REACT_APP_API_ENDPOINT.includes('127.0.0.1'));
+      
+      // Use local backend if available, unless explicitly set to AWS mode
+      if (!useAWS || hasLocalBackend) {
         // Development mode with local backend
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/auth/signin`, {
+        const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+        
+        console.log('🔐 Using local backend authentication:', apiEndpoint);
+        
+        const response = await fetch(`${apiEndpoint}/api/auth/signin`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -151,6 +167,8 @@ class AuthService {
         localStorage.setItem('aquachain_user', JSON.stringify(user));
         localStorage.setItem('aquachain_role', userRole);
 
+        console.log('✅ Local backend authentication successful');
+
         // Track login event
         await this.trackAuthEvent('login', userRole);
 
@@ -162,10 +180,17 @@ class AuthService {
         };
       }
 
-      // Production: Use AWS Amplify Cognito
+      // Production: Use AWS Amplify Cognito (only if explicitly enabled)
+      console.log('🔐 Using AWS Cognito authentication');
+      
       const auth = await loadAmplifyAuth();
       if (auth) {
         try {
+          // Validate email format before calling Amplify
+          if (!credentials.email.includes('@')) {
+            throw new AuthError('Invalid email format', 'INVALID_EMAIL');
+          }
+
           const result = await auth.signIn({
             username: credentials.email,
             password: credentials.password
@@ -197,9 +222,9 @@ class AuthService {
               emailVerified: user.attributes?.email_verified || false
             }));
             localStorage.setItem('aquachain_role', userRole);
-            console.log('Token stored in localStorage for AWS Cognito mode');
+            console.log('✅ AWS Cognito authentication successful');
           } else {
-            console.warn('No ID token found in Amplify session');
+            console.warn('⚠️ No ID token found in Amplify session');
           }
 
           // Track login event
@@ -212,6 +237,7 @@ class AuthService {
             redirectPath
           };
         } catch (error: any) {
+          console.error('❌ AWS Cognito authentication failed:', error);
           throw new AuthError(
             error.message || 'Sign in failed',
             error.code || 'SIGNIN_FAILED',

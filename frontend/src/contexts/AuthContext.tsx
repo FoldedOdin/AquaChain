@@ -326,8 +326,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
+      // Validate inputs
+      if (!email || !password) {
+        throw new Error('Email and password are required');
+      }
+
+      // Check if we should use local backend
+      const hasLocalBackend = process.env.REACT_APP_API_ENDPOINT?.includes('localhost') || 
+                             process.env.REACT_APP_API_ENDPOINT?.includes('127.0.0.1');
+      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws';
+
+      if (!useAWS || hasLocalBackend) {
         // Development mode with local dev server
+        console.log('🔐 Using local backend for login');
+        
         const authService = (await import('../services/authService')).default;
         const result = await authService.signIn({ email, password, rememberMe: true });
 
@@ -679,7 +691,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Try to fetch fresh profile from API
       try {
         console.log('🔄 Refreshing profile from API...');
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
+        // Add cache-busting timestamp to ensure fresh data
+        const timestamp = Date.now();
+        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update?t=${timestamp}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -693,6 +707,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             console.log('✅ Fresh profile received:', result.profile);
             const refreshedProfile: UserProfile = {
               ...userData,
+              email: result.profile.email || userData.email, // Update email from API response
               profile: {
                 firstName: result.profile.profile?.firstName || result.profile.firstName || userData.profile?.firstName || 'User',
                 lastName: result.profile.profile?.lastName || result.profile.lastName || userData.profile?.lastName || '',

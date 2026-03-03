@@ -286,6 +286,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const handleProfileUpdated = useCallback(async () => {
     // Refresh user data after profile update
     console.log('Profile updated successfully');
+    // Add a small delay to ensure DynamoDB consistency
+    await new Promise(resolve => setTimeout(resolve, 500));
     await refreshUser();
     setShowEditProfile(false);
   }, [refreshUser]);

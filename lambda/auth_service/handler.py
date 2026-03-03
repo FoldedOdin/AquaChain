@@ -414,6 +414,11 @@ def lambda_handler(event, context):
             'body': json.dumps(new_tokens)
         }
     
+    elif http_method == 'POST' and '/google/callback' in path:
+        # Google OAuth callback endpoint - delegate to google_oauth_handler
+        from google_oauth_handler import lambda_handler as google_oauth_handler
+        return google_oauth_handler(event, context)
+    
     else:
         raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
 

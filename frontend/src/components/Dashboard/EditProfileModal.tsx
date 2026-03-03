@@ -428,19 +428,22 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
       console.log('✅ Profile updated successfully');
 
-      // Update localStorage with new profile data
+      // Update localStorage with the returned profile data from API
       const storedUser = localStorage.getItem('aquachain_user');
-      if (storedUser) {
+      if (storedUser && result.profile) {
         const userData = JSON.parse(storedUser);
+        // Use the profile data returned from the API for accuracy
+        const apiProfile = result.profile;
+        userData.email = apiProfile.email || updates.email; // Update email
         userData.profile = {
           ...userData.profile,
-          firstName: updates.firstName,
-          lastName: updates.lastName,
-          phone: updates.phone,
-          address: updates.address
+          firstName: apiProfile.profile?.firstName || apiProfile.firstName || updates.firstName,
+          lastName: apiProfile.profile?.lastName || apiProfile.lastName || updates.lastName,
+          phone: apiProfile.profile?.phone || apiProfile.phone || updates.phone,
+          address: apiProfile.profile?.address || apiProfile.address || updates.address
         };
         localStorage.setItem('aquachain_user', JSON.stringify(userData));
-        console.log('✅ Updated profile in localStorage after OTP verification');
+        console.log('✅ Updated profile in localStorage after OTP verification with API response data');
       }
 
       setStep('success');

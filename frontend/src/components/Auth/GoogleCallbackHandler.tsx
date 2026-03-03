@@ -37,6 +37,10 @@ const GoogleCallbackHandler: React.FC = () => {
 
         setMessage('Exchanging authorization code...');
 
+        // Get role from sessionStorage if this was a signup flow
+        const signupRole = sessionStorage.getItem('oauth_signup_role') || 'consumer';
+        sessionStorage.removeItem('oauth_signup_role'); // Clean up
+
         // Exchange code for tokens via backend
         const response = await fetch('http://localhost:3002/api/auth/google/callback', {
           method: 'POST',
@@ -45,7 +49,9 @@ const GoogleCallbackHandler: React.FC = () => {
           },
           body: JSON.stringify({
             code: params.code,
-            redirectUri: window.location.origin + '/auth/google/callback'
+            redirectUri: window.location.origin + '/auth/google/callback',
+            clientId: process.env.REACT_APP_GOOGLE_CLIENT_ID,
+            role: signupRole // Pass the selected role
           })
         });
 

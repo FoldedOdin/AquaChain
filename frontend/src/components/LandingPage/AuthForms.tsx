@@ -252,19 +252,22 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 
   const handleGoogleSignIn = async () => {
     setError(null);
+    setIsLoading(true);
+    
     try {
-      await authService.signInWithGoogle();
-      setSuccess('Google sign-in successful! Redirecting...');
+      console.log('🔐 Starting Google OAuth flow...');
       
-      // Call the parent's onSubmit with a mock credentials object
-      // The actual authentication is handled by the auth service
-      await onSubmit({
-        email: '', // Will be populated from Google OAuth
-        password: '', // Not needed for OAuth
-        rememberMe: true // Default for OAuth
-      });
+      // This will redirect to Google OAuth - no need to call onSubmit
+      // The OAuth callback handler will complete the authentication
+      await authService.signInWithGoogle();
+      
+      // Note: Code after this line won't execute because signInWithGoogle redirects
+      // The user will be redirected to Google, then back to /auth/google/callback
+      
     } catch (err) {
+      console.error('❌ Google OAuth error:', err);
       setError(err instanceof Error ? err.message : 'Google sign-in failed. Please try again.');
+      setIsLoading(false);
     }
   };
 
@@ -653,22 +656,25 @@ export const SignupForm: React.FC<SignupFormProps> = ({
     }
 
     setError(null);
+    setIsLoading(true);
+    
     try {
-      await authService.signInWithGoogle();
-      setSuccess('Google sign-in successful! Redirecting...');
+      console.log('🔐 Starting Google OAuth signup flow...');
       
-      // For Google OAuth, we'll create a mock signup data object
-      // The actual user creation is handled by Cognito
-      await onSubmit({
-        name: '', // Will be populated from Google profile
-        email: '', // Will be populated from Google profile
-        password: '', // Not needed for OAuth
-        confirmPassword: '', // Not needed for OAuth
-        role: formData.role, // Use selected role
-        acceptTerms: formData.acceptTerms
-      });
+      // Store the selected role for after OAuth redirect
+      sessionStorage.setItem('oauth_signup_role', formData.role);
+      
+      // This will redirect to Google OAuth - no need to call onSubmit
+      // The OAuth callback handler will complete the authentication and user creation
+      await authService.signInWithGoogle();
+      
+      // Note: Code after this line won't execute because signInWithGoogle redirects
+      // The user will be redirected to Google, then back to /auth/google/callback
+      
     } catch (err) {
+      console.error('❌ Google OAuth signup error:', err);
       setError(err instanceof Error ? err.message : 'Google sign-in failed. Please try again.');
+      setIsLoading(false);
     }
   };
 

@@ -145,6 +145,8 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
 
   const handleProfileUpdated = useCallback(async () => {
     console.log('Profile updated successfully');
+    // Add a small delay to ensure DynamoDB consistency
+    await new Promise(resolve => setTimeout(resolve, 500));
     await refreshUser();
     setShowEditProfile(false);
   }, [refreshUser]);

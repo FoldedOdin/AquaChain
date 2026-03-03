@@ -277,6 +277,15 @@ class UserManagementService:
                     expression_values[':availability_status'] = status
                     has_updates = True
             
+            # Handle email update (root level field)
+            if 'email' in updates:
+                new_email = updates['email']
+                if new_email != current_profile.get('email'):
+                    update_expression += ", email = :email"
+                    expression_values[':email'] = new_email
+                    has_updates = True
+                    logger.info(f"Email update included in expression for user {user_id}")
+            
             # If no updates were made, just return current profile
             if not has_updates:
                 logger.info(f"No profile updates needed for user: {user_id}")
@@ -299,9 +308,17 @@ class UserManagementService:
             self.cache.delete(cache_key)
             
             # Update Cognito attributes if needed
-            if 'profile' in updates:
+            cognito_email = None
+            if 'email' in updates:
+                cognito_email = updates['email']
+            
+            if 'profile' in updates or cognito_email:
                 try:
-                    self._update_cognito_attributes(user_id, updates['profile'])
+                    self._update_cognito_attributes(
+                        user_id, 
+                        updates.get('profile', {}),
+                        email=cognito_email
+                    )
                 except Exception as e:
                     # Log but don't fail the request if Cognito update fails
                     logger.warning(f"Failed to update Cognito attributes: {e}")
@@ -516,7 +533,7 @@ class UserManagementService:
             'overrideStatus': 'available'
         }
     
-    def _update_cognito_attributes(self, user_id: str, profile_updates: Dict):
+    def _update_cognito_attributes(self, user_id: str, profile_updates: Dict, email: str = None):
         """Update Cognito user attributes."""
         try:
             attributes = []
@@ -530,12 +547,18 @@ class UserManagementService:
             if 'phone' in profile_updates:
                 attributes.append({'Name': 'phone_number', 'Value': profile_updates['phone']})
             
+            # Handle email update separately (requires email verification in Cognito)
+            if email:
+                attributes.append({'Name': 'email', 'Value': email})
+                attributes.append({'Name': 'email_verified', 'Value': 'true'})  # Mark as verified since we did OTP
+            
             if attributes:
                 self.cognito_client.admin_update_user_attributes(
                     UserPoolId=self.user_pool_id,
                     Username=user_id,
                     UserAttributes=attributes
                 )
+                logger.info(f"Cognito attributes updated for user {user_id}")
                 
         except ClientError as e:
             logger.error(f"Error updating Cognito attributes: {e}")
@@ -994,12 +1017,12 @@ def lambda_handler(event, context):
     
     elif http_method == 'GET' and path == '/api/profile/update':
         # Get current user's profile
-        # Extract email from JWT token to identify the user
+        # Extract userId from JWT token (use 'sub' claim which doesn't change)
         claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-        email = claims.get('email')
+        user_id = claims.get('sub')  # Cognito 'sub' is the userId
         
         # If no claims (authorizer not configured), try to decode JWT token
-        if not email:
+        if not user_id:
             auth_header = event.get('headers', {}).get('Authorization') or event.get('headers', {}).get('authorization')
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
@@ -1013,20 +1036,20 @@ def lambda_handler(event, context):
                         payload += '=' * (4 - len(payload) % 4)
                         decoded = base64.b64decode(payload)
                         token_data = json.loads(decoded)
-                        email = token_data.get('email')
-                        logger.info(f"Extracted email from JWT for profile GET: {email}")
+                        user_id = token_data.get('sub')  # Use 'sub' instead of 'email'
+                        logger.info(f"Extracted userId from JWT for profile GET: {user_id}")
                 except Exception as e:
                     logger.error(f"Error decoding JWT: {e}")
         
-        if not email:
-            raise ValidationError('Email not found in token')
+        if not user_id:
+            raise ValidationError('User ID not found in token')
         
-        # Get user by email (this returns the full profile)
-        user = user_service.get_user_by_email(email)
+        # Get user by userId (not email, since email can change)
+        user = user_service.get_user_profile(user_id)
         if not user:
-            raise ResourceNotFoundError('User not found', details={'email': email})
+            raise ResourceNotFoundError('User not found', details={'user_id': user_id})
         
-        logger.info(f"Retrieved profile for user: {email}")
+        logger.info(f"Retrieved profile for user: {user_id}")
         
         # Return the profile in the expected format
         return success_response({
@@ -1303,7 +1326,7 @@ def lambda_handler(event, context):
         
         # Transform flat structure from frontend to nested structure for service
         # Frontend sends: {firstName, lastName, email, phone, address}
-        # Service expects: {profile: {firstName, lastName, phone, address}}
+        # Service expects: {profile: {firstName, lastName, phone, address}} + email at root level
         raw_updates = updates
         
         service_updates = {}
@@ -1317,6 +1340,11 @@ def lambda_handler(event, context):
                 service_updates['profile']['phone'] = raw_updates['phone']
             if 'address' in raw_updates:
                 service_updates['profile']['address'] = raw_updates['address']
+        
+        # Handle email update at root level (not in profile)
+        if 'email' in raw_updates and raw_updates['email'] != user.get('email'):
+            service_updates['email'] = raw_updates['email']
+            logger.info(f"Email change detected: {user.get('email')} -> {raw_updates['email']}")
         
         # Handle preferences if provided
         if 'preferences' in raw_updates:
