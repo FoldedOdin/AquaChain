@@ -407,43 +407,30 @@ class AuthService {
    */
   async signInWithGoogle(): Promise<AuthResult> {
     try {
-      if (process.env.NODE_ENV === 'development') {
-        // Development mode - simulate OAuth
-        const user = { 
-          email: 'google-user@example.com',
-          name: 'Google User',
-          provider: 'google'
-        };
-        const session = { isValid: () => true };
-        const userRole: UserRole = 'consumer';
-        const redirectPath = this.getRedirectPath(userRole);
-
-        this.currentUser = user;
-        this.currentSession = session;
-
-        await this.trackAuthEvent('oauth_login', userRole, 'google');
-
-        return { user, session, userRole, redirectPath };
-      }
-
-      // Production: Use AWS Amplify v6 OAuth
-      const { signInWithRedirect } = await import('aws-amplify/auth');
+      // Use custom Google OAuth flow (not Amplify)
+      // This redirects to Google, then back to /auth/google/callback
+      const { getGoogleAuthUrl, generateState, storeOAuthState } = await import('../config/googleOAuth');
       
-      // Initiate OAuth flow
-      await signInWithRedirect({ 
-        provider: 'Google',
-        customState: JSON.stringify({ returnUrl: window.location.pathname })
-      });
-
-      // Note: This will redirect to Google, then back to callback URL
-      // The actual user data will be retrieved in handleOAuthCallback()
+      const state = generateState();
+      storeOAuthState(state);
+      const authUrl = getGoogleAuthUrl(state);
       
-      // Return placeholder - actual auth happens after redirect
+      console.log('🔐 Redirecting to Google OAuth:', authUrl);
+      
+      // Track OAuth initiation
+      await this.trackAuthEvent('oauth_login', 'consumer', 'google');
+      
+      // Redirect to Google (this will leave the page)
+      window.location.href = authUrl;
+      
+      // Note: Code after this line won't execute because we're redirecting
+      // The user will be redirected to Google, then back to /auth/google/callback
+      // Return placeholder (won't be used because of redirect)
       return {
         user: null,
         session: null,
         userRole: 'consumer',
-        redirectPath: '/auth/callback'
+        redirectPath: '/auth/google/callback'
       };
       
     } catch (error: any) {
@@ -452,24 +439,53 @@ class AuthService {
   }
 
   /**
-   * Handle OAuth callback after redirect
+   * Handle OAuth callback after redirect from Google
    */
-  async handleOAuthCallback(): Promise<AuthResult> {
+  async handleOAuthCallback(code: string, state: string): Promise<AuthResult> {
     try {
-      const { getCurrentUser, fetchAuthSession } = await import('aws-amplify/auth');
+      console.log('🔐 Processing Google OAuth callback...');
       
-      // Get authenticated user
-      const user = await getCurrentUser();
-      // Don't fetch AWS credentials to avoid Identity Pool calls
-      const session = await fetchAuthSession({ forceRefresh: false });
+      // Verify state parameter for CSRF protection
+      const { verifyOAuthState } = await import('../config/googleOAuth');
+      if (!verifyOAuthState(state)) {
+        throw new AuthError('Invalid OAuth state - possible CSRF attack', 'INVALID_STATE');
+      }
       
-      const userRole: UserRole = user.signInDetails?.loginId?.includes('admin') 
-        ? 'admin' 
-        : 'consumer';
+      // Exchange authorization code for tokens via backend
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      const response = await fetch(`${apiEndpoint}/api/auth/google/callback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new AuthError(
+          result.error || 'Google authentication failed', 
+          result.code || 'OAUTH_FAILED'
+        );
+      }
+
+      // Extract user data and tokens from backend response
+      const user = result.user;
+      const session = { isValid: () => true, token: result.token };
+      const userRole: UserRole = user.role || 'consumer';
       const redirectPath = this.getRedirectPath(userRole);
 
       this.currentUser = user;
       this.currentSession = session;
+
+      // Store token and user info in localStorage
+      localStorage.setItem('aquachain_token', result.token);
+      localStorage.setItem('aquachain_user', JSON.stringify(user));
+      localStorage.setItem('aquachain_role', userRole);
+
+      console.log('✅ Google OAuth authentication successful');
 
       // Track successful OAuth login
       await this.trackAuthEvent('oauth_login', userRole, 'google');

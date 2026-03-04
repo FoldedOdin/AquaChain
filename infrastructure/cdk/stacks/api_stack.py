@@ -1042,6 +1042,30 @@ class AquaChainApiStack(Stack):
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )
         
+        # /api/orders - Order management endpoints (authenticated)
+        # Import order management Lambda from Enhanced Ordering stack
+        try:
+            order_management_lambda = lambda_.Function.from_function_name(
+                self, "OrderManagementLambda",
+                function_name=get_resource_name(self.config, "function", "order-management")
+            )
+            
+            # Import existing /api/orders resource (created by old deployment)
+            # We'll update the methods to point to the new Lambda
+            from aws_cdk.aws_apigateway import IResource
+            
+            # Get the existing orders resource by importing it
+            # Note: We can't use get_resource() in CDK, so we'll just skip creating it
+            # and manually update the Lambda integration via AWS CLI after deployment
+            
+            print("Order management Lambda found. Update API Gateway routes manually:")
+            print(f"  Lambda ARN: {order_management_lambda.function_arn}")
+            print("  Routes to update: PUT /api/orders/{{orderId}}/status")
+        except Exception as e:
+            # Order management Lambda doesn't exist yet, skip
+            print(f"Order management Lambda not found, skipping API integration: {e}")
+            pass
+        
         # /api/webhooks - Webhook endpoints (no authentication required)
         api_webhooks = api_root.add_resource("webhooks")
         

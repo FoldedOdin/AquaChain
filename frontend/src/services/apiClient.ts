@@ -247,7 +247,18 @@ class EnhancedApiClient extends ApiClient {
 
   // Update order status
   async updateOrderStatus(orderId: string, status: string, metadata?: Record<string, unknown>): Promise<ApiResponse<Order>> {
-    return this.post(`/api/orders/${orderId}/status`, { status, metadata });
+    console.log(`🔄 [apiClient] Updating order status: ${orderId} -> ${status}`);
+    console.log(`📍 [apiClient] API endpoint: PUT /api/orders/${orderId}/status`);
+    
+    try {
+      const response = await this.put<Order>(`/api/orders/${orderId}/status`, { status, metadata });
+      console.log(`✅ [apiClient] Order status updated successfully:`, response);
+      return response;
+    } catch (error) {
+      console.error(`❌ [apiClient] Failed to update order status for ${orderId}:`, error);
+      console.error(`💡 [apiClient] Hint: Check if the order management Lambda is deployed and API Gateway route is configured`);
+      throw error;
+    }
   }
 
   // Cancel order

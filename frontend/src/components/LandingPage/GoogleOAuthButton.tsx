@@ -7,16 +7,36 @@ interface GoogleOAuthButtonProps {
 }
 
 const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({ onSignIn, disabled = false }) => {
+  const [isRedirecting, setIsRedirecting] = React.useState(false);
+  
   const handleClick = async () => {
-    if (onSignIn) {
-      // Use custom handler if provided
-      await onSignIn();
-    } else {
-      // Use default OAuth flow
-      const state = generateState();
-      storeOAuthState(state);
-      const authUrl = getGoogleAuthUrl(state);
-      window.location.href = authUrl;
+    // Prevent double-click or double-render issues
+    if (isRedirecting) {
+      console.log('⚠️ Already redirecting to Google, ignoring duplicate click');
+      return;
+    }
+    
+    setIsRedirecting(true);
+    
+    try {
+      if (onSignIn) {
+        // Use custom handler if provided
+        await onSignIn();
+      } else {
+        // Use default OAuth flow
+        const state = generateState();
+        storeOAuthState(state);
+        const authUrl = getGoogleAuthUrl(state);
+        
+        console.log('🔐 Initiating Google OAuth:');
+        console.log('  State:', state);
+        console.log('  Auth URL:', authUrl);
+        
+        window.location.href = authUrl;
+      }
+    } catch (error) {
+      console.error('❌ OAuth initiation failed:', error);
+      setIsRedirecting(false);
     }
   };
 

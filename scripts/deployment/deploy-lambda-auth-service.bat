@@ -32,7 +32,7 @@ xcopy "lambda\shared\*.py" "%PACKAGE_DIR%\" /Y
 
 echo Step 5: Creating deployment package...
 cd "%PACKAGE_DIR%"
-powershell -Command "Compress-Archive -Path * -DestinationPath ..\function.zip -Force"
+tar -a -c -f ..\function.zip *
 cd ..\..\..\
 
 echo Step 6: Deploying to AWS Lambda...

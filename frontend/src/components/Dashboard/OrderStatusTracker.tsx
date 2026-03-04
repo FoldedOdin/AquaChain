@@ -25,6 +25,8 @@ import {
   RetryButton,
   InlineError
 } from '../ErrorHandling';
+import OrderProgressButtons from './OrderProgressButtons';
+import { orderingService } from '../../services/orderingService';
 
 /**
  * OrderStatusTracker Component
@@ -68,6 +70,61 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
 
   // Enhanced error notification
   const { showErrorNotification } = useErrorNotification();
+
+  // Handle manual status update
+  const handleStatusUpdate = async (newStatus: OrderStatus) => {
+    console.log(`🔄 [OrderStatusTracker] Attempting to update order ${orderId} to ${newStatus}`);
+    
+    try {
+      const updatedOrder = await orderingService.updateOrderStatus(
+        orderId,
+        newStatus,
+        { manualUpdate: true, updatedBy: 'user' }
+      );
+
+      console.log(`✅ [OrderStatusTracker] Order updated successfully:`, updatedOrder);
+
+      // Update local state with new status
+      setLocalCurrentStatus(updatedOrder.status);
+      
+      // Add to status history
+      const newStatusUpdate: StatusUpdate = {
+        status: updatedOrder.status,
+        timestamp: new Date(),
+        message: `Order status manually updated to ${updatedOrder.status}`,
+        metadata: { manualUpdate: true }
+      };
+      
+      setLocalStatusHistory(prev => [newStatusUpdate, ...prev]);
+      setLastUpdateTime(new Date());
+    } catch (error) {
+      console.error(`❌ [OrderStatusTracker] Failed to update order status:`, error);
+      
+      // Check if it's a network error
+      if (error instanceof TypeError && error.message.includes('NetworkError')) {
+        const networkError = new OrderingError(
+          `Unable to connect to server. The order management API may not be deployed. Attempted to update order ${orderId} to ${newStatus}.`,
+          {
+            code: 'NETWORK_ERROR',
+            retryable: true,
+            context: {
+              component: 'OrderStatusTracker',
+              action: 'update_status',
+              orderId
+            },
+            cause: error
+          }
+        );
+        
+        showErrorNotification(networkError, {
+          context: { orderId, component: 'OrderStatusTracker' }
+        });
+      }
+      
+      // Error is handled by OrderProgressButtons component
+      throw error;
+    }
+  };
 
   // WebSocket subscription for real-time updates (disabled for now - no WebSocket endpoint deployed)
   const {
@@ -639,6 +696,14 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Order Progress Buttons */}
+      <OrderProgressButtons
+        orderId={orderId}
+        currentStatus={localCurrentStatus}
+        onStatusUpdate={handleStatusUpdate}
+        disabled={demoMode} // Disable manual updates in demo mode
+      />
 
       {/* Status History */}
       <div className="space-y-4">

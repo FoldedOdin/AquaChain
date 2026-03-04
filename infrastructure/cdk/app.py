@@ -34,6 +34,7 @@ from stacks.production_monitoring_stack import ProductionMonitoringStack
 from stacks.enhanced_consumer_ordering_stack import EnhancedConsumerOrderingStack
 from stacks.websocket_stack import WebSocketStack
 from stacks.security_audit_stack import SecurityAuditStack
+from stacks.auto_technician_assignment_stack import AutoTechnicianAssignmentStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -367,6 +368,18 @@ def main():
         description=f"AquaChain Security Audit Logging - {env_name}"
     )
     security_audit_stack.add_dependency(security_stack)
+    
+    # 28. Auto Technician Assignment Stack (Automatic assignment with profile validation)
+    auto_assignment_stack = AutoTechnicianAssignmentStack(
+        app,
+        f"AquaChain-AutoTechnicianAssignment-{env_name}",
+        config=config,
+        core_resources=data_stack.data_resources,
+        env=aws_env,
+        description=f"AquaChain Automatic Technician Assignment - {env_name}"
+    )
+    auto_assignment_stack.add_dependency(enhanced_ordering_stack)
+    auto_assignment_stack.add_dependency(data_stack)
     
     # Synthesize the app
     app.synth()

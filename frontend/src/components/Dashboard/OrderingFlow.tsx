@@ -617,7 +617,7 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
                     orderId={state.currentOrder.id}
                     currentStatus={state.currentOrder.status}
                     statusHistory={state.currentOrder.statusHistory || []}
-                    demoMode={true}
+                    demoMode={false}
                     progressInterval={20}
                   />
                   

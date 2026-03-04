@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { parseOAuthCallback, verifyOAuthState } from '../../config/googleOAuth';
 
@@ -13,12 +13,25 @@ const GoogleCallbackHandler: React.FC = () => {
   const navigate = useNavigate();
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
   const [message, setMessage] = useState('Processing Google sign-in...');
+  const hasProcessed = useRef(false); // Prevent double execution in Strict Mode
 
   useEffect(() => {
     const handleCallback = async () => {
+      // Prevent double execution in React Strict Mode
+      if (hasProcessed.current) {
+        console.log('⚠️ Callback already processed, skipping duplicate execution');
+        return;
+      }
+      hasProcessed.current = true;
+      
       try {
         // Parse callback parameters
         const params = parseOAuthCallback();
+
+        console.log('🔐 Processing OAuth callback:');
+        console.log('  Code:', params.code ? 'present' : 'missing');
+        console.log('  State:', params.state);
+        console.log('  Error:', params.error || 'none');
 
         // Check for errors from Google
         if (params.error) {
@@ -42,7 +55,8 @@ const GoogleCallbackHandler: React.FC = () => {
         sessionStorage.removeItem('oauth_signup_role'); // Clean up
 
         // Exchange code for tokens via backend
-        const response = await fetch('http://localhost:3002/api/auth/google/callback', {
+        const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+        const response = await fetch(`${apiEndpoint}/api/auth/google/callback`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -69,7 +83,8 @@ const GoogleCallbackHandler: React.FC = () => {
 
         // Store user data
         if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
+          localStorage.setItem('aquachain_user', JSON.stringify(data.user));
+          localStorage.setItem('aquachain_role', data.user.role || 'consumer');
         }
 
         setStatus('success');

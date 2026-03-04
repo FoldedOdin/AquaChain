@@ -77,13 +77,25 @@ export const verifyOAuthState = (state: string): boolean => {
   const storedState = sessionStorage.getItem('oauth_state');
   const timestamp = sessionStorage.getItem('oauth_state_timestamp');
   
-  // Clear stored state
-  sessionStorage.removeItem('oauth_state');
-  sessionStorage.removeItem('oauth_state_timestamp');
+  // Debug logging
+  console.log('🔐 OAuth State Verification:');
+  console.log('  Returned state:', state);
+  console.log('  Stored state:', storedState);
+  console.log('  Timestamp:', timestamp);
   
-  // Verify state matches
+  // Verify state matches BEFORE clearing
+  if (!storedState) {
+    console.error('❌ No stored state found - state may have been cleared or never set');
+    return false;
+  }
+  
   if (storedState !== state) {
-    console.error('OAuth state mismatch - possible CSRF attack');
+    console.error('❌ OAuth state mismatch - possible CSRF attack');
+    console.error('  Expected:', storedState);
+    console.error('  Received:', state);
+    // Clear stored state after failed verification
+    sessionStorage.removeItem('oauth_state');
+    sessionStorage.removeItem('oauth_state_timestamp');
     return false;
   }
   
@@ -91,11 +103,20 @@ export const verifyOAuthState = (state: string): boolean => {
   if (timestamp) {
     const age = Date.now() - parseInt(timestamp);
     if (age > 5 * 60 * 1000) {
-      console.error('OAuth state expired');
+      console.error('❌ OAuth state expired (age:', Math.floor(age / 1000), 'seconds)');
+      // Clear expired state
+      sessionStorage.removeItem('oauth_state');
+      sessionStorage.removeItem('oauth_state_timestamp');
       return false;
     }
+    console.log('  ✅ State age:', Math.floor(age / 1000), 'seconds (valid)');
   }
   
+  // Clear stored state after successful verification
+  sessionStorage.removeItem('oauth_state');
+  sessionStorage.removeItem('oauth_state_timestamp');
+  
+  console.log('✅ OAuth state verified successfully');
   return true;
 };
 

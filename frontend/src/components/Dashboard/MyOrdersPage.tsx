@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import Toast from '../Toast/Toast';
 import ShipmentTracking from './ShipmentTracking';
+import OrderProgressButtons from './OrderProgressButtons';
 
 interface Order {
   orderId: string;
@@ -1016,6 +1017,19 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Order Progress Buttons */}
+                  <OrderProgressButtons
+                    orderId={selectedOrder.orderId}
+                    currentStatus={selectedOrder.status}
+                    onStatusUpdate={async (newStatus) => {
+                      // Update the selected order status
+                      setSelectedOrder({ ...selectedOrder, status: newStatus });
+                      // Refresh orders list
+                      await fetchOrders();
+                    }}
+                    disabled={false}
+                  />
 
                   {/* Status Message for Completed Orders */}
                   {(selectedOrder.status === 'completed' || selectedOrder.status === 'DELIVERED') && (
