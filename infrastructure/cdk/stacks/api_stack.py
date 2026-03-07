@@ -1050,20 +1050,69 @@ class AquaChainApiStack(Stack):
                 function_name=get_resource_name(self.config, "function", "order-management")
             )
             
-            # Import existing /api/orders resource (created by old deployment)
-            # We'll update the methods to point to the new Lambda
-            from aws_cdk.aws_apigateway import IResource
+            # Create /api/orders resource
+            api_orders = api_root.add_resource("orders")
             
-            # Get the existing orders resource by importing it
-            # Note: We can't use get_resource() in CDK, so we'll just skip creating it
-            # and manually update the Lambda integration via AWS CLI after deployment
+            # POST /api/orders - Create order
+            api_orders.add_method(
+                "POST",
+                apigateway.LambdaIntegration(order_management_lambda),
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                authorizer=self.cognito_authorizer
+            )
             
-            print("Order management Lambda found. Update API Gateway routes manually:")
+            # GET /api/orders - Get orders by consumer (with query parameter)
+            api_orders.add_method(
+                "GET",
+                apigateway.LambdaIntegration(order_management_lambda),
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                authorizer=self.cognito_authorizer
+            )
+            
+            # /api/orders/{orderId} resource
+            api_order_id = api_orders.add_resource("{orderId}")
+            
+            # GET /api/orders/{orderId} - Get specific order
+            api_order_id.add_method(
+                "GET",
+                apigateway.LambdaIntegration(order_management_lambda),
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                authorizer=self.cognito_authorizer
+            )
+            
+            # /api/orders/{orderId}/status resource
+            api_order_status = api_order_id.add_resource("status")
+            
+            # PUT /api/orders/{orderId}/status - Update order status
+            api_order_status.add_method(
+                "PUT",
+                apigateway.LambdaIntegration(order_management_lambda),
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                authorizer=self.cognito_authorizer
+            )
+            
+            # /api/orders/{orderId}/cancel resource
+            api_order_cancel = api_order_id.add_resource("cancel")
+            
+            # PUT /api/orders/{orderId}/cancel - Cancel order
+            api_order_cancel.add_method(
+                "PUT",
+                apigateway.LambdaIntegration(order_management_lambda),
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                authorizer=self.cognito_authorizer
+            )
+            
+            print("✅ Order management API routes configured successfully")
             print(f"  Lambda ARN: {order_management_lambda.function_arn}")
-            print("  Routes to update: PUT /api/orders/{{orderId}}/status")
+            print("  Routes created:")
+            print("    - POST /api/orders")
+            print("    - GET /api/orders")
+            print("    - GET /api/orders/{orderId}")
+            print("    - PUT /api/orders/{orderId}/status")
+            print("    - PUT /api/orders/{orderId}/cancel")
         except Exception as e:
             # Order management Lambda doesn't exist yet, skip
-            print(f"Order management Lambda not found, skipping API integration: {e}")
+            print(f"⚠️  Order management Lambda not found, skipping API integration: {e}")
             pass
         
         # /api/webhooks - Webhook endpoints (no authentication required)

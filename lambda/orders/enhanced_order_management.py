@@ -38,12 +38,12 @@ sns = boto3.client('sns')
 eventbridge = boto3.client('events')
 
 # Environment variables
-ORDERS_TABLE = os.environ.get('ENHANCED_ORDERS_TABLE', 'aquachain-orders')
-PAYMENTS_TABLE = os.environ.get('ENHANCED_PAYMENTS_TABLE', 'aquachain-payments')
-TECHNICIANS_TABLE = os.environ.get('ENHANCED_TECHNICIANS_TABLE', 'aquachain-technicians')
-SIMULATIONS_TABLE = os.environ.get('ENHANCED_SIMULATIONS_TABLE', 'aquachain-order-simulations')
+ORDERS_TABLE = os.environ.get('ORDERS_TABLE_NAME', os.environ.get('ENHANCED_ORDERS_TABLE', 'aquachain-orders'))
+PAYMENTS_TABLE = os.environ.get('PAYMENTS_TABLE_NAME', os.environ.get('ENHANCED_PAYMENTS_TABLE', 'aquachain-payments'))
+TECHNICIANS_TABLE = os.environ.get('TECHNICIANS_TABLE_NAME', os.environ.get('ENHANCED_TECHNICIANS_TABLE', 'aquachain-technicians'))
+SIMULATIONS_TABLE = os.environ.get('ORDER_SIMULATIONS_TABLE_NAME', os.environ.get('ENHANCED_SIMULATIONS_TABLE', 'aquachain-order-simulations'))
 SNS_TOPIC_ARN = os.environ.get('ORDER_EVENTS_TOPIC_ARN')
-EVENTBRIDGE_BUS = os.environ.get('EVENTBRIDGE_BUS', 'default')
+EVENTBRIDGE_BUS = os.environ.get('ORDERING_EVENT_BUS_NAME', os.environ.get('EVENTBRIDGE_BUS', 'default'))
 
 # Initialize logger
 logger = get_logger(__name__, service='enhanced-order-management')
@@ -143,8 +143,11 @@ class OrderManagementService:
         # Update order status schema
         update_status_schema = {
             'orderId': ValidationRule(
-                field_type=FieldType.UUID,
-                required=True
+                field_type=FieldType.STRING,
+                required=True,
+                pattern=r'^ord_\d+$',  # Match format: ord_TIMESTAMP
+                min_length=5,
+                max_length=50
             ),
             'status': ValidationRule(
                 field_type=FieldType.ENUM,
@@ -328,7 +331,7 @@ class OrderManagementService:
             
             # Prepare update
             timestamp = datetime.now(timezone.utc).isoformat()
-            current_version = current_order.get('version', 1)
+            current_version = current_order.get('version', 0)  # Default to 0 if no version exists
             new_version = current_version + 1
             
             # Create status update entry
@@ -345,20 +348,23 @@ class OrderManagementService:
             
             # Update order with optimistic locking
             try:
+                # Build condition expression - check version if it exists, otherwise just check order exists
+                if current_version > 0:
+                    condition_expression = 'attribute_exists(orderId) AND #version = :current_version'
+                else:
+                    condition_expression = 'attribute_exists(orderId)'
+                
                 response = self.orders_table.update_item(
                     Key={
-                        'PK': f'ORDER#{order_id}',
-                        'SK': f'ORDER#{order_id}'
+                        'orderId': order_id
                     },
                     UpdateExpression='''
                         SET #status = :new_status,
                             #updatedAt = :timestamp,
                             #version = :new_version,
-                            #statusHistory = :status_history,
-                            GSI2PK = :gsi2pk,
-                            GSI2SK = :gsi2sk
+                            #statusHistory = :status_history
                     ''',
-                    ConditionExpression='#version = :current_version',
+                    ConditionExpression=condition_expression,
                     ExpressionAttributeNames={
                         '#status': 'status',
                         '#updatedAt': 'updatedAt',
@@ -370,9 +376,7 @@ class OrderManagementService:
                         ':timestamp': timestamp,
                         ':new_version': new_version,
                         ':current_version': current_version,
-                        ':status_history': status_history,
-                        ':gsi2pk': f'STATUS#{new_status.value}',
-                        ':gsi2sk': f'{timestamp}#{order_id}'
+                        ':status_history': status_history
                     },
                     ReturnValues='ALL_NEW'
                 )
@@ -547,14 +551,17 @@ class OrderManagementService:
     def _get_order_by_id(self, order_id: str) -> Optional[Dict[str, Any]]:
         """Get order by ID from DynamoDB"""
         try:
+            logger.info(f'Querying DynamoDB for order', order_id=order_id, table=ORDERS_TABLE)
             response = self.orders_table.get_item(
                 Key={
-                    'PK': f'ORDER#{order_id}',
-                    'SK': f'ORDER#{order_id}'
+                    'orderId': order_id
                 }
             )
-            return response.get('Item')
-        except Exception:
+            item = response.get('Item')
+            logger.info(f'DynamoDB query result', order_id=order_id, found=item is not None)
+            return item
+        except Exception as e:
+            logger.error(f'Error querying DynamoDB', order_id=order_id, error=str(e))
             return None
     
     def _is_valid_transition(self, current_status: OrderStatus, new_status: OrderStatus) -> bool:
@@ -659,11 +666,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         except json.JSONDecodeError:
             raise ValidationError('Invalid JSON in request body')
         
-        # Add correlation ID to request data
-        request_data['correlationId'] = correlation_id
+        # Normalize path (remove /api prefix if present)
+        normalized_path = path.replace('/api', '') if path.startswith('/api') else path
         
         # Route to appropriate operation
-        if http_method == 'POST' and path == '/orders':
+        if http_method == 'POST' and normalized_path == '/orders':
             # Create order
             return {
                 'statusCode': 201,
@@ -675,9 +682,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'body': json.dumps(order_service.create_order(request_data, correlation_id))
             }
         
-        elif http_method == 'PUT' and path_parameters.get('orderId') and 'status' in path:
+        elif http_method == 'PUT' and path_parameters.get('orderId') and 'status' in normalized_path:
             # Update order status
             request_data['orderId'] = path_parameters['orderId']
+            logger.info('Updating order status', order_id=path_parameters['orderId'], 
+                       new_status=request_data.get('status'), correlation_id=correlation_id)
             return {
                 'statusCode': 200,
                 'headers': {
@@ -701,7 +710,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'body': json.dumps(order_service.get_order(order_id, correlation_id))
             }
         
-        elif http_method == 'GET' and path == '/orders' and query_parameters.get('consumerId'):
+        elif http_method == 'GET' and normalized_path == '/orders' and query_parameters.get('consumerId'):
             # Get orders by consumer
             consumer_id = query_parameters['consumerId']
             limit = int(query_parameters.get('limit', 50))
@@ -719,7 +728,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 ))
             }
         
-        elif http_method == 'PUT' and path_parameters.get('orderId') and 'cancel' in path:
+        elif http_method == 'PUT' and path_parameters.get('orderId') and 'cancel' in normalized_path:
             # Cancel order
             order_id = path_parameters['orderId']
             reason = request_data.get('reason', 'Order cancelled by user')

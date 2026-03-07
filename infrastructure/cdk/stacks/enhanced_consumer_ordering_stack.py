@@ -257,12 +257,23 @@ class EnhancedConsumerOrderingStack(Stack):
         layers = [self.common_layer] if self.common_layer else []
         
         # Order Management Service Lambda
-        self.order_management_function = lambda_python.PythonFunction(
+        # Create Lambda with shared modules bundled
+        self.order_management_function = lambda_.Function(
             self, "OrderManagementFunction",
             function_name=get_resource_name(self.config, "function", "order-management"),
-            entry="../../lambda/orders",
-            index="enhanced_order_management.py",
-            handler="lambda_handler",
+            handler="enhanced_order_management.lambda_handler",
+            code=lambda_.Code.from_asset(
+                "../../lambda/orders",
+                bundling={
+                    "image": lambda_.Runtime.PYTHON_3_11.bundling_image,
+                    "command": [
+                        "bash", "-c",
+                        "pip install -r requirements.txt -t /asset-output && " +
+                        "cp -r . /asset-output"
+                        # Note: Removed shared directory copy - will use Lambda layer instead
+                    ]
+                }
+            ),
             layers=layers,
             **common_lambda_config
         )

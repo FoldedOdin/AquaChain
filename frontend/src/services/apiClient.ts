@@ -242,7 +242,7 @@ class EnhancedApiClient extends ApiClient {
 
   // Get orders by consumer ID
   async getOrdersByConsumer(consumerId: string): Promise<ApiResponse<Order[]>> {
-    return this.get(`/api/orders/consumer/${consumerId}`);
+    return this.get(`/api/orders?consumerId=${consumerId}`);
   }
 
   // Update order status

@@ -523,3 +523,29 @@ scripts/deployment/deploy-admin-lambda.bat
 
 # CDK tests
 infrastructure/cdk/tests/
+
+# Temporary test and fix files
+*FIX*.md
+*WORKING*.md
+test-*.html
+test-*.ps1
+test-*.json
+check-*.json
+fix-*.json
+get-cognito-token.html
+
+# Temporary deployment scripts
+scripts/deployment/add-*-manual.bat
+scripts/deployment/fix-*.bat
+scripts/deployment/quick-*.bat
+scripts/deployment/package-and-deploy-*.py
+scripts/deployment/fix_*.py
+
+# Temporary testing scripts
+scripts/testing/create-test-*.py
+
+# Lambda deployment packages
+lambda/*/deployment-package/
+
+# Hardware/Sensors directory (if not part of project)
+Sensors/

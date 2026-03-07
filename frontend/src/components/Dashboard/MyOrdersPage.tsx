@@ -161,6 +161,38 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      // Extract consumer ID from stored user data or JWT token
+      let consumerId = 'demo-consumer-123'; // Fallback
+      
+      // Try to get from stored user data first
+      const storedUser = localStorage.getItem('aquachain_user');
+      if (storedUser) {
+        try {
+          const userData = JSON.parse(storedUser);
+          consumerId = userData.userId || userData.sub || consumerId;
+          console.log('✅ Using consumer ID from stored user:', consumerId);
+        } catch (e) {
+          console.warn('Failed to parse stored user data');
+        }
+      }
+      
+      // If still using fallback, try to extract from JWT token
+      if (consumerId === 'demo-consumer-123' && token) {
+        try {
+          const tokenParts = token.split('.');
+          if (tokenParts.length === 3) {
+            const payload = JSON.parse(atob(tokenParts[1]));
+            consumerId = payload.sub || payload['cognito:username'] || consumerId;
+            console.log('✅ Using consumer ID from JWT token:', consumerId);
+          }
+        } catch (e) {
+          console.warn('Failed to extract consumer ID from token');
+        }
+      }
+      
+      console.log(`🔍 Fetching orders for consumer: ${consumerId}`);
+      
       const response = await fetch(`${apiEndpoint}/api/orders/history`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -170,7 +202,14 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
       if (response.ok) {
         const data = await response.json();
-        setOrders(data.orders || []);
+        // The enhanced API returns { success: true, data: [...], count: N }
+        setOrders(data.data || data.orders || []);
+        console.log(`✅ Fetched ${data.data?.length || data.orders?.length || 0} orders`);
+      } else {
+        console.error(`❌ Failed to fetch orders: ${response.status} ${response.statusText}`);
+        if (response.status === 403) {
+          console.error('💡 Hint: Check if the consumer ID in the request matches the token user ID');
+        }
       }
     } catch (error) {
       console.error('Failed to fetch orders:', error);

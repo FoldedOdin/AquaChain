@@ -231,7 +231,7 @@ class ErrorHandler:
         log_data = {
             'service': self.service_name,
             'error_code': error.code.value,
-            'message': error.message,
+            'error_message': error.message,  # Changed from 'message' to avoid logging conflict
             'status_code': error.status_code,
             'correlation_id': correlation_id,
             'user_id': user_id,
@@ -275,6 +275,9 @@ class ErrorHandler:
             'statusCode': error.status_code,
             'headers': {
                 'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
                 'X-Correlation-ID': correlation_id,
                 'X-Error-Code': error.code.value
             },
@@ -318,6 +321,9 @@ class ErrorHandler:
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
                 'X-Correlation-ID': correlation_id,
                 'X-Error-Code': ErrorCode.INTERNAL_ERROR.value
             },
