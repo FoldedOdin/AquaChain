@@ -24,7 +24,7 @@
     "@types/seedrandom": "^3.0.8",
     "aws-amplify": "^6.15.7",
     "date-fns": "^4.1.0",
-    "dompurify": "^3.3.0",
+    "dompurify": "^3.3.2",
     "framer-motion": "^12.23.24",
     "gtag": "^1.0.1",
     "leaflet": "^1.9.4",
