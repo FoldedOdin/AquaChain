@@ -145,7 +145,7 @@
     "imagemin-webp": "^8.0.0",
     "jest-axe": "^10.0.0",
     "lint-staged": "^16.2.4",
-    "postcss": "^8.5.6",
+    "postcss": "^8.5.7",
     "prettier": "^3.6.2",
     "prop-types": "^15.8.1",
     "storybook": "^9.1.13",
