@@ -1,16 +1,17 @@
 /**
- * Device Fleet Table Component
- * Displays all ESP32 devices with management actions using TanStack Table
+ * User Management Table Component
+ * Displays all users with management actions using TanStack Table
  * 
  * Features:
- * - Sortable columns (Device ID, Location, Status, Last Data, Battery)
- * - Filtering by status and battery level
- * - Search by Device ID or Location
+ * - Sortable columns (User, Role, Last Login, Status)
+ * - Filtering by role and status
+ * - Search by user email
  * - Pagination with configurable page sizes
- * - Virtual scrolling for large datasets (>100 rows)
- * - Keyboard navigation support
- * - Action buttons (View, Restart, Calibrate, Disable)
- * - Read-only mode for Technician role
+ * - Action buttons (Change Role, Disable User, Reset Password)
+ * - Role and status badges
+ * - Relative time formatting for Last Login
+ * 
+ * Requirements: 6.1, 6.2, 6.3, 6.11, 6.13, 6.14
  */
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -24,95 +25,90 @@ import {
   ColumnDef,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { Eye, RotateCw, Settings, XCircle, ChevronUp, ChevronDown } from "lucide-react";
-import { toast } from "react-toastify";
+import { ChevronUp, ChevronDown } from "lucide-react";
 
-import { Device, DeviceFilters } from "../../types/device";
+import { User, UserFilters } from "../../types/user";
 import { useDashboard } from "../../contexts/DashboardContext";
 import { MockDataService } from "../../services/mockDataService";
 import StatusBadge from "../common/StatusBadge";
 import MockDataBadge from "../common/MockDataBadge";
 import LoadingSkeleton from "../common/LoadingSkeleton";
-import BatteryIndicator from "./BatteryIndicator";
-import DeviceActions from "./DeviceActions";
-import VirtualizedDeviceTable from "./VirtualizedDeviceTable";
+import RoleBadge from "./RoleBadge";
+import UserActions from "./UserActions";
 
-interface DeviceFleetTableProps {
-  readOnly?: boolean;
-}
-
-const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false }) => {
+const UserManagementTable: React.FC = () => {
   const { lastRefreshTimestamp } = useDashboard();
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState<DeviceFilters>({
+  const [filters, setFilters] = useState<UserFilters>({
     search: "",
+    role: "All",
     status: "All",
-    battery: "All",
   });
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
 
-  // Load devices from mock data service
+  // Load users from mock data service
   useEffect(() => {
     setLoading(true);
-    const allDevices = MockDataService.getDevices();
-    setDevices(allDevices);
+    const allUsers = MockDataService.getUsers();
+    setUsers(allUsers);
     setLoading(false);
   }, [lastRefreshTimestamp]);
 
-  // Filter devices based on search and filter criteria
-  const filteredDevices = useMemo(() => {
-    return devices.filter((device) => {
+  // Filter users based on search and filter criteria
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
       // Search filter (debounced in input handler)
       if (filters.search) {
         const searchLower = filters.search.toLowerCase();
-        if (
-          !device.deviceId.toLowerCase().includes(searchLower) &&
-          !device.location.toLowerCase().includes(searchLower)
-        ) {
+        if (!user.email.toLowerCase().includes(searchLower)) {
           return false;
         }
       }
 
-      // Status filter
-      if (filters.status !== "All" && device.status !== filters.status) {
+      // Role filter
+      if (filters.role !== "All" && user.role !== filters.role) {
         return false;
       }
 
-      // Battery filter
-      if (filters.battery !== "All") {
-        if (filters.battery === "High" && device.battery <= 50) return false;
-        if (
-          filters.battery === "Medium" &&
-          (device.battery <= 20 || device.battery > 50)
-        )
-          return false;
-        if (filters.battery === "Low" && device.battery > 20) return false;
+      // Status filter
+      if (filters.status !== "All" && user.status !== filters.status) {
+        return false;
       }
 
       return true;
     });
-  }, [devices, filters]);
+  }, [users, filters]);
 
   // Define table columns
-  const columns = useMemo<ColumnDef<Device>[]>(
+  const columns = useMemo<ColumnDef<User>[]>(
     () => [
       {
-        accessorKey: "deviceId",
-        header: "Device ID",
+        accessorKey: "email",
+        header: "User",
         cell: ({ row }) => (
-          <span className="font-mono text-sm text-gray-900 dark:text-white">
-            {row.original.deviceId}
+          <span className="text-sm text-gray-900 dark:text-white">
+            {row.original.email}
           </span>
         ),
       },
       {
-        accessorKey: "location",
-        header: "Location",
+        accessorKey: "role",
+        header: "Role",
+        cell: ({ row }) => <RoleBadge role={row.original.role} />,
+        sortingFn: (rowA, rowB) => {
+          // Numeric sorting: Admin=3, Technician=2, Consumer=1
+          const roleValues = { Admin: 3, Technician: 2, Consumer: 1 };
+          return roleValues[rowA.original.role] - roleValues[rowB.original.role];
+        },
+      },
+      {
+        accessorKey: "lastLogin",
+        header: "Last Login",
         cell: ({ row }) => (
-          <span className="text-sm text-gray-900 dark:text-white">
-            {row.original.location}
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {formatDistanceToNow(row.original.lastLogin, { addSuffix: true })}
           </span>
         ),
       },
@@ -121,39 +117,23 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
         header: "Status",
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
         sortingFn: (rowA, rowB) => {
-          // Numeric sorting: Online=3, Warning=2, Offline=1
-          const statusValues = { Online: 3, Warning: 2, Offline: 1 };
-          return (
-            statusValues[rowA.original.status] - statusValues[rowB.original.status]
-          );
+          // Numeric sorting: Active=2, Inactive=1
+          const statusValues = { Active: 2, Inactive: 1 };
+          return statusValues[rowA.original.status] - statusValues[rowB.original.status];
         },
-      },
-      {
-        accessorKey: "lastData",
-        header: "Last Data",
-        cell: ({ row }) => (
-          <span className="text-sm text-gray-600 dark:text-gray-400">
-            {formatDistanceToNow(row.original.lastData, { addSuffix: true })}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "battery",
-        header: "Battery",
-        cell: ({ row }) => <BatteryIndicator level={row.original.battery} />,
       },
       {
         id: "actions",
         header: "Actions",
-        cell: ({ row }) => <DeviceActions device={row.original} readOnly={readOnly} />,
+        cell: ({ row }) => <UserActions user={row.original} />,
       },
     ],
-    [readOnly]
+    []
   );
 
   // Initialize TanStack Table
   const table = useReactTable({
-    data: filteredDevices,
+    data: filteredUsers,
     columns,
     state: { sorting, pagination },
     onSortingChange: setSorting,
@@ -177,7 +157,7 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
 
   // Clear all filters
   const handleClearFilters = () => {
-    setFilters({ search: "", status: "All", battery: "All" });
+    setFilters({ search: "", role: "All", status: "All" });
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   };
 
@@ -185,8 +165,8 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.search) count++;
+    if (filters.role !== "All") count++;
     if (filters.status !== "All") count++;
-    if (filters.battery !== "All") count++;
     return count;
   }, [filters]);
 
@@ -203,7 +183,7 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Device Fleet
+          User Management
         </h2>
         <MockDataBadge />
       </div>
@@ -212,12 +192,27 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
       <div className="flex items-center gap-4 mb-4 flex-wrap">
         <input
           type="text"
-          placeholder="Search by Device ID or Location..."
+          placeholder="Search by email..."
           defaultValue={filters.search}
           onChange={(e) => handleSearchChange(e.target.value)}
           className="flex-1 min-w-[200px] px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          aria-label="Search devices"
+          aria-label="Search users"
         />
+
+        <select
+          value={filters.role}
+          onChange={(e) => {
+            setFilters((prev) => ({ ...prev, role: e.target.value as any }));
+            setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+          }}
+          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          aria-label="Filter by role"
+        >
+          <option value="All">All Roles</option>
+          <option value="Admin">Admin</option>
+          <option value="Technician">Technician</option>
+          <option value="Consumer">Consumer</option>
+        </select>
 
         <select
           value={filters.status}
@@ -229,24 +224,8 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
           aria-label="Filter by status"
         >
           <option value="All">All Status</option>
-          <option value="Online">Online</option>
-          <option value="Warning">Warning</option>
-          <option value="Offline">Offline</option>
-        </select>
-
-        <select
-          value={filters.battery}
-          onChange={(e) => {
-            setFilters((prev) => ({ ...prev, battery: e.target.value as any }));
-            setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-          }}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-          aria-label="Filter by battery level"
-        >
-          <option value="All">All Battery</option>
-          <option value="High">High (&gt;50%)</option>
-          <option value="Medium">Medium (20-50%)</option>
-          <option value="Low">Low (&lt;20%)</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
         </select>
 
         <button
@@ -263,85 +242,77 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
         </button>
       </div>
 
-      {/* Table or Virtualized Table */}
+      {/* Table */}
       <div className="overflow-x-auto">
-        {filteredDevices.length > 100 ? (
-          <VirtualizedDeviceTable
-            data={filteredDevices}
-            columns={columns}
-            table={table}
-          />
-        ) : (
-          <table className="w-full" role="table">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id} role="row">
-                  {headerGroup.headers.map((header) => (
-                    <th
-                      key={header.id}
-                      className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                      onClick={header.column.getToggleSortingHandler()}
-                      role="columnheader"
-                      aria-sort={
-                        header.column.getIsSorted()
-                          ? header.column.getIsSorted() === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
+        <table className="w-full" role="table">
+          <thead className="bg-gray-50 dark:bg-gray-700">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id} role="row">
+                {headerGroup.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                    onClick={header.column.getToggleSortingHandler()}
+                    role="columnheader"
+                    aria-sort={
+                      header.column.getIsSorted()
+                        ? header.column.getIsSorted() === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                  >
+                    <div className="flex items-center gap-2">
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
+                      {header.column.getIsSorted() && (
+                        <span aria-hidden="true">
+                          {header.column.getIsSorted() === "asc" ? (
+                            <ChevronUp size={14} />
+                          ) : (
+                            <ChevronDown size={14} />
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-gray-500 dark:text-gray-400"
+                >
+                  No users found matching the current filters.
+                </td>
+              </tr>
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  role="row"
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className="px-4 py-3 whitespace-nowrap"
+                      role="cell"
                     >
-                      <div className="flex items-center gap-2">
-                        {flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                        {header.column.getIsSorted() && (
-                          <span aria-hidden="true">
-                            {header.column.getIsSorted() === "asc" ? (
-                              <ChevronUp size={14} />
-                            ) : (
-                              <ChevronDown size={14} />
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    </th>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
                   ))}
                 </tr>
-              ))}
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {table.getRowModel().rows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={columns.length}
-                    className="px-4 py-8 text-center text-gray-500 dark:text-gray-400"
-                  >
-                    No devices found matching the current filters.
-                  </td>
-                </tr>
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    role="row"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        className="px-4 py-3 whitespace-nowrap"
-                        role="cell"
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Pagination */}
@@ -356,9 +327,9 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
             {Math.min(
               (table.getState().pagination.pageIndex + 1) *
                 table.getState().pagination.pageSize,
-              filteredDevices.length
+              filteredUsers.length
             )}{" "}
-            of {filteredDevices.length} devices
+            of {filteredUsers.length} users
           </div>
 
           <select
@@ -403,4 +374,4 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
   );
 };
 
-export default DeviceFleetTable;
+export default UserManagementTable;

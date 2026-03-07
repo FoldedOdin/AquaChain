@@ -50,8 +50,8 @@ const DashboardContext = createContext<DashboardContextValue | null>(null);
  * Dashboard Provider Props
  */
 interface DashboardProviderProps {
-  userRole: UserRole;
-  userId: string;
+  userRole?: UserRole;
+  userId?: string;
   children: ReactNode;
 }
 
@@ -62,8 +62,8 @@ interface DashboardProviderProps {
  * Handles auto-refresh timer, localStorage persistence, and notification management.
  */
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({
-  userRole,
-  userId,
+  userRole = "Admin" as UserRole,
+  userId = "default-user",
   children,
 }) => {
   // Load config from localStorage

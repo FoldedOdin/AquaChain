@@ -91,10 +91,10 @@ class MockDataServiceClass {
    * Initialize all mock data on service creation
    */
   private initializeData(): void {
-    this.devices = this.generateDevices(500);
-    this.alerts = this.generateAlerts(200);
+    this.devices = this.generateDevices(0); // Changed from 500 to 0
+    this.alerts = this.generateAlerts(0); // Changed from 200 to 0
     this.users = this.generateUsers(100);
-    this.logs = this.generateLogs(10000);
+    this.logs = this.generateLogs(0); // Changed from 10000 to 0 since no devices
   }
 
   /**
@@ -275,6 +275,11 @@ class MockDataServiceClass {
    * @returns Array of LogEntry objects
    */
   private generateLogs(count: number): LogEntry[] {
+    // If no devices, return empty logs array
+    if (this.devices.length === 0) {
+      return [];
+    }
+
     const logs: LogEntry[] = [];
     const sources: LogSource[] = ["CloudWatch", "IoTCore"];
     const levels: LogLevel[] = ["INFO", "WARNING", "ERROR"];

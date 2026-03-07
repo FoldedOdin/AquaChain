@@ -295,10 +295,19 @@ class AquaChainComputeStack(Stack):
                 "COGNITO_CLIENT_ID": os.environ.get("COGNITO_CLIENT_ID", ""),
                 "CONFIG_TABLE": get_resource_name(self.config, "table", "system-config"),
                 "AUDIT_TABLE": get_resource_name(self.config, "table", "audit-logs"),
-                "DEVICES_TABLE": get_resource_name(self.config, "table", "devices")
+                "DEVICES_TABLE": get_resource_name(self.config, "table", "devices"),
+                "ALERTS_TABLE": get_resource_name(self.config, "table", "alerts"),
+                # API Gateway ID will be imported from API stack export after deployment
+                # Use Fn.importValue to reference the exported value
+                "API_STAGE": self.config["environment"]
             },
             **{k: v for k, v in common_lambda_config.items() if k not in ["memory_size", "timeout", "environment"]}
         )
+        
+        # API Gateway ID will be added via environment variable update after API stack deployment
+        # For now, set a placeholder that will be updated by the API stack
+        # This avoids circular dependency issues during initial deployment
+        self.admin_service_function.add_environment("API_GATEWAY_ID", "PENDING_API_DEPLOYMENT")
         
         # Grant admin service comprehensive permissions
         self.admin_service_function.add_to_role_policy(
@@ -318,6 +327,8 @@ class AquaChainComputeStack(Stack):
                     # CloudWatch permissions for system health monitoring
                     "cloudwatch:GetMetricStatistics",
                     "cloudwatch:ListMetrics",
+                    # CloudFormation permissions to read exports (for API Gateway ID)
+                    "cloudformation:ListExports",
                     # DynamoDB permissions for all admin operations
                     "dynamodb:PutItem",
                     "dynamodb:GetItem",

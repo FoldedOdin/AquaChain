@@ -292,7 +292,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const wsConnected = false;
 
   // Fetch dashboard data
-  const { data: dashboardData, isLoading, error } = useDashboardData('admin');
+  const dashboardData = useDashboardData();
+  const isLoading = dashboardData.loading;
+  const error = dashboardData.error;
   const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: true });
   const { notifications } = useNotifications();
 

@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { OrderingProvider } from './contexts/OrderingContext';
+import { DashboardProvider } from './contexts/DashboardContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import performanceMonitor from './services/performanceMonitor';
 import GoogleCallbackHandler from './components/Auth/GoogleCallbackHandler';
@@ -55,12 +56,13 @@ function App() {
       <AuthProvider>
         <NotificationProvider>
           <OrderingProvider>
-            <Router
-              future={{
-                v7_startTransition: true,
-                v7_relativeSplatPath: true,
-              }}
-            >
+            <DashboardProvider>
+              <Router
+                future={{
+                  v7_startTransition: true,
+                  v7_relativeSplatPath: true,
+                }}
+              >
             <div className="App">
               <Routes>
             <Route
@@ -222,7 +224,8 @@ function App() {
             />
               </Routes>
             </div>
-          </Router>
+              </Router>
+            </DashboardProvider>
           </OrderingProvider>
         </NotificationProvider>
       </AuthProvider>

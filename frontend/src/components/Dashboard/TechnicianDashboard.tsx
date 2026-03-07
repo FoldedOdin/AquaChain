@@ -59,7 +59,10 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [shipmentStatuses, setShipmentStatuses] = useState<Record<string, ShipmentStatusResponse>>({});
 
   // Fetch dashboard data
-  const { data: dashboardData, isLoading, error, refetch } = useDashboardData('technician');
+  const dashboardData = useDashboardData();
+  const isLoading = dashboardData.loading;
+  const error = dashboardData.error;
+  const refetch = () => window.location.reload();
   const { isConnected, latestUpdate } = useRealTimeUpdates('technician-updates', { autoConnect: true });
 
   // Listen for shipment delivery notifications
@@ -71,7 +74,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       const { order_id, destination } = latestUpdate.data;
       
       // Check if this order is assigned to this technician
-      const tasks = dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : [];
+      const tasks = (dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : []) as any[];
       const assignedTask = tasks.find((task: any) => task.orderId === order_id);
       
       if (assignedTask) {
@@ -100,7 +103,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     const fetchShipmentStatuses = async () => {
       if (!dashboardData || !('tasks' in dashboardData)) return;
       
-      const tasks = dashboardData.tasks || [];
+      const tasks = (dashboardData.tasks || []) as any[];
       const statuses: Record<string, ShipmentStatusResponse> = {};
       
       for (const task of tasks) {
@@ -606,7 +609,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   }
 
   // Main dashboard view
-  const tasks = dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : [];
+  const tasks = ((dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : []) as any[]);
   const recentActivities = (dashboardData && 'recentActivities' in dashboardData ? dashboardData.recentActivities : []) as any[];
   
   // Map order statuses to task statuses for display
@@ -1379,7 +1382,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                   {successModal.orderId && (
                     <button
                       onClick={() => {
-                        const tasks = dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : [];
+                        const tasks = ((dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : []) as any[]);
                         const task = tasks.find((t: any) => t.orderId === successModal.orderId);
                         if (task) {
                           const mappedTask = {

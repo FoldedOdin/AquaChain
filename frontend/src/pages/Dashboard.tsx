@@ -6,7 +6,8 @@ import AlertHistory from '../components/Dashboard/AlertHistory';
 import DashboardLayout from '../components/Dashboard/DashboardLayout';
 import DataCard from '../components/Dashboard/DataCard';
 import AlertPanel from '../components/Dashboard/AlertPanel';
-import { WaterQualityReading, Alert } from '../types';
+import { WaterQualityReading } from '../types';
+import { Alert } from '../types/alert';
 import { 
   mockWaterQualityReading, 
   mockAlerts, 
@@ -21,15 +22,21 @@ const Dashboard: React.FC = () => {
   const [currentReading, setCurrentReading] = useState<WaterQualityReading>(mockWaterQualityReading);
 
   // Use shared hooks
-  const { data, isLoading, error, refetch } = useDashboardData('consumer');
+  const dashboardData = useDashboardData();
   const { latestUpdate } = useRealTimeUpdates('consumer-updates');
   const { exportData, exporting } = useDataExport();
 
   // Extract data from the hook
-  const consumerData = data as any;
-  const alerts = consumerData?.alerts || mockAlerts;
-  const devices = consumerData?.devices || [];
-  const stats = consumerData?.stats || {};
+  const isLoading = dashboardData.loading;
+  const error = dashboardData.error;
+  const alerts = dashboardData.alerts || mockAlerts;
+  const devices = dashboardData.devices || [];
+  const stats = {}; // TODO: Implement consumer stats
+  
+  // Refetch function
+  const refetch = React.useCallback(() => {
+    window.location.reload();
+  }, []);
 
   // Simulate real-time data updates (fallback to mock data)
   useEffect(() => {
@@ -200,12 +207,12 @@ const Dashboard: React.FC = () => {
           
           {/* Alert Panel using shared component */}
           <AlertPanel 
-            alerts={alerts.map((alert: Alert) => ({
-              id: alert.id,
-              type: alert.severity === 'critical' ? 'error' : alert.severity === 'warning' ? 'warning' : 'info',
-              title: `Water Quality Alert - WQI: ${alert.wqi}`,
-              message: alert.message,
-              timestamp: alert.timestamp,
+            alerts={alerts.map((alert) => ({
+              id: alert.alertId,
+              type: alert.severity === 'Critical' ? 'error' : alert.severity === 'Warning' ? 'warning' : 'info',
+              title: `Water Quality Alert - ${alert.issue}`,
+              message: alert.issue,
+              timestamp: alert.timestamp.toISOString(),
               dismissible: true
             }))}
             onDismiss={handleDismissAlert}
@@ -232,7 +239,7 @@ const Dashboard: React.FC = () => {
 
           <DataCard
             title="Today's Alerts"
-            value={alerts.filter((alert: Alert) => {
+            value={alerts.filter((alert) => {
               const alertDate = new Date(alert.timestamp);
               const today = new Date();
               return alertDate.toDateString() === today.toDateString();
@@ -251,7 +258,7 @@ const Dashboard: React.FC = () => {
 
           <DataCard
             title="Avg WQI (7 days)"
-            value={stats.averageWQI || 78}
+            value={75}
             trend={{
               value: 3,
               direction: 'up',

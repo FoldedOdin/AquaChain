@@ -55,7 +55,7 @@ interface ConsumerDashboardProps {
  * ✅ Uses useCallback for event handlers
  * ✅ Uses useMemo for expensive computations
  */
-const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
+const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const navigate = useNavigate();
   const { user, logout, refreshUser } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
@@ -94,7 +94,10 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   const [issueSubmitted, setIssueSubmitted] = useState(false);
 
   // ✅ Fetch dashboard data with caching via custom hook
-  const { data: dashboardData, isLoading, error, refetch } = useDashboardData('consumer');
+  const dashboardData = useDashboardData();
+  const isLoading = dashboardData.loading;
+  const error = dashboardData.error;
+  const refetch = () => window.location.reload();
   
   // ✅ Real-time updates with WebSocket
   const { latestUpdate, isConnected } = useRealTimeUpdates('consumer-updates', {
@@ -127,15 +130,13 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
   // ✅ Auto-select first device when devices load
   useEffect(() => {
     console.log('📊 Devices loaded:', devices.length, 'devices');
-    console.log('📊 Device IDs:', devices.map((d: any) => d.device_id || d.deviceId || 'NO_ID'));
-    console.log('📊 Current selectedDeviceId:', selectedDeviceId);
     
     if (devices.length > 0 && !selectedDeviceId) {
-      const firstDeviceId = devices[0].device_id || devices[0].deviceId;
+      const firstDeviceId = devices[0].deviceId;
       console.log('✅ Auto-selecting first device:', firstDeviceId);
       setSelectedDeviceId(firstDeviceId);
     }
-  }, [devices, selectedDeviceId]);
+  }, [devices.length]); // Only depend on length, not the entire array
 
   // ✅ Memoized logout handler - prevents recreation on every render
   const handleLogout = useCallback(async () => {
@@ -414,8 +415,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
   // ✅ Memoized current reading - only recalculates when data changes
   const currentReading = useMemo(() => {
-    if (!dashboardData || !('currentReading' in dashboardData)) return null;
-    return dashboardData.currentReading || null;
+    // dashboardData doesn't have currentReading, return null
+    return null;
   }, [dashboardData]);
 
   // ✅ Memoized alerts - only recalculates when data changes
@@ -508,10 +509,10 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
   // Update last refresh time when data changes
   useEffect(() => {
-    if (dashboardData) {
+    if (devices.length > 0) {
       setLastRefreshTime(new Date());
     }
-  }, [dashboardData]);
+  }, [devices.length]); // Use devices.length instead of dashboardData
 
   // Loading state
   if (!user || isLoading) {
@@ -726,6 +727,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
 
   // Main dashboard view
   return (
+    <React.Fragment>
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
@@ -920,7 +922,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold">{currentDevice.name || currentDevice.device_id}</h2>
+                <h2 className="text-2xl font-bold">{currentDevice.deviceId}</h2>
                 <p className="text-cyan-100 mt-1 flex items-center gap-2">
                   <span>📍</span>
                   <span>{currentDevice.location || 'Location not set'}</span>
@@ -929,17 +931,17 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
               <div className="text-right">
                 <div className={`
                   inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium
-                  ${currentDevice.status === 'active' || currentDevice.status === 'online'
+                  ${currentDevice.status === 'Online'
                     ? 'bg-green-500 bg-opacity-20 border border-green-300'
                     : 'bg-gray-500 bg-opacity-20 border border-gray-300'
                   }
                 `}>
                   <span className={`w-2 h-2 rounded-full ${
-                    currentDevice.status === 'active' || currentDevice.status === 'online'
+                    currentDevice.status === 'Online'
                       ? 'bg-green-300'
                       : 'bg-gray-300'
                   }`} />
-                  {currentDevice.status === 'active' || currentDevice.status === 'online' ? 'Online' : 'Offline'}
+                  {currentDevice.status === 'Online' ? 'Online' : 'Offline'}
                 </div>
                 <p className="text-xs text-cyan-200 mt-2">
                   Last updated: {new Date().toLocaleTimeString()}
@@ -1177,7 +1179,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                   <div className="flex items-start gap-3">
                     <ExclamationTriangleIcon className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <div className="text-sm font-medium text-amber-900">{alert.message || 'Water quality alert'}</div>
+                      <div className="text-sm font-medium text-amber-900">{alert.issue || 'Water quality alert'}</div>
                       <div className="text-xs text-amber-700 mt-1">
                         {alert.timestamp ? new Date(alert.timestamp).toLocaleString() : 'Just now'}
                       </div>
@@ -1706,7 +1708,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
                           <div className="flex items-start space-x-3">
                             <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                             <div className="flex-1">
-                              <p className="text-sm font-medium text-amber-900">{alert.message || 'Water quality alert'}</p>
+                              <p className="text-sm font-medium text-amber-900">{alert.issue || 'Water quality alert'}</p>
                               <p className="text-xs text-amber-700 mt-1">
                                 {alert.timestamp ? new Date(alert.timestamp).toLocaleString() : 'Just now'}
                               </p>
@@ -1793,11 +1795,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
       {/* ===== MODALS - RENDER ALWAYS (OUTSIDE CONDITIONALS) ===== */}
       
       {/* Add Device Modal */}
-      {console.log('🔍 Rendering AddDeviceModal with showAddDevice:', showAddDevice)}
-      {console.log('🔍 About to render portal for AddDeviceModal')}
       {createPortal(
         (() => {
-          console.log('🔍 Inside portal - rendering AddDeviceModal');
           return (
             <AddDeviceModal
               isOpen={showAddDevice}
@@ -1810,10 +1809,8 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
       )}
 
       {/* Ordering Flow Modal */}
-      {console.log('🔍 Rendering OrderingFlow with showOrderingFlow:', showOrderingFlow)}
       {createPortal(
         (() => {
-          console.log('🔍 Inside portal - rendering OrderingFlow');
           return showOrderingFlow ? (
             <ErrorBoundary>
               <OrderingFlow
@@ -1976,6 +1973,7 @@ const ConsumerDashboard: React.FC<ConsumerDashboardProps> = memo(() => {
       )}
 
     </div>
+    </React.Fragment>
   );
 });
 

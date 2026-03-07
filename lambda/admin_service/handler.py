@@ -1700,12 +1700,28 @@ def _get_api_success_rate() -> float:
     PERFORMANCE: CloudWatch queries add 200-500ms latency. Consider caching if this becomes an issue.
     """
     try:
+        # Try to get API Gateway ID from environment variable first
         api_id = os.environ.get('API_GATEWAY_ID')
         stage = os.environ.get('API_STAGE', 'dev')
         
-        # Fail gracefully if API_GATEWAY_ID not configured
-        if not api_id:
-            logger.warning("API_GATEWAY_ID not configured, returning default success rate")
+        # If not in environment, try to get from CloudFormation exports
+        if not api_id or api_id == 'PENDING_API_DEPLOYMENT':
+            try:
+                cfn = boto3.client('cloudformation')
+                exports_response = cfn.list_exports()
+                export_name = f"AquaChain-ApiGatewayId-{stage}"
+                
+                for export in exports_response.get('Exports', []):
+                    if export['Name'] == export_name:
+                        api_id = export['Value']
+                        logger.info(f"Retrieved API Gateway ID from CloudFormation export: {api_id}")
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to retrieve API Gateway ID from CloudFormation: {str(e)}")
+        
+        # Fail gracefully if API_GATEWAY_ID still not available
+        if not api_id or api_id == 'PENDING_API_DEPLOYMENT':
+            logger.warning("API_GATEWAY_ID not available, returning default success rate")
             return 99.5
         
         end_time = datetime.utcnow()

@@ -243,3 +243,30 @@ export function useDevicesForMap() {
 
   return { data, loading, error };
 }
+
+/**
+ * Legacy hook for backward compatibility
+ * Combines all dashboard data fetching hooks
+ * 
+ * @deprecated Use individual hooks (useKPIMetrics, useDevices, etc.) instead
+ * @returns Object with all dashboard data
+ */
+export function useDashboardData() {
+  const kpiMetrics = useKPIMetrics();
+  const devices = useDevices();
+  const alerts = useAlerts();
+  const users = useUsers();
+  const logs = useLogs();
+  const mlInsights = useMLInsights();
+
+  return {
+    kpiMetrics: kpiMetrics.data,
+    devices: devices.data,
+    alerts: alerts.data,
+    users: users.data,
+    logs: logs.data,
+    mlInsights: mlInsights.data,
+    loading: kpiMetrics.loading || devices.loading || alerts.loading || users.loading || logs.loading || mlInsights.loading,
+    error: kpiMetrics.error || devices.error || alerts.error || users.error || logs.error || mlInsights.error,
+  };
+}

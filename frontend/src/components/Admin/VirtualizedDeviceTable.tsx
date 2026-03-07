@@ -1,15 +1,14 @@
 /**
  * Virtualized Device Table Component
- * Uses react-window for efficient rendering of large datasets (>100 rows)
+ * Simplified version without react-window for now
+ * TODO: Re-implement virtualization with correct react-window v2 API
  * 
  * Features:
- * - Virtual scrolling for performance
  * - Keyboard navigation support
  * - Maintains all table functionality (sorting, filtering, pagination)
  */
 
-import React, { useRef, useEffect } from "react";
-import { FixedSizeList as List } from "react-window";
+import React, { useEffect } from "react";
 import { Table, flexRender, ColumnDef } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { Device } from "../../types/device";
@@ -21,22 +20,13 @@ interface VirtualizedDeviceTableProps {
 }
 
 const ROW_HEIGHT = 60; // Height of each row in pixels
-const HEADER_HEIGHT = 48; // Height of header in pixels
-const MAX_HEIGHT = 600; // Maximum table height
 
 const VirtualizedDeviceTable: React.FC<VirtualizedDeviceTableProps> = ({
   data,
   columns,
   table,
 }) => {
-  const listRef = useRef<List>(null);
   const [focusedRowIndex, setFocusedRowIndex] = React.useState<number>(-1);
-
-  // Calculate table height based on number of rows
-  const tableHeight = Math.min(
-    data.length * ROW_HEIGHT + HEADER_HEIGHT,
-    MAX_HEIGHT
-  );
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -48,14 +38,12 @@ const VirtualizedDeviceTable: React.FC<VirtualizedDeviceTableProps> = ({
           e.preventDefault();
           if (focusedRowIndex < data.length - 1) {
             setFocusedRowIndex(focusedRowIndex + 1);
-            listRef.current?.scrollToItem(focusedRowIndex + 1, "smart");
           }
           break;
         case "ArrowUp":
           e.preventDefault();
           if (focusedRowIndex > 0) {
             setFocusedRowIndex(focusedRowIndex - 1);
-            listRef.current?.scrollToItem(focusedRowIndex - 1, "smart");
           }
           break;
         case "Enter":
@@ -72,43 +60,6 @@ const VirtualizedDeviceTable: React.FC<VirtualizedDeviceTableProps> = ({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [focusedRowIndex, data]);
-
-  // Row renderer for react-window
-  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const row = table.getRowModel().rows[index];
-    if (!row) return null;
-
-    const isFocused = index === focusedRowIndex;
-
-    return (
-      <div
-        style={style}
-        className={`flex items-center border-b border-gray-200 dark:border-gray-700 ${
-          isFocused
-            ? "bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500"
-            : "hover:bg-gray-50 dark:hover:bg-gray-700"
-        } transition-colors`}
-        role="row"
-        tabIndex={0}
-        onFocus={() => setFocusedRowIndex(index)}
-        aria-rowindex={index + 1}
-      >
-        {row.getVisibleCells().map((cell, cellIndex) => (
-          <div
-            key={cell.id}
-            className="px-4 py-3 flex-1"
-            style={{
-              width: `${100 / columns.length}%`,
-              minWidth: cellIndex === 0 ? "150px" : "100px",
-            }}
-            role="cell"
-          >
-            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-          </div>
-        ))}
-      </div>
-    );
-  };
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -152,18 +103,42 @@ const VirtualizedDeviceTable: React.FC<VirtualizedDeviceTableProps> = ({
         ))}
       </div>
 
-      {/* Virtualized Table Body */}
-      <List
-        ref={listRef}
-        height={tableHeight - HEADER_HEIGHT}
-        itemCount={table.getRowModel().rows.length}
-        itemSize={ROW_HEIGHT}
-        width="100%"
-        className="bg-white dark:bg-gray-800"
-        role="rowgroup"
-      >
-        {Row}
-      </List>
+      {/* Table Body */}
+      <div className="bg-white dark:bg-gray-800 max-h-[600px] overflow-y-auto">
+        {table.getRowModel().rows.map((row, index) => {
+          const isFocused = index === focusedRowIndex;
+          
+          return (
+            <div
+              key={row.id}
+              className={`flex items-center border-b border-gray-200 dark:border-gray-700 ${
+                isFocused
+                  ? "bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500"
+                  : "hover:bg-gray-50 dark:hover:bg-gray-700"
+              } transition-colors`}
+              style={{ height: `${ROW_HEIGHT}px` }}
+              role="row"
+              tabIndex={0}
+              onFocus={() => setFocusedRowIndex(index)}
+              aria-rowindex={index + 1}
+            >
+              {row.getVisibleCells().map((cell, cellIndex) => (
+                <div
+                  key={cell.id}
+                  className="px-4 py-3 flex-1"
+                  style={{
+                    width: `${100 / columns.length}%`,
+                    minWidth: cellIndex === 0 ? "150px" : "100px",
+                  }}
+                  role="cell"
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Keyboard navigation hint */}
       <div className="px-4 py-2 bg-gray-50 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-700">

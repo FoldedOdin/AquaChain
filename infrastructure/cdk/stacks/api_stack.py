@@ -1050,8 +1050,11 @@ class AquaChainApiStack(Stack):
                 function_name=get_resource_name(self.config, "function", "order-management")
             )
             
-            # Create /api/orders resource
-            api_orders = api_root.add_resource("orders")
+            # Create /api/orders resource (or reuse if it already exists)
+            # Check if the resource already exists to avoid duplicate creation errors
+            api_orders = api_root.node.try_find_child("orders")
+            if not api_orders:
+                api_orders = api_root.add_resource("orders")
             
             # POST /api/orders - Create order
             api_orders.add_method(
@@ -1131,6 +1134,14 @@ class AquaChainApiStack(Stack):
             "rest_api": self.rest_api,
             "cognito_authorizer": self.cognito_authorizer
         })
+        
+        # Export API Gateway ID for use by other stacks (avoids circular dependency)
+        CfnOutput(
+            self, "ApiGatewayId",
+            value=self.rest_api.rest_api_id,
+            export_name=f"AquaChain-ApiGatewayId-{self.config['environment']}",
+            description="API Gateway REST API ID for CloudWatch metrics"
+        )
     
     def _create_websocket_api(self) -> None:
         """

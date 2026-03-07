@@ -70,7 +70,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   
   // Filtering state
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showCancelledOrders, setShowCancelledOrders] = useState(true);
+  const [showCancelledOrders, setShowCancelledOrders] = useState(false); // Changed from true to false
   
   // Cancellation reason modal state
   const [showCancelModal, setShowCancelModal] = useState(false);

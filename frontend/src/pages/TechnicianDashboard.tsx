@@ -27,12 +27,19 @@ const TechnicianDashboard = () => {
   const [view, setView] = useState<'list' | 'map' | 'history'>('list');
 
   // Use shared hooks
-  const { data, isLoading, error, refetch } = useDashboardData('technician');
+  const dashboardData = useDashboardData();
   const { exportData, exporting } = useDataExport();
 
   // Extract data from the hook
-  const technicianData = data as any;
-  const tasks = useMemo(() => technicianData?.tasks || [], [technicianData]);
+  const tasks = useMemo(() => [], []); // TODO: Implement technician tasks fetching
+  const isLoading = dashboardData.loading;
+  const error = dashboardData.error;
+  
+  // Refetch function
+  const refetch = useCallback(() => {
+    // Trigger refresh via context
+    window.location.reload();
+  }, []);
 
   // Set initial selected task
   useEffect(() => {

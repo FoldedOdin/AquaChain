@@ -209,7 +209,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   const IconComponent = customIcon || (
     React.cloneElement(config.icon as React.ReactElement, {
       size: sizeClasses.icon,
-    })
+    } as any)
   );
 
   return (
