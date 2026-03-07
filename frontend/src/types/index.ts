@@ -439,3 +439,10 @@ export interface AuditEntry {
   success: boolean;
   errorMessage?: string;
 }
+
+// Admin Global Monitoring Dashboard Types
+export * from './dashboard';
+export * from './device';
+export * from './alert';
+export * from './user';
+export * from './log';
