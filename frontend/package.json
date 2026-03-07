@@ -140,7 +140,7 @@
     "image-minimizer-webpack-plugin": "^4.0.0",
     "imagemin": "^8.0.1",
     "imagemin-mozjpeg": "^10.0.0",
-    "imagemin-pngquant": "^9.0.2",
+    "imagemin-pngquant": "^10.0.0",
     "imagemin-svgo": "^10.0.1",
     "imagemin-webp": "^8.0.0",
     "jest-axe": "^10.0.0",
