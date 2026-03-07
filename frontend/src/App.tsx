@@ -135,6 +135,26 @@ function App() {
               element={<GoogleCallbackHandler />}
             />
             
+            {/* Terms of Service */}
+            <Route
+              path="/terms"
+              element={
+                <Suspense fallback={<DashboardLoadingFallback />}>
+                  {React.createElement(lazy(() => import('./pages/TermsOfService')))}
+                </Suspense>
+              }
+            />
+            
+            {/* Privacy Policy */}
+            <Route
+              path="/privacy"
+              element={
+                <Suspense fallback={<DashboardLoadingFallback />}>
+                  {React.createElement(lazy(() => import('./pages/PrivacyPolicy')))}
+                </Suspense>
+              }
+            />
+            
             {/* Authentication callback */}
             <Route
               path="/auth/callback"

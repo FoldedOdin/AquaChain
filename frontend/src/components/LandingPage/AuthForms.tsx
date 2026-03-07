@@ -395,23 +395,23 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         </label>
       </div>
 
-      {/* Google OAuth Button */}
-      <div>
+      {/* Google OAuth Button - Hidden */}
+      {/* <div>
         <GoogleOAuthButton
           onSignIn={handleGoogleSignIn}
           disabled={isLoading}
         />
-      </div>
+      </div> */}
 
-      {/* Divider */}
-      <div className="relative">
+      {/* Divider - Hidden since Google OAuth is disabled */}
+      {/* <div className="relative">
         <div className="absolute inset-0 flex items-center">
           <div className="w-full border-t border-gray-300" />
         </div>
         <div className="relative flex justify-center text-sm">
           <span className="px-2 bg-white text-gray-500">Or continue with email</span>
         </div>
-      </div>
+      </div> */}
 
       {/* Submit Button */}
       <div>
@@ -904,46 +904,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({
         </div>
       </div>
 
-      {/* Role Selection */}
-      <div>
-        <fieldset>
-          <legend className="block text-sm font-medium text-gray-700 mb-2">
-            I am a:
-          </legend>
-          <div className="space-y-2">
-            <div className="flex items-center">
-              <input
-                id="role-consumer"
-                name="role"
-                type="radio"
-                value="consumer"
-                className="h-4 w-4 text-aqua-600 focus:ring-aqua-500 border-gray-300"
-                checked={formData.role === 'consumer'}
-                onChange={(e) => handleInputChange('role', e.target.value)}
-                disabled={isLoading}
-              />
-              <label htmlFor="role-consumer" className="ml-2 block text-sm text-gray-900">
-                Consumer - Monitor water quality for my home/community
-              </label>
-            </div>
-            <div className="flex items-center">
-              <input
-                id="role-technician"
-                name="role"
-                type="radio"
-                value="technician"
-                className="h-4 w-4 text-aqua-600 focus:ring-aqua-500 border-gray-300"
-                checked={formData.role === 'technician'}
-                onChange={(e) => handleInputChange('role', e.target.value)}
-                disabled={isLoading}
-              />
-              <label htmlFor="role-technician" className="ml-2 block text-sm text-gray-900">
-                Technician - Provide maintenance and repair services
-              </label>
-            </div>
-          </div>
-        </fieldset>
-      </div>
+      {/* Role is now always set to 'consumer' by default - no UI selection needed */}
 
       {/* Terms and Conditions */}
       <div>
@@ -966,6 +927,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({
             I agree to the{' '}
             <button
               type="button"
+              onClick={() => window.open('/terms', '_blank')}
               className="text-aqua-600 hover:text-aqua-500 focus:outline-none focus:underline"
               disabled={isLoading}
             >
@@ -974,6 +936,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({
             {' '}and{' '}
             <button
               type="button"
+              onClick={() => window.open('/privacy', '_blank')}
               className="text-aqua-600 hover:text-aqua-500 focus:outline-none focus:underline"
               disabled={isLoading}
             >
@@ -988,23 +951,23 @@ export const SignupForm: React.FC<SignupFormProps> = ({
         )}
       </div>
 
-      {/* Google OAuth Button */}
-      <div>
+      {/* Google OAuth Button - Hidden */}
+      {/* <div>
         <GoogleOAuthButton
           onSignIn={handleGoogleSignIn}
           disabled={isLoading || !formData.acceptTerms}
         />
-      </div>
+      </div> */}
 
-      {/* Divider */}
-      <div className="relative">
+      {/* Divider - Hidden since Google OAuth is disabled */}
+      {/* <div className="relative">
         <div className="absolute inset-0 flex items-center">
           <div className="w-full border-t border-gray-300" />
         </div>
         <div className="relative flex justify-center text-sm">
           <span className="px-2 bg-white text-gray-500">Or create account with email</span>
         </div>
-      </div>
+      </div> */}
 
       {/* Submit Button */}
       <div>

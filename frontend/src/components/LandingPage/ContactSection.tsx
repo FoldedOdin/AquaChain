@@ -37,7 +37,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ onFormSubmit }) => {
     {
       icon: EnvelopeIcon,
       title: 'Email Contact',
-      details: ['info@aquachain.io', 'support@aquachain.io', 'careers@aquachain.io'],
+      details: ['contact.aquachain@gmail.com', 'support@aquachain.io', 'careers@aquachain.io'],
       color: 'text-teal-400'
     },
     {
