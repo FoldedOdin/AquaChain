@@ -33,13 +33,29 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
   const [isUpdating, setIsUpdating] = useState(false);
   const { showErrorNotification } = useErrorNotification();
 
+  // Map frontend statuses to backend-allowed statuses
+  // Backend only accepts: PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED
+  const FRONTEND_TO_BACKEND_STATUS: Record<string, string> = {
+    'ORDER_PLACED': 'PENDING',
+    'PENDING_PAYMENT': 'PENDING',
+    'PENDING_CONFIRMATION': 'PENDING',
+    'DEVICE_READY': 'PROCESSING',
+    'PROCESSING': 'PROCESSING',
+    'SHIPPED': 'SHIPPED',
+    'OUT_FOR_DELIVERY': 'DELIVERED', // Changed: Map to DELIVERED instead of SHIPPED
+    'TECHNICIAN_ASSIGNED': 'DELIVERED',
+    'DELIVERED': 'DELIVERED',
+    'CANCELLED': 'CANCELLED',
+    'FAILED': 'CANCELLED'
+  };
+
   // Define status progression map
   const statusProgressionMap: Record<string, OrderStatus | null> = {
     [OrderStatus.PENDING_PAYMENT]: OrderStatus.ORDER_PLACED,
     [OrderStatus.PENDING_CONFIRMATION]: OrderStatus.ORDER_PLACED,
     [OrderStatus.ORDER_PLACED]: OrderStatus.SHIPPED,
-    [OrderStatus.SHIPPED]: OrderStatus.OUT_FOR_DELIVERY,
-    [OrderStatus.OUT_FOR_DELIVERY]: OrderStatus.DELIVERED,
+    [OrderStatus.SHIPPED]: OrderStatus.OUT_FOR_DELIVERY, // Frontend shows OUT_FOR_DELIVERY
+    [OrderStatus.OUT_FOR_DELIVERY]: OrderStatus.DELIVERED, // Then DELIVERED
     [OrderStatus.DELIVERED]: null, // Terminal state
     [OrderStatus.CANCELLED]: null, // Terminal state
     [OrderStatus.FAILED]: null, // Terminal state
@@ -76,7 +92,12 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
 
     setIsUpdating(true);
     try {
-      await onStatusUpdate(nextStatus);
+      // Map frontend status to backend-allowed status
+      const backendStatus = FRONTEND_TO_BACKEND_STATUS[nextStatus] || nextStatus;
+      
+      console.log(`Updating order ${orderId}: ${currentStatus} → ${nextStatus} (backend: ${backendStatus})`);
+      
+      await onStatusUpdate(backendStatus as OrderStatus);
     } catch (error) {
       const updateError = new OrderingError('Failed to update order status', {
         code: 'STATUS_UPDATE_FAILED',
@@ -109,7 +130,8 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
 
     setIsUpdating(true);
     try {
-      await onStatusUpdate(OrderStatus.CANCELLED);
+      // Backend expects 'CANCELLED' status
+      await onStatusUpdate('CANCELLED' as OrderStatus);
     } catch (error) {
       const cancelError = new OrderingError('Failed to cancel order', {
         code: 'CANCEL_ORDER_FAILED',

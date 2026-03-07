@@ -549,3 +549,6 @@ lambda/*/deployment-package/
 
 # Hardware/Sensors directory (if not part of project)
 Sensors/
+lambda/orders/test_payload.json
+.gitignore
+lambda/orders/response.json

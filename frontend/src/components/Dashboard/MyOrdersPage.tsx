@@ -719,7 +719,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                               <h3 className="text-lg font-semibold text-gray-900">
                                 {getDeviceName(order.deviceSKU)}
                               </h3>
-                              <p className="text-sm text-gray-600">Order #{order.orderId.slice(0, 8)}</p>
+                              <p className="text-sm text-gray-600">Order #{order.orderId}</p>
                             </div>
                           </div>
 
