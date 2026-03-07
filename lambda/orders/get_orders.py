@@ -52,34 +52,30 @@ def handler(event, context):
         # Query orders table for this user
         orders_table = dynamodb.Table(ORDERS_TABLE)
         
-        # Query by userId (assuming there's a GSI on userId)
+        # Query by consumerId using GSI1 (CONSUMER#{consumerId})
         try:
             response = orders_table.query(
-                IndexName='UserIdIndex',
-                KeyConditionExpression='userId = :userId',
+                IndexName='GSI1',
+                KeyConditionExpression='GSI1PK = :consumer_pk',
                 ExpressionAttributeValues={
-                    ':userId': consumer_id
+                    ':consumer_pk': f'CONSUMER#{consumer_id}'
                 },
-                ScanIndexForward=False  # Sort by createdAt descending
+                ScanIndexForward=False  # Sort by createdAt descending (most recent first)
             )
             orders = response.get('Items', [])
         except Exception as query_error:
-            # If GSI doesn't exist, fall back to scan (not recommended for production)
-            print(f"Query failed, falling back to scan: {str(query_error)}")
-            response = orders_table.scan(
-                FilterExpression='userId = :userId',
-                ExpressionAttributeValues={
-                    ':userId': consumer_id
-                }
-            )
-            orders = response.get('Items', [])
+            # Log error and return empty list
+            print(f"Query failed: {str(query_error)}")
+            import traceback
+            traceback.print_exc()
+            orders = []
         
         # Transform orders to match frontend expectations
         transformed_orders = []
         for order in orders:
-            # Parse JSON strings back to objects
-            delivery_address = json.loads(order.get('deliveryAddress', '{}')) if isinstance(order.get('deliveryAddress'), str) else order.get('deliveryAddress', {})
-            contact_info = json.loads(order.get('contactInfo', '{}')) if isinstance(order.get('contactInfo'), str) else order.get('contactInfo', {})
+            # Get delivery address and contact info (already objects, not JSON strings)
+            delivery_address = order.get('deliveryAddress', {})
+            contact_info = order.get('contactInfo', {})
             status_history = order.get('statusHistory', [])
             
             # Format address as a string for frontend display
@@ -100,9 +96,9 @@ def handler(event, context):
             phone = contact_info.get('phone', '') if contact_info else ''
             
             transformed_order = {
-                'orderId': order.get('orderId'),  # Keep as orderId for frontend
+                'orderId': order.get('orderId'),
                 'id': order.get('orderId'),  # Also include id for compatibility
-                'consumerId': order.get('userId'),
+                'consumerId': order.get('consumerId'),
                 'deviceType': order.get('deviceType'),
                 'deviceSKU': order.get('deviceType'),  # Map deviceType to deviceSKU for frontend compatibility
                 'serviceType': order.get('serviceType'),

@@ -22,8 +22,8 @@ from enum import Enum
 import uuid
 from botocore.exceptions import ClientError
 
-# Add parent directory to path for shared imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'shared'))
+# Add shared directory to path (it's in the same directory in Lambda deployment)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'shared'))
 
 from structured_logger import get_logger
 from input_validator import InputValidator, ValidationRule, FieldType, ValidationError
@@ -205,16 +205,12 @@ class OrderManagementService:
             
             # Create order record
             order_record = {
-                'PK': f'ORDER#{order_id}',
-                'SK': f'ORDER#{order_id}',
-                'GSI1PK': f'CONSUMER#{validated_data["consumerId"]}',
-                'GSI1SK': f'ORDER#{timestamp}#{order_id}',
-                'GSI2PK': f'STATUS#{initial_status.value}',
-                'GSI2SK': f'{timestamp}#{order_id}',
+                # Primary key
+                'orderId': order_id,
                 
                 # Order data
-                'orderId': order_id,
-                'consumerId': validated_data['consumerId'],
+                'userId': validated_data['consumerId'],  # For GSI query
+                'consumerId': validated_data['consumerId'],  # Keep for backward compatibility
                 'deviceType': validated_data['deviceType'],
                 'serviceType': validated_data['serviceType'],
                 'paymentMethod': validated_data['paymentMethod'],
@@ -244,7 +240,7 @@ class OrderManagementService:
             # Store order in DynamoDB
             self.orders_table.put_item(
                 Item=order_record,
-                ConditionExpression='attribute_not_exists(PK)'
+                ConditionExpression='attribute_not_exists(orderId)'
             )
             
             # Publish order created event
@@ -490,10 +486,10 @@ class OrderManagementService:
         
         try:
             query_params = {
-                'IndexName': 'GSI1',
-                'KeyConditionExpression': 'GSI1PK = :consumer_pk',
+                'IndexName': 'userId-createdAt-index',
+                'KeyConditionExpression': 'userId = :user_id',
                 'ExpressionAttributeValues': {
-                    ':consumer_pk': f'CONSUMER#{consumer_id}'
+                    ':user_id': consumer_id
                 },
                 'ScanIndexForward': False,  # Most recent first
                 'Limit': min(limit, 100)  # Cap at 100
@@ -570,9 +566,12 @@ class OrderManagementService:
     
     def _convert_to_response_format(self, order_record: Dict[str, Any]) -> Dict[str, Any]:
         """Convert DynamoDB record to API response format"""
+        # Handle both userId (new schema) and consumerId (old schema)
+        consumer_id = order_record.get('consumerId') or order_record.get('userId')
+        
         return {
             'id': order_record['orderId'],
-            'consumerId': order_record['consumerId'],
+            'consumerId': consumer_id,
             'deviceType': order_record['deviceType'],
             'serviceType': order_record['serviceType'],
             'paymentMethod': order_record['paymentMethod'],

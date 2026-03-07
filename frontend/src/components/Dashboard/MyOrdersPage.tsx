@@ -193,7 +193,8 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
       
       console.log(`🔍 Fetching orders for consumer: ${consumerId}`);
       
-      const response = await fetch(`${apiEndpoint}/api/orders/history`, {
+      // Use the correct endpoint with consumerId query parameter
+      const response = await fetch(`${apiEndpoint}/api/orders?consumerId=${consumerId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -207,16 +208,21 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
         console.log(`✅ Fetched ${data.data?.length || data.orders?.length || 0} orders`);
       } else {
         console.error(`❌ Failed to fetch orders: ${response.status} ${response.statusText}`);
-        if (response.status === 403) {
-          console.error('💡 Hint: Check if the consumer ID in the request matches the token user ID');
+        if (response.status === 500) {
+          showToast('Backend service error. Please contact support.', 'error');
+        } else if (response.status === 403) {
+          showToast('Access denied. Please check your permissions.', 'error');
+        } else {
+          showToast('Failed to load orders. Please try again.', 'error');
         }
       }
     } catch (error) {
       console.error('Failed to fetch orders:', error);
+      showToast('Network error. Please check your connection.', 'error');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     fetchOrders();

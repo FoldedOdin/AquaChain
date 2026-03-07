@@ -48,6 +48,23 @@ import { getIncidentReports, getIncidentStats } from '../../services/incidentSer
 import { formatRelativeTime } from '../../utils/dateFormat';
 import { maskPhoneNumber, maskEmail, maskLastName } from '../../utils/privacy';
 import websocketService from '../../services/websocketService';
+
+// Global Monitoring Components
+import SystemOverview from '../Admin/GlobalMonitoring/SystemOverview';
+import LiveAlertFeed from '../Admin/GlobalMonitoring/LiveAlertFeed';
+import DeviceMap from '../Admin/GlobalMonitoring/DeviceMap';
+import MLMonitoringPanel from '../Admin/GlobalMonitoring/MLMonitoringPanel';
+import RegionalStatistics from '../Admin/GlobalMonitoring/RegionalStatistics';
+
+// Security & Audit Components
+import AuthenticationActivity from '../Admin/SecurityAudit/AuthenticationActivity';
+import RecentSecurityEvents from '../Admin/SecurityAudit/RecentSecurityEvents';
+import LedgerIntegrityPanel from '../Admin/SecurityAudit/LedgerIntegrityPanel';
+import AISecurityInsights from '../Admin/SecurityAudit/AISecurityInsights';
+import ThreatLevelIndicator from '../Admin/SecurityAudit/ThreatLevelIndicator';
+import ComplianceStandards from '../Admin/SecurityAudit/ComplianceStandards';
+import GeoSecurityMap from '../Admin/SecurityAudit/GeoSecurityMap';
+import BackupRecoveryLogs from '../Admin/SecurityAudit/BackupRecoveryLogs';
 import { revealSensitiveData } from '../../services/adminService';
 import { SystemConfiguration as SystemConfigType } from '../../types/admin';
 
@@ -1353,10 +1370,16 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* REAL DATA - System Health Dashboard and Performance Metrics */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               {/* System Health Dashboard */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">System Health Dashboard</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">System Health Dashboard</h3>
+                  <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
+                    REAL DATA
+                  </span>
+                </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                     <div className="flex items-center gap-3">
@@ -1394,7 +1417,12 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
               {/* Performance Metrics */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Metrics</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Performance Metrics</h3>
+                  <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded font-medium">
+                    REAL DATA
+                  </span>
+                </div>
                 <div className="space-y-4">
                   <div className="text-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
                     <div className="text-2xl font-bold text-green-600 mb-1">
@@ -1428,6 +1456,38 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                 </div>
               </div>
             </div>
+
+            {/* Divider */}
+            <div className="my-8 border-t-2 border-gray-300"></div>
+
+            {/* MOCK DATA SECTION - Header with Badge */}
+            <div className="mb-6 p-4 bg-gradient-to-r from-yellow-50 to-amber-50 border-l-4 border-yellow-400 rounded-lg">
+              <div className="flex items-center gap-3">
+                <span className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-full font-semibold">
+                  ⚠️ SIMULATED DATA FOR DEMO
+                </span>
+                <p className="text-sm text-gray-700">
+                  All data shown below is mock data for demonstration purposes. No backend connection required.
+                </p>
+              </div>
+            </div>
+
+            {/* System Overview */}
+            <div className="mb-6">
+              <SystemOverview />
+            </div>
+
+            {/* Main Grid - Alert Feed and Device Map */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <LiveAlertFeed />
+              <DeviceMap />
+            </div>
+
+            {/* ML Monitoring and Regional Stats */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <MLMonitoringPanel />
+              <RegionalStatistics />
+            </div>
           </motion.div>
         )}
 
@@ -1438,10 +1498,56 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
+            {/* SIMULATED DATA Warning Banner */}
+            <div className="mb-6 p-4 bg-gradient-to-r from-yellow-50 to-amber-50 border-l-4 border-yellow-400 rounded-lg">
+              <div className="flex items-center gap-3">
+                <span className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-full font-semibold">
+                  ⚠️ SIMULATED DATA FOR DEMO
+                </span>
+                <p className="text-sm text-gray-700">
+                  Security, audit trail, and compliance data shown below is mock data for demonstration purposes.
+                </p>
+              </div>
+            </div>
+
+            {/* Authentication Activity - Full Width */}
+            <div className="mb-6">
+              <AuthenticationActivity />
+            </div>
+
+            {/* Row 1: Recent Security Events & Ledger Integrity */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <RecentSecurityEvents />
+              <LedgerIntegrityPanel />
+            </div>
+
+            {/* Row 2: AI Security Insights & Threat Level */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <AISecurityInsights />
+              <ThreatLevelIndicator />
+            </div>
+
+            {/* Row 3: Compliance Standards & Geo Security Map */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <ComplianceStandards />
+              <GeoSecurityMap />
+            </div>
+
+            {/* Row 4: Backup & Recovery Logs - Full Width */}
+            <div className="mb-6">
+              <BackupRecoveryLogs />
+            </div>
+
+            {/* Legacy Components - Keep for backward compatibility */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               {/* Security Overview */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Security Overview</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Security Overview</h3>
+                  <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded font-medium">
+                    SIMULATED
+                  </span>
+                </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                     <div className="flex items-center gap-3">
@@ -1481,7 +1587,12 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
               {/* Incident Coordination */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Incident Coordination</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Incident Coordination</h3>
+                  <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded font-medium">
+                    SIMULATED
+                  </span>
+                </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
                     <div className="flex items-center gap-3">
@@ -1535,7 +1646,12 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Audit & Compliance */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Audit & Compliance</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Audit & Compliance</h3>
+                  <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded font-medium">
+                    SIMULATED
+                  </span>
+                </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-700">Date Range</span>
@@ -1583,7 +1699,12 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
               {/* Recovery Oversight */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recovery Oversight</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Recovery Oversight</h3>
+                  <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded font-medium">
+                    SIMULATED
+                  </span>
+                </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                     <div className="flex items-center gap-3">
