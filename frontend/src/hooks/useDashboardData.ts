@@ -1,155 +1,245 @@
 /**
- * Dashboard Data Hook
- * ✅ Simple data fetching with React hooks
- * ✅ Optimized for role-based dashboards
+ * useDashboardData Hook
+ * 
+ * Custom hook for fetching dashboard data from MockDataService.
+ * Automatically refreshes data based on DashboardContext refresh timestamp.
+ * 
+ * Features:
+ * - Automatic data fetching on mount and refresh
+ * - Loading state management
+ * - Error handling
+ * - Type-safe data access
+ * 
+ * @module useDashboardData
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { getSystemHealthMetrics, getDeviceFleetStatus, getPerformanceMetrics, getAlertAnalytics } from '../services/adminService';
-import { technicianService } from '../services/technicianService';
-import { dataService } from '../services/dataService';
-
-export type UserRole = 'admin' | 'technician' | 'consumer';
-
-interface AdminDashboardData {
-  healthMetrics: any;
-  deviceFleet: any[];
-  performanceMetrics: any[];
-  alertAnalytics: any;
-}
-
-interface TechnicianDashboardData {
-  tasks: any[];
-  recentActivities?: any[];
-  selectedTask: any | null;
-}
-
-interface ConsumerDashboardData {
-  currentReading: any;
-  alerts: any[];
-  devices: any[];
-  stats: any;
-}
-
-type DashboardData = AdminDashboardData | TechnicianDashboardData | ConsumerDashboardData;
+import { useState, useEffect } from "react";
+import { useDashboard } from "../contexts/DashboardContext";
+import { MockDataService } from "../services/mockDataService";
+import {
+  KPIMetrics,
+  SystemHealthData,
+  MLInsightData,
+  TimeRange,
+} from "../types/dashboard";
+import { Device } from "../types/device";
+import { Alert } from "../types/alert";
+import { User } from "../types/user";
+import { LogEntry } from "../types/log";
 
 /**
- * Custom hook for fetching dashboard data based on user role
+ * Hook for fetching KPI metrics
  * 
- * @param userRole - The role of the current user (admin, technician, consumer)
- * @returns Dashboard data, loading state, error state
+ * @returns Object with metrics data, loading state, and error
  */
-export function useDashboardData(userRole: UserRole) {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function useKPIMetrics() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<KPIMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchData = useCallback(async (): Promise<void> => {
+  useEffect(() => {
     try {
-      setIsLoading(true);
-      let result: DashboardData;
-
-      switch (userRole) {
-        case 'admin':
-          const [health, fleet, performance, alerts] = await Promise.all([
-            getSystemHealthMetrics(),
-            getDeviceFleetStatus(),
-            getPerformanceMetrics('24h'),
-            getAlertAnalytics(7)
-          ]);
-          result = {
-            healthMetrics: health,
-            deviceFleet: fleet,
-            performanceMetrics: performance,
-            alertAnalytics: alerts
-          };
-          break;
-
-        case 'technician':
-          // Fetch assigned service requests from the API
-          const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-          const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || '';
-          
-          // Try to fetch from API, fall back to mock data if Lambda is broken
-          let technicianData;
-          try {
-            const response = await fetch(`${apiEndpoint}/api/v1/service-requests?status=assigned,in_progress`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-            
-            if (response.ok) {
-              technicianData = await response.json();
-            } else {
-              console.warn('Service requests API returned error, using mock data');
-              technicianData = { serviceRequests: [] };
-            }
-          } catch (err) {
-            console.error('Failed to fetch technician service requests:', err);
-            // Use mock data for now until Lambda is fixed
-            technicianData = {
-              serviceRequests: [
-                {
-                  requestId: 'SR-001',
-                  deviceId: 'DEV-12345',
-                  status: 'assigned',
-                  priority: 'high',
-                  description: 'Water quality sensor malfunction',
-                  location: 'Mumbai, Maharashtra',
-                  createdAt: new Date().toISOString(),
-                  assignedAt: new Date().toISOString()
-                }
-              ]
-            };
-          }
-          
-          result = {
-            tasks: technicianData.serviceRequests || technicianData.data || [],
-            recentActivities: [],
-            selectedTask: (technicianData.serviceRequests || technicianData.data || []).length > 0 
-              ? (technicianData.serviceRequests || technicianData.data)[0] 
-              : null
-          };
-          break;
-
-        case 'consumer':
-          const [reading, consumerAlerts, devices, stats] = await Promise.all([
-            dataService.getLatestWaterQuality(),
-            dataService.getAlerts(20),
-            dataService.getDevices(),
-            dataService.getDashboardStats()
-          ]);
-          result = {
-            currentReading: reading,
-            alerts: consumerAlerts,
-            devices,
-            stats
-          };
-          break;
-
-        default:
-          throw new Error(`Unknown user role: ${userRole}`);
-      }
-
-      setData(result);
+      setLoading(true);
+      const metrics = MockDataService.getKPIMetrics();
+      setData(metrics);
       setError(null);
     } catch (err) {
-      setError(err as Error);
+      setError(err instanceof Error ? err : new Error("Failed to fetch KPI metrics"));
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  }, [userRole]);
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching system health data
+ * 
+ * @param timeRange - Time range for data generation
+ * @returns Object with health data, loading state, and error
+ */
+export function useSystemHealthData(timeRange: TimeRange) {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<SystemHealthData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    fetchData();
-    // Polling disabled - use manual refresh button instead
-    // This prevents excessive 401 errors when token expires
-    // Uncomment below to re-enable polling:
-    // const interval = setInterval(fetchData, 300000); // 5 minutes
-    // return () => clearInterval(interval);
-  }, [userRole]); // Only refetch when userRole changes
+    try {
+      setLoading(true);
+      const healthData = MockDataService.getSystemHealthData(timeRange);
+      setData(healthData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch system health data"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp, timeRange]);
 
-  return { data, isLoading, error, refetch: fetchData };
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching devices
+ * 
+ * @returns Object with devices data, loading state, and error
+ */
+export function useDevices() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<Device[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const devices = MockDataService.getDevices();
+      setData(devices);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch devices"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching alerts
+ * 
+ * @returns Object with alerts data, loading state, and error
+ */
+export function useAlerts() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const alerts = MockDataService.getAlerts();
+      setData(alerts);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch alerts"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching ML insights
+ * 
+ * @returns Object with insights data, loading state, and error
+ */
+export function useMLInsights() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<MLInsightData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const insights = MockDataService.getMLInsights();
+      setData(insights);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch ML insights"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching users
+ * 
+ * @returns Object with users data, loading state, and error
+ */
+export function useUsers() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const users = MockDataService.getUsers();
+      setData(users);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch users"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching logs
+ * 
+ * @returns Object with logs data, loading state, and error
+ */
+export function useLogs() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const logs = MockDataService.getLogs();
+      setData(logs);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch logs"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
+}
+
+/**
+ * Hook for fetching devices for map visualization
+ * 
+ * @returns Object with device marker data, loading state, and error
+ */
+export function useDevicesForMap() {
+  const { lastRefreshTimestamp } = useDashboard();
+  const [data, setData] = useState<ReturnType<typeof MockDataService.getDevicesForMap>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const devices = MockDataService.getDevicesForMap();
+      setData(devices);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Failed to fetch devices for map"));
+    } finally {
+      setLoading(false);
+    }
+  }, [lastRefreshTimestamp]);
+
+  return { data, loading, error };
 }
