@@ -1068,10 +1068,40 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                     orderId={selectedOrder.orderId}
                     currentStatus={selectedOrder.status}
                     onStatusUpdate={async (newStatus) => {
-                      // Update the selected order status
-                      setSelectedOrder({ ...selectedOrder, status: newStatus });
-                      // Refresh orders list
-                      await fetchOrders();
+                      try {
+                        const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+                        const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+                        
+                        // Call the backend API to update order status
+                        const response = await fetch(`${apiEndpoint}/api/orders/${selectedOrder.orderId}/status`, {
+                          method: 'PUT',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            status: newStatus,
+                            reason: `Status updated to ${newStatus}`
+                          })
+                        });
+
+                        if (!response.ok) {
+                          const error = await response.json();
+                          throw new Error(error.error || 'Failed to update order status');
+                        }
+
+                        // Update local state
+                        setSelectedOrder({ ...selectedOrder, status: newStatus });
+                        
+                        // Refresh orders list to get updated data from backend
+                        await fetchOrders();
+                        
+                        showToast(`Order status updated to ${newStatus}`, 'success');
+                      } catch (error) {
+                        console.error('Error updating order status:', error);
+                        showToast(error instanceof Error ? error.message : 'Failed to update order status', 'error');
+                        throw error; // Re-throw so OrderProgressButtons can handle it
+                      }
                     }}
                     disabled={false}
                   />
