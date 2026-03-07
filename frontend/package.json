@@ -123,7 +123,7 @@
     "@storybook/addon-docs": "^9.1.13",
     "@storybook/addon-onboarding": "^9.1.13",
     "@storybook/addon-viewport": "^9.0.8",
-    "@storybook/preset-create-react-app": "^9.1.13",
+    "@storybook/preset-create-react-app": "^10.2.16",
     "@storybook/react-webpack5": "^9.1.13",
     "@types/jest-axe": "^3.5.9",
     "@types/node": "^24.8.1",
