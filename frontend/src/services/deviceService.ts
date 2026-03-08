@@ -1,193 +1,194 @@
 /**
  * Device Service
- * Handles device registration and management API calls
+ * API client for device management operations
  */
 
-export interface DeviceRegistrationData {
-  device_id: string;
-  name?: string;
-  location?: string;
-  water_source_type?: 'household' | 'industrial' | 'agricultural';
-  pairing_code?: string;
-}
+import axios from 'axios';
+
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'https://api.aquachain.example.com/dev';
 
 export interface Device {
-  device_id: string;
-  user_id: string;
-  name: string;
+  deviceId: string;
+  userId: string;
+  deviceName: string;
   location: string;
-  water_source_type: string;
-  status: 'active' | 'inactive' | 'pending';
-  created_at: string;
-  last_reading?: string;
-  iot_thing_name?: string;
-  certificate_arn?: string;
+  waterSourceType: string;
+  status: 'active' | 'maintenance' | 'offline' | 'unregistered';
+  createdAt: string;
+  lastSeen: string;
+  metadata: {
+    batteryLevel: number;
+    signalStrength: number;
+    firmwareVersion: string;
+  };
+}
+
+export interface RegisterDeviceRequest {
+  deviceId: string;
+  deviceName: string;
+  location: string;
+  waterSourceType: 'household' | 'industrial' | 'municipal' | 'agricultural';
+}
+
+export interface SensorReading {
+  deviceId: string;
+  timestamp: string;
+  readings: {
+    pH: number;
+    turbidity: number;
+    tds: number;
+    temperature: number;
+  };
+  wqi: number;
+  anomalyType: string;
 }
 
 class DeviceService {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
-  }
-
-  /**
-   * Get authentication token from localStorage
-   */
-  private getAuthToken(): string | null {
-    return localStorage.getItem('aquachain_token');
-  }
-
-  /**
-   * Get authorization headers
-   */
-  private getAuthHeaders(): HeadersInit {
-    const token = this.getAuthToken();
+  private getAuthHeaders() {
+    const token = localStorage.getItem('authToken');
     return {
-      'Content-Type': 'application/json',
-      ...(token && { 'Authorization': `Bearer ${token}` })
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
     };
   }
 
   /**
    * Register a new device
    */
-  async registerDevice(data: DeviceRegistrationData): Promise<Device> {
+  async registerDevice(request: RegisterDeviceRequest): Promise<Device> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/devices/register`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(data)
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to register device');
-      }
-
-      return result.device;
+      const response = await axios.post(
+        `${API_BASE_URL}/devices/register`,
+        request,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data.device;
     } catch (error: any) {
-      console.error('Device registration error:', error);
-      throw error;
+      throw new Error(error.response?.data?.error || 'Failed to register device');
     }
   }
 
   /**
-   * Get all devices for the current user
+   * Get all devices for current user
    */
-  async getDevices(): Promise<Device[]> {
+  async listDevices(): Promise<Device[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/devices`, {
-        method: 'GET',
-        headers: this.getAuthHeaders()
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch devices');
-      }
-
-      return result.devices || [];
+      const response = await axios.get(
+        `${API_BASE_URL}/devices`,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data.devices;
     } catch (error: any) {
-      console.error('Fetch devices error:', error);
-      throw error;
+      throw new Error(error.response?.data?.error || 'Failed to list devices');
     }
   }
 
   /**
-   * Get a single device by ID
+   * Get device details
    */
-  async getDeviceById(deviceId: string): Promise<Device> {
+  async getDevice(deviceId: string): Promise<Device> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/devices/${deviceId}`, {
-        method: 'GET',
-        headers: this.getAuthHeaders()
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch device');
-      }
-
-      return result.device;
+      const response = await axios.get(
+        `${API_BASE_URL}/devices/${deviceId}`,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data.device;
     } catch (error: any) {
-      console.error('Fetch device error:', error);
-      throw error;
+      throw new Error(error.response?.data?.error || 'Failed to get device');
     }
   }
 
   /**
-   * Update device information
-   */
-  async updateDevice(deviceId: string, updates: Partial<DeviceRegistrationData>): Promise<Device> {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/devices/${deviceId}`, {
-        method: 'PUT',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(updates)
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to update device');
-      }
-
-      return result.device;
-    } catch (error: any) {
-      console.error('Update device error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Delete a device
+   * Delete/unpair a device
    */
   async deleteDevice(deviceId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/devices/${deviceId}`, {
-        method: 'DELETE',
-        headers: this.getAuthHeaders()
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to delete device');
-      }
+      await axios.delete(
+        `${API_BASE_URL}/devices/${deviceId}`,
+        { headers: this.getAuthHeaders() }
+      );
     } catch (error: any) {
-      console.error('Delete device error:', error);
-      throw error;
+      throw new Error(error.response?.data?.error || 'Failed to delete device');
     }
   }
 
   /**
-   * Get device status
+   * Get latest sensor readings for a device
    */
-  async getDeviceStatus(deviceId: string): Promise<{ status: string; lastSeen?: string }> {
+  async getLatestReadings(deviceId: string): Promise<SensorReading | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/devices/${deviceId}/status`, {
-        method: 'GET',
-        headers: this.getAuthHeaders()
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch device status');
-      }
-
-      return result;
+      const response = await axios.get(
+        `${API_BASE_URL}/devices/${deviceId}/readings/latest`,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data.reading;
     } catch (error: any) {
-      console.error('Fetch device status error:', error);
-      throw error;
+      console.error('Failed to get latest readings:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get historical sensor readings for a device
+   */
+  async getReadings(
+    deviceId: string,
+    startTime?: string,
+    endTime?: string,
+    limit: number = 100
+  ): Promise<SensorReading[]> {
+    try {
+      const params = new URLSearchParams();
+      if (startTime) params.append('startTime', startTime);
+      if (endTime) params.append('endTime', endTime);
+      params.append('limit', limit.toString());
+
+      const response = await axios.get(
+        `${API_BASE_URL}/devices/${deviceId}/readings?${params.toString()}`,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data.readings;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to get readings');
+    }
+  }
+
+  /**
+   * Update device settings
+   */
+  async updateDevice(
+    deviceId: string,
+    updates: Partial<Pick<Device, 'deviceName' | 'location' | 'waterSourceType'>>
+  ): Promise<Device> {
+    try {
+      const response = await axios.put(
+        `${API_BASE_URL}/devices/${deviceId}`,
+        updates,
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data.device;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to update device');
+    }
+  }
+
+  /**
+   * Get device status (online/offline)
+   */
+  async getDeviceStatus(deviceId: string): Promise<'online' | 'offline'> {
+    try {
+      const device = await this.getDevice(deviceId);
+      const lastSeen = new Date(device.lastSeen);
+      const now = new Date();
+      const minutesSinceLastSeen = (now.getTime() - lastSeen.getTime()) / 1000 / 60;
+      
+      // Consider offline if no data for 10 minutes
+      return minutesSinceLastSeen > 10 ? 'offline' : 'online';
+    } catch (error) {
+      return 'offline';
     }
   }
 }
 
-// Export singleton instance
 export const deviceService = new DeviceService();
 export default deviceService;

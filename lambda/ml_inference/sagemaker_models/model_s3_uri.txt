@@ -1,0 +1,1 @@
+s3://aquachain-ml-models-dev-758346259059/ml-models/current/model.tar.gz

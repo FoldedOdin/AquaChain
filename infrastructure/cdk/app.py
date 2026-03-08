@@ -19,6 +19,7 @@ from stacks.backup_stack import AquaChainBackupStack
 from stacks.api_throttling_stack import AquaChainAPIThrottlingStack
 from stacks.cloudfront_stack import AquaChainCloudFrontStack
 from stacks.iot_security_stack import AquaChainIoTSecurityStack
+from stacks.iot_core_stack import AquaChainIoTCoreStack
 from stacks.ml_model_registry_stack import AquaChainMLModelRegistryStack
 from stacks.phase3_infrastructure_stack import AquaChainPhase3InfrastructureStack
 from stacks.performance_dashboard_stack import PerformanceDashboardStack
@@ -35,6 +36,7 @@ from stacks.enhanced_consumer_ordering_stack import EnhancedConsumerOrderingStac
 from stacks.websocket_stack import WebSocketStack
 from stacks.security_audit_stack import SecurityAuditStack
 from stacks.auto_technician_assignment_stack import AutoTechnicianAssignmentStack
+from stacks.sagemaker_stack import AquaChainSageMakerStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -205,7 +207,20 @@ def main():
         description=f"AquaChain CloudFront Distribution - {env_name}"
     )
     
-    # 13. IoT Security Stack (Enhanced IoT device policies)
+    # 13. IoT Core Stack (Thing Types, Thing Groups, IoT Rules, Provisioning)
+    iot_core_stack = AquaChainIoTCoreStack(
+        app,
+        f"AquaChain-IoTCore-{env_name}",
+        config=config,
+        data_resources=data_stack.data_resources,
+        security_resources=security_stack.security_resources,
+        env=aws_env,
+        description=f"AquaChain IoT Core Infrastructure - {env_name}"
+    )
+    iot_core_stack.add_dependency(data_stack)
+    iot_core_stack.add_dependency(security_stack)
+    
+    # 13a. IoT Security Stack (Enhanced IoT device policies)
     iot_security_stack = AquaChainIoTSecurityStack(
         app,
         f"AquaChain-IoTSecurity-{env_name}",
@@ -213,7 +228,7 @@ def main():
         env=aws_env,
         description=f"AquaChain IoT Security - {env_name}"
     )
-    iot_security_stack.add_dependency(security_stack)
+    iot_security_stack.add_dependency(iot_core_stack)
     
     # 14. ML Model Registry Stack (Model versioning and A/B testing)
     # DISABLED: Requires services that may not be available in AWS Educate/limited accounts
@@ -380,6 +395,19 @@ def main():
     )
     auto_assignment_stack.add_dependency(enhanced_ordering_stack)
     auto_assignment_stack.add_dependency(data_stack)
+    
+    # 29. SageMaker Stack (ML model training and inference)
+    sagemaker_stack = AquaChainSageMakerStack(
+        app,
+        f"AquaChain-SageMaker-{env_name}",
+        config=config,
+        data_resources=data_stack.data_resources,
+        security_resources=security_stack.security_resources,
+        env=aws_env,
+        description=f"AquaChain SageMaker ML Infrastructure - {env_name}"
+    )
+    sagemaker_stack.add_dependency(data_stack)
+    sagemaker_stack.add_dependency(security_stack)
     
     # Synthesize the app
     app.synth()

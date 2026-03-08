@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Connect"
+      ],
+      "Resource": "arn:aws:iot:ap-south-1:758346259059:client/${iot:Connection.Thing.ThingName}",
+      "Condition": {
+        "Bool": {
+          "iot:Connection.Thing.IsAttached": "true"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Publish"
+      ],
+      "Resource": [
+        "arn:aws:iot:ap-south-1:758346259059:topic/aquachain/${iot:Connection.Thing.ThingName}/data",
+        "arn:aws:iot:ap-south-1:758346259059:topic/aquachain/${iot:Connection.Thing.ThingName}/telemetry"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Subscribe"
+      ],
+      "Resource": "arn:aws:iot:ap-south-1:758346259059:topicfilter/aquachain/${iot:Connection.Thing.ThingName}/commands"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Receive"
+      ],
+      "Resource": "arn:aws:iot:ap-south-1:758346259059:topic/aquachain/${iot:Connection.Thing.ThingName}/commands"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:UpdateThingShadow",
+        "iot:GetThingShadow"
+      ],
+      "Resource": "arn:aws:iot:ap-south-1:758346259059:thing/${iot:Connection.Thing.ThingName}"
+    }
+  ]
+}

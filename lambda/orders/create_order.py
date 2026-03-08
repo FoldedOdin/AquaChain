@@ -15,6 +15,14 @@ INVENTORY_TABLE = os.environ.get('INVENTORY_TABLE', 'Inventory')
 SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')
 
 
+class DecimalEncoder(json.JSONEncoder):
+    """Helper class to convert Decimal to int/float for JSON serialization"""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super(DecimalEncoder, self).default(obj)
+
+
 def validate_order_input(body):
     """Validate order input data"""
     required_fields = ['consumerId', 'deviceType', 'serviceType', 'paymentMethod', 'deliveryAddress', 'contactInfo']
@@ -160,7 +168,7 @@ def handler(event, context):
                 'body': json.dumps({
                     'success': False,
                     'error': 'Failed to create order in database'
-                })
+                }, cls=DecimalEncoder)
             }
         
         # Publish event to SNS (optional)
@@ -217,7 +225,7 @@ def handler(event, context):
                     'specialInstructions': special_instructions
                 },
                 'message': 'Order created successfully'
-            })
+            }, cls=DecimalEncoder)
         }
         
     except ValueError as e:
@@ -233,7 +241,7 @@ def handler(event, context):
             'body': json.dumps({
                 'success': False,
                 'error': str(e)
-            })
+            }, cls=DecimalEncoder)
         }
     except Exception as e:
         print(f"Error creating order: {str(e)}")
@@ -251,5 +259,5 @@ def handler(event, context):
                 'success': False,
                 'error': 'Internal server error',
                 'details': str(e) if os.environ.get('DEBUG') else None
-            })
+            }, cls=DecimalEncoder)
         }

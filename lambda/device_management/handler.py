@@ -1,523 +1,263 @@
 """
-Device management service using optimized GSI queries (Phase 4)
-Demonstrates efficient DynamoDB query patterns with pagination
+Device Management Lambda
+Handles device registration, pairing, and CRUD operations
 """
 
 import json
-import boto3
 import os
-import sys
-from typing import Dict, List, Optional, Any
+import boto3
+import logging
 from datetime import datetime
-import base64
-import uuid
-from decimal import Decimal
+from typing import Dict, Any
 
-# Add shared utilities to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
+# Initialize AWS clients
+dynamodb = boto3.resource('dynamodb')
+iot_client = boto3.client('iot')
 
-# Import error handling
-from errors import ValidationError, ResourceNotFoundError, DatabaseError
-from error_handler import handle_errors
+# Environment variables
+DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
+ENVIRONMENT = os.environ.get('ENVIRONMENT', 'dev')
 
-# Import structured logging
-from structured_logger import get_logger
-
-# Import optimized queries
-from dynamodb_queries import (
-    query_devices_by_user,
-    query_devices_by_status
-)
-
-# Import cache service
-from cache_service import get_cache_service
-
-# Import audit logging
-from audit_logger import audit_logger
-
-logger = get_logger(__name__, service='device-management')
+# Initialize logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
-class DeviceManagementService:
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Service for managing devices with optimized GSI queries
+    Main handler for device management operations
+    Routes requests based on HTTP method and path
     """
-    
-    def __init__(self, region: str = 'us-east-1'):
-        self.region = region
-        self.dynamodb = boto3.resource('dynamodb', region_name=region)
-        self.devices_table = self.dynamodb.Table('aquachain-devices')
-        self.cache = get_cache_service()
-    
-    def list_user_devices(self, user_id: str, limit: int = 100, 
-                         last_key: Optional[Dict] = None) -> Dict:
-        """
-        List all devices for a user using user_id-created_at-index GSI
-        Implements pagination for efficient data retrieval
-        """
-        try:
-            result = query_devices_by_user(
-                user_id=user_id,
-                limit=limit,
-                last_key=last_key,
-                table_name='aquachain-devices'
-            )
-            
-            logger.info(f"Listed {len(result['items'])} devices for user {user_id}",
-                user_id=user_id,
-                item_count=len(result['items']),
-                duration_ms=result.get('duration_ms')
-            )
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error listing user devices: {e}", user_id=user_id)
-            raise DatabaseError("Failed to list devices", details={'user_id': user_id})
-    
-    def list_devices_by_status(self, status: str, limit: int = 100,
-                              last_key: Optional[Dict] = None) -> Dict:
-        """
-        List devices by status using status-last_seen-index GSI
-        Useful for monitoring active/inactive devices
-        """
-        try:
-            # Validate status
-            valid_statuses = ['active', 'inactive', 'maintenance', 'offline']
-            if status not in valid_statuses:
-                raise ValidationError(
-                    f"Invalid status. Must be one of: {', '.join(valid_statuses)}",
-                    details={'status': status}
-                )
-            
-            result = query_devices_by_status(
-                status=status,
-                limit=limit,
-                last_key=last_key,
-                table_name='aquachain-devices'
-            )
-            
-            logger.info(f"Listed {len(result['items'])} devices with status {status}",
-                status=status,
-                item_count=len(result['items']),
-                duration_ms=result.get('duration_ms')
-            )
-            
-            return result
-            
-        except ValidationError:
-            raise
-        except Exception as e:
-            logger.error(f"Error listing devices by status: {e}", status=status)
-            raise DatabaseError("Failed to list devices", details={'status': status})
-    
-    def get_device(self, device_id: str) -> Optional[Dict]:
-        """
-        Get device by ID (primary key lookup) with caching
-        """
-        cache_key = f"device:{device_id}"
-        
-        try:
-            # Try cache first
-            cached_device = self.cache.get(cache_key)
-            if cached_device:
-                logger.info(f"Device found in cache: {device_id}", 
-                           device_id=device_id, cache_hit=True)
-                return cached_device
-            
-            # Cache miss - fetch from DynamoDB
-            response = self.devices_table.get_item(Key={'device_id': device_id})
-            device = response.get('Item')
-            
-            if device:
-                # Cache for 5 minutes
-                self.cache.set(cache_key, device, ttl=300)
-                logger.info(f"Device found: {device_id}", 
-                           device_id=device_id, cache_hit=False)
-            else:
-                logger.info(f"Device not found: {device_id}", device_id=device_id)
-            
-            return device
-            
-        except Exception as e:
-            logger.error(f"Error getting device: {e}", device_id=device_id)
-            raise DatabaseError("Failed to get device", details={'device_id': device_id})
-    
-    def update_device_status(self, device_id: str, status: str) -> Dict:
-        """
-        Update device status and last_seen timestamp with cache invalidation
-        """
-        try:
-            # Validate status
-            valid_statuses = ['active', 'inactive', 'maintenance', 'offline']
-            if status not in valid_statuses:
-                raise ValidationError(
-                    f"Invalid status. Must be one of: {', '.join(valid_statuses)}",
-                    details={'status': status}
-                )
-            
-            # Update device
-            response = self.devices_table.update_item(
-                Key={'device_id': device_id},
-                UpdateExpression='SET #status = :status, last_seen = :last_seen',
-                ExpressionAttributeNames={'#status': 'status'},
-                ExpressionAttributeValues={
-                    ':status': status,
-                    ':last_seen': datetime.utcnow().isoformat()
-                },
-                ReturnValues='ALL_NEW'
-            )
-            
-            # Invalidate cache for this device
-            cache_key = f"device:{device_id}"
-            self.cache.delete(cache_key)
-            
-            logger.info(f"Device status updated: {device_id}",
-                device_id=device_id,
-                status=status,
-                cache_invalidated=True
-            )
-            
-            return response['Attributes']
-            
-        except ValidationError:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating device status: {e}",
-                device_id=device_id,
-                status=status
-            )
-            raise DatabaseError("Failed to update device", details={
-                'device_id': device_id,
-                'status': status
-            })
-
-
-def create_demo_device(user_id: str, request_data: Dict) -> Dict:
-    """Create demo device data structure"""
-    now = datetime.utcnow()
-    device_id = request_data.get('device_id') or f"demo_{int(now.timestamp())}_{uuid.uuid4().hex[:8]}"
-    
-    return {
-        'device_id': device_id,
-        'user_id': user_id,
-        'name': request_data.get('name', 'Demo Water Monitor'),
-        'location': request_data.get('location', 'Kitchen Sink - Demo Location'),
-        'status': 'active',
-        'type': 'ESP32-WQ-Monitor-Demo',
-        'installation_date': now.isoformat(),
-        'last_reading': now.isoformat(),
-        'created_at': now.isoformat(),
-        'updated_at': now.isoformat(),
-        'last_seen': now.isoformat(),
-        'metadata': {
-            'isDemo': True,
-            'description': 'Demonstration device with simulated water quality data',
-            'firmware_version': 'demo-v1.0.0',
-            'hardware_version': 'demo-hw-v1.0'
-        },
-        'settings': {
-            'reading_interval': 300,  # 5 minutes
-            'alert_thresholds': {
-                'pH_min': Decimal('6.5'),
-                'pH_max': Decimal('8.5'),
-                'turbidity_max': Decimal('5.0'),
-                'tds_max': Decimal('500'),
-                'temperature_min': Decimal('15'),
-                'temperature_max': Decimal('25')
-            }
-        },
-        'current_reading': {
-            'pH': Decimal(str(request_data.get('readings', {}).get('pH', 7.2))),
-            'turbidity': Decimal(str(request_data.get('readings', {}).get('turbidity', 2.1))),
-            'tds': Decimal(str(request_data.get('readings', {}).get('tds', 145))),
-            'temperature': Decimal(str(request_data.get('readings', {}).get('temperature', 22.5))),
-            'timestamp': now.isoformat()
-        }
-    }
-
-
-def save_demo_device(device: Dict) -> None:
-    """Save demo device to DynamoDB"""
     try:
-        dynamodb = boto3.resource('dynamodb')
-        devices_table = dynamodb.Table('aquachain-devices')
-        devices_table.put_item(Item=device)
-        logger.info(f"Demo device saved: {device['device_id']}")
+        http_method = event.get('httpMethod', '')
+        path = event.get('path', '')
+        
+        logger.info(f"Device management request: {http_method} {path}")
+        
+        # Route to appropriate handler
+        if http_method == 'POST' and '/devices/register' in path:
+            return register_device(event, context)
+        elif http_method == 'GET' and '/devices' in path:
+            return list_devices(event, context)
+        elif http_method == 'GET' and '/devices/' in path:
+            return get_device(event, context)
+        elif http_method == 'DELETE' and '/devices/' in path:
+            return delete_device(event, context)
+        else:
+            return create_response(404, {'error': 'Not found'})
+            
     except Exception as e:
-        logger.error(f"Error saving demo device: {str(e)}")
-        raise DatabaseError("Failed to save demo device", details={'device_id': device['device_id']})
+        logger.error(f"Error in device management: {str(e)}", exc_info=True)
+        return create_response(500, {'error': 'Internal server error'})
 
 
-def _get_request_context(event: Dict) -> Dict:
-    """Extract request context for audit logging"""
-    return {
-        'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
-        'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
-        'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
-        'source': 'api'
-    }
-
-@handle_errors
-def lambda_handler(event, context):
+def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Main Lambda handler for device management operations
+    Register a new device and associate with user
+    POST /devices/register
+    Body: {deviceId, deviceName, location, waterSourceType}
     """
-    region = os.environ.get('AWS_REGION', 'us-east-1')
-    device_service = DeviceManagementService(region)
-    request_context = _get_request_context(event)
-    
-    # Route based on HTTP method and path
-    http_method = event.get('httpMethod')
-    path = event.get('path', '')
-    query_params = event.get('queryStringParameters', {}) or {}
-    path_params = event.get('pathParameters', {}) or {}
-    body = json.loads(event.get('body', '{}')) if event.get('body') else {}
-    
-    if http_method == 'GET' and '/devices/by-user' in path:
-        # List devices by user using GSI
-        user_id = query_params.get('userId')
-        limit = int(query_params.get('limit', 100))
-        last_key_encoded = query_params.get('lastKey')
+    try:
+        # Parse request
+        body = json.loads(event.get('body', '{}'))
+        device_id = body.get('deviceId')
+        user_id = get_user_id_from_event(event)
         
-        if not user_id:
-            raise ValidationError('userId parameter required')
-        
-        # Decode last_key if provided
-        last_key = None
-        if last_key_encoded:
-            try:
-                last_key = json.loads(base64.b64decode(last_key_encoded))
-            except Exception as e:
-                raise ValidationError('Invalid lastKey parameter')
-        
-        result = device_service.list_user_devices(
-            user_id=user_id,
-            limit=limit,
-            last_key=last_key
-        )
-        
-        # Encode last_key for response
-        if result.get('last_key'):
-            result['last_key'] = base64.b64encode(
-                json.dumps(result['last_key']).encode()
-            ).decode()
-        
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps(result)
-        }
-    
-    elif http_method == 'GET' and '/devices/by-status' in path:
-        # List devices by status using GSI
-        status = query_params.get('status')
-        limit = int(query_params.get('limit', 100))
-        last_key_encoded = query_params.get('lastKey')
-        
-        if not status:
-            raise ValidationError('status parameter required')
-        
-        # Decode last_key if provided
-        last_key = None
-        if last_key_encoded:
-            try:
-                last_key = json.loads(base64.b64decode(last_key_encoded))
-            except Exception as e:
-                raise ValidationError('Invalid lastKey parameter')
-        
-        result = device_service.list_devices_by_status(
-            status=status,
-            limit=limit,
-            last_key=last_key
-        )
-        
-        # Encode last_key for response
-        if result.get('last_key'):
-            result['last_key'] = base64.b64encode(
-                json.dumps(result['last_key']).encode()
-            ).decode()
-        
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps(result)
-        }
-    
-    elif http_method == 'GET' and '/devices/' in path:
-        # Get device by ID
-        device_id = path_params.get('deviceId')
-        
-        if not device_id:
-            raise ValidationError('deviceId parameter required')
-        
-        device = device_service.get_device(device_id)
-        
-        if not device:
-            raise ResourceNotFoundError('Device not found', details={'device_id': device_id})
-        
-        # Log data access
-        audit_logger.log_data_access(
-            user_id=event.get('userContext', {}).get('userId', 'system'),
-            resource_type='DEVICE',
-            resource_id=device_id,
-            operation='GET',
-            request_context=request_context
-        )
-        
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps(device)
-        }
-    
-    elif http_method == 'PUT' and '/devices/' in path and '/status' in path:
-        # Update device status
-        device_id = path_params.get('deviceId')
-        status = body.get('status')
-        
-        if not device_id:
-            raise ValidationError('deviceId parameter required')
-        if not status:
-            raise ValidationError('status field required in body')
-        
-        # Get current device for audit log
-        current_device = device_service.get_device(device_id)
-        previous_status = current_device.get('status') if current_device else None
-        
-        updated_device = device_service.update_device_status(device_id, status)
-        
-        # Log data modification
-        audit_logger.log_data_modification(
-            user_id=event.get('userContext', {}).get('userId', 'system'),
-            resource_type='DEVICE',
-            resource_id=device_id,
-            modification_type='UPDATE',
-            previous_values={'status': previous_status},
-            new_values={'status': status},
-            request_context=request_context
-        )
-        
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps(updated_device)
-        }
-    
-    elif http_method == 'POST' and '/devices/demo' in path:
-        # Add demo device
-        user_id = event.get('requestContext', {}).get('authorizer', {}).get('claims', {}).get('sub')
-        if not user_id:
-            raise ValidationError('User ID not found in request context')
-        
-        # Create demo device
-        demo_device = create_demo_device(user_id, body)
-        
-        # Save to DynamoDB
-        save_demo_device(demo_device)
-        
-        # Log device creation
-        audit_logger.log_data_modification(
-            user_id=user_id,
-            resource_type='DEVICE',
-            resource_id=demo_device['device_id'],
-            modification_type='CREATE',
-            previous_values={},
-            new_values=demo_device,
-            request_context=request_context
-        )
-        
-        logger.info(f"Demo device created: {demo_device['device_id']}", 
-                   device_id=demo_device['device_id'], user_id=user_id)
-        
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'success': True,
-                'device': demo_device,
-                'message': 'Demo device added successfully'
+        if not device_id or not user_id:
+            return create_response(400, {
+                'error': 'Missing deviceId or userId'
             })
-        }
-    
-    elif http_method == 'DELETE' and '/devices/' in path:
-        # Delete device
-        device_id = path_params.get('deviceId')
-        user_id = event.get('requestContext', {}).get('authorizer', {}).get('claims', {}).get('sub')
         
-        if not device_id:
-            raise ValidationError('deviceId parameter required')
+        # Validate device ID format
+        if not device_id.startswith('ESP32-') and not device_id.startswith('AQ-'):
+            return create_response(400, {
+                'error': 'Invalid device ID format. Must start with ESP32- or AQ-'
+            })
+        
+        # Check if device already registered
+        devices_table = dynamodb.Table(DEVICES_TABLE)
+        existing = devices_table.get_item(Key={'deviceId': device_id}).get('Item')
+        
+        if existing and existing.get('userId'):
+            return create_response(409, {
+                'error': 'Device already registered to another user'
+            })
+        
+        # Create device record
+        timestamp = datetime.utcnow().isoformat() + 'Z'
+        device_record = {
+            'deviceId': device_id,
+            'userId': user_id,
+            'deviceName': body.get('deviceName', f'Device {device_id}'),
+            'location': body.get('location', 'Unknown'),
+            'waterSourceType': body.get('waterSourceType', 'household'),
+            'status': 'active',
+            'createdAt': timestamp,
+            'lastSeen': timestamp,
+            'metadata': {
+                'batteryLevel': 100,
+                'signalStrength': 0,
+                'firmwareVersion': 'unknown'
+            }
+        }
+        
+        devices_table.put_item(Item=device_record)
+        
+        # Add device to user's device list
+        users_table = dynamodb.Table(USERS_TABLE)
+        try:
+            users_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression='SET devices = list_append(if_not_exists(devices, :empty), :device)',
+                ExpressionAttributeValues={
+                    ':empty': [],
+                    ':device': [device_id]
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Could not update user device list: {str(e)}")
+        
+        logger.info(f"Device {device_id} registered to user {user_id}")
+        
+        return create_response(200, {
+            'message': 'Device registered successfully',
+            'device': device_record
+        })
+        
+    except Exception as e:
+        logger.error(f"Error registering device: {str(e)}", exc_info=True)
+        return create_response(500, {'error': 'Failed to register device'})
+
+
+def list_devices(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    List all devices for a user
+    GET /devices
+    """
+    try:
+        user_id = get_user_id_from_event(event)
         
         if not user_id:
-            raise ValidationError('User ID not found in request context')
+            return create_response(401, {'error': 'Unauthorized'})
         
-        # Get device to verify ownership and for audit log
-        device = device_service.get_device(device_id)
+        # Query devices by userId using GSI
+        devices_table = dynamodb.Table(DEVICES_TABLE)
+        
+        # Scan with filter (not optimal but works for MVP)
+        response = devices_table.scan(
+            FilterExpression='userId = :userId',
+            ExpressionAttributeValues={':userId': user_id}
+        )
+        
+        devices = response.get('Items', [])
+        
+        logger.info(f"Found {len(devices)} devices for user {user_id}")
+        
+        return create_response(200, {
+            'devices': devices,
+            'count': len(devices)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing devices: {str(e)}", exc_info=True)
+        return create_response(500, {'error': 'Failed to list devices'})
+
+
+def get_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Get device details
+    GET /devices/{deviceId}
+    """
+    try:
+        device_id = event.get('pathParameters', {}).get('deviceId')
+        user_id = get_user_id_from_event(event)
+        
+        if not device_id or not user_id:
+            return create_response(400, {'error': 'Missing deviceId'})
+        
+        # Get device
+        devices_table = dynamodb.Table(DEVICES_TABLE)
+        response = devices_table.get_item(Key={'deviceId': device_id})
+        device = response.get('Item')
         
         if not device:
-            raise ResourceNotFoundError('Device not found', details={'device_id': device_id})
+            return create_response(404, {'error': 'Device not found'})
         
-        # Verify user owns the device
-        if device.get('user_id') != user_id:
-            raise ValidationError('You do not have permission to delete this device', 
-                                error_code='PERMISSION_DENIED')
+        # Verify ownership
+        if device.get('userId') != user_id:
+            return create_response(403, {'error': 'Access denied'})
         
-        try:
-            # Delete from DynamoDB
-            dynamodb = boto3.resource('dynamodb')
-            devices_table = dynamodb.Table('aquachain-devices')
-            devices_table.delete_item(Key={'device_id': device_id})
-            
-            # Invalidate cache
-            cache_key = f"device:{device_id}"
-            device_service.cache.delete(cache_key)
-            
-            # Log device deletion
-            audit_logger.log_data_modification(
-                user_id=user_id,
-                resource_type='DEVICE',
-                resource_id=device_id,
-                modification_type='DELETE',
-                previous_values=device,
-                new_values={},
-                request_context=request_context
-            )
-            
-            logger.info(f"Device deleted: {device_id}", 
-                       device_id=device_id, user_id=user_id)
-            
-            return {
-                'statusCode': 200,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                },
-                'body': json.dumps({
-                    'success': True,
-                    'message': 'Device deleted successfully'
-                })
+        return create_response(200, {'device': device})
+        
+    except Exception as e:
+        logger.error(f"Error getting device: {str(e)}", exc_info=True)
+        return create_response(500, {'error': 'Failed to get device'})
+
+
+def delete_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Delete/unpair a device
+    DELETE /devices/{deviceId}
+    """
+    try:
+        device_id = event.get('pathParameters', {}).get('deviceId')
+        user_id = get_user_id_from_event(event)
+        
+        if not device_id or not user_id:
+            return create_response(400, {'error': 'Missing deviceId'})
+        
+        # Verify ownership
+        devices_table = dynamodb.Table(DEVICES_TABLE)
+        response = devices_table.get_item(Key={'deviceId': device_id})
+        device = response.get('Item')
+        
+        if not device:
+            return create_response(404, {'error': 'Device not found'})
+        
+        if device.get('userId') != user_id:
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Remove user association (don't delete device)
+        devices_table.update_item(
+            Key={'deviceId': device_id},
+            UpdateExpression='SET userId = :null, #status = :status',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':null': None,
+                ':status': 'unregistered'
             }
-            
-        except Exception as e:
-            logger.error(f"Error deleting device: {e}", device_id=device_id, user_id=user_id)
-            raise DatabaseError("Failed to delete device", details={'device_id': device_id})
-    
-    else:
-        raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')
+        )
+        
+        logger.info(f"Device {device_id} unpaired from user {user_id}")
+        
+        return create_response(200, {
+            'message': 'Device unpaired successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting device: {str(e)}", exc_info=True)
+        return create_response(500, {'error': 'Failed to delete device'})
+
+
+def get_user_id_from_event(event: Dict[str, Any]) -> str:
+    """Extract user ID from Cognito authorizer claims"""
+    try:
+        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+        return claims.get('sub', '')
+    except Exception:
+        return ''
+
+
+def create_response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
+    """Create standardized API response"""
+    return {
+        'statusCode': status_code,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+        },
+        'body': json.dumps(body)
+    }
