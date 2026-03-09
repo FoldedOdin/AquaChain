@@ -433,7 +433,7 @@ jobs:
           retention-days: 7
 
       - name: Upload test coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           file: frontend/coverage/lcov.info
           flags: frontend
@@ -492,7 +492,7 @@ jobs:
           fi
 
       - name: Upload test coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           file: lambda/${{ matrix.function }}/coverage.xml
           flags: lambda-${{ matrix.function }}
