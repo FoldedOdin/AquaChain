@@ -94,8 +94,10 @@ class OrderManagementService:
         # Create order schema
         create_order_schema = {
             'consumerId': ValidationRule(
-                field_type=FieldType.UUID,
-                required=True
+                field_type=FieldType.STRING,  # Changed from UUID to STRING to accept Cognito user IDs
+                required=True,
+                min_length=1,
+                max_length=255
             ),
             'deviceType': ValidationRule(
                 field_type=FieldType.STRING,
@@ -137,6 +139,12 @@ class OrderManagementService:
                 required=False,
                 min_value=Decimal('0.01'),
                 max_value=Decimal('100000.00')
+            ),
+            'paymentId': ValidationRule(
+                field_type=FieldType.STRING,
+                required=False,
+                min_length=1,
+                max_length=255
             )
         }
         
@@ -145,9 +153,9 @@ class OrderManagementService:
             'orderId': ValidationRule(
                 field_type=FieldType.STRING,
                 required=True,
-                pattern=r'^ord_\d+$',  # Match format: ord_TIMESTAMP
-                min_length=5,
-                max_length=50
+                pattern=r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$',  # UUID format
+                min_length=36,
+                max_length=36
             ),
             'status': ValidationRule(
                 field_type=FieldType.ENUM,
@@ -258,7 +266,16 @@ class OrderManagementService:
             }
             
         except ValidationError as e:
-            logger.error('Order creation validation failed', error=str(e), correlation_id=correlation_id)
+            # Log detailed validation error with field information
+            error_details = {
+                'error_message': str(e),
+                'validation_errors': getattr(e, 'errors', []),
+                'request_data_keys': list(request_data.keys()) if request_data else []
+            }
+            logger.error('Order creation validation failed', 
+                        error=str(e), 
+                        error_details=error_details,
+                        correlation_id=correlation_id)
             raise
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
@@ -569,6 +586,11 @@ class OrderManagementService:
         # Handle both userId (new schema) and consumerId (old schema)
         consumer_id = order_record.get('consumerId') or order_record.get('userId')
         
+        # Convert Decimal to float for JSON serialization
+        amount = order_record.get('amount')
+        if isinstance(amount, Decimal):
+            amount = float(amount)
+        
         return {
             'id': order_record['orderId'],
             'consumerId': consumer_id,
@@ -576,7 +598,7 @@ class OrderManagementService:
             'serviceType': order_record['serviceType'],
             'paymentMethod': order_record['paymentMethod'],
             'status': order_record['status'],
-            'amount': order_record.get('amount'),
+            'amount': amount,
             'deliveryAddress': order_record['deliveryAddress'],
             'contactInfo': order_record['contactInfo'],
             'assignedTechnician': order_record.get('assignedTechnician'),

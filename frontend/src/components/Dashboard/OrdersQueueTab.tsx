@@ -167,12 +167,18 @@ const OrdersQueueTab: React.FC = () => {
 
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/admin/orders/${orderId}`, {
-        method: 'DELETE',
+      const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      // Use PUT /cancel endpoint (only one configured in API Gateway)
+      const response = await fetch(`${apiEndpoint}/api/orders/${orderId}/cancel`, {
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          reason: 'Cancelled by admin'
+        })
       });
 
       if (response.ok) {

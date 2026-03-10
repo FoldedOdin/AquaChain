@@ -177,7 +177,7 @@ export interface TimerState {
 export interface RazorpayCheckoutProps {
   orderId: string;
   amount: number;
-  onSuccess: (paymentId: string) => void;
+  onSuccess: (paymentId: string, razorpayPaymentId: string, razorpayOrderId: string, razorpaySignature: string) => void;
   onFailure: (error: RazorpayError) => void;
   customerInfo: ContactInfo;
 }

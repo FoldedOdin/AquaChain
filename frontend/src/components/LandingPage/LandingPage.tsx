@@ -60,10 +60,29 @@ const LandingPage: React.FC<LandingPageProps> = ({
 
   // Redirect authenticated users to their dashboard
   useEffect(() => {
-    if (isAuthenticated && user) {
+    console.log('🔄 LandingPage useEffect triggered - Auth state:', {
+      isAuthenticated,
+      hasUser: !!user,
+      userRole: user?.role,
+      userEmail: user?.email,
+      currentPath: window.location.pathname
+    });
+    
+    if (isAuthenticated && user && user.role) {
       const dashboardPath = `/dashboard/${user.role}`;
-      console.log('User is authenticated, redirecting to:', dashboardPath);
-      navigate(dashboardPath);
+      console.log('✅ User is authenticated, navigating to:', dashboardPath);
+      console.log('📊 Full user object:', JSON.stringify(user, null, 2));
+      
+      // Use replace to avoid adding to history
+      navigate(dashboardPath, { replace: true });
+      
+      console.log('📍 Navigation called, should redirect now');
+    } else if (isAuthenticated && user && !user.role) {
+      console.error('❌ User is authenticated but has no role!', user);
+      // Default to consumer if role is missing
+      navigate('/dashboard/consumer', { replace: true });
+    } else {
+      console.log('⏳ Waiting for authentication state...');
     }
   }, [isAuthenticated, user, navigate]);
 
@@ -115,15 +134,15 @@ const LandingPage: React.FC<LandingPageProps> = ({
         await onLogin(credentials);
       } else {
         // Use AuthContext login to ensure state is updated
+        console.log('🔐 Starting login process...');
         await login(credentials.email, credentials.password);
+        console.log('✅ Login completed, auth state should be updated');
         
-        // Wait a moment for state to update, then redirect
-        setTimeout(() => {
-          if (user) {
-            const dashboardPath = `/dashboard/${user.role}`;
-            navigate(dashboardPath);
-          }
-        }, 100);
+        // Don't close modal yet - let the useEffect handle navigation first
+        // The modal will close when we navigate away from the landing page
+        
+        // Note: Navigation is handled by the useEffect hook that watches
+        // isAuthenticated and user state changes
       }
       
       // Track successful login conversion
@@ -131,8 +150,6 @@ const LandingPage: React.FC<LandingPageProps> = ({
         auth_method: 'email',
         user_role: 'consumer' // This would come from the auth result
       });
-      
-      setIsAuthModalOpen(false);
     } catch (error) {
       // Track failed login attempt
       trackInteraction('form', 'login', 'error', {

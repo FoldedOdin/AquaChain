@@ -36,6 +36,16 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   const { user, isLoading } = useAuth();
   const location = useLocation();
 
+  // Debug logging
+  console.log('🔒 ProtectedRoute check:', {
+    pathname: location.pathname,
+    isLoading,
+    hasUser: !!user,
+    userRole: user?.role,
+    requiredRole,
+    allowedRoles
+  });
+
   // Show loading spinner while checking authentication
   if (isLoading) {
     return (
@@ -50,6 +60,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // Redirect to login if not authenticated
   if (!user) {
+    console.log('❌ No user found, redirecting to landing page');
     return <Navigate to="/" state={{ from: location }} replace />;
   }
 

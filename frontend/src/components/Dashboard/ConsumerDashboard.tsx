@@ -674,11 +674,20 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Member Since</label>
                   <p className="text-gray-900">
-                    {new Date().toLocaleDateString('en-GB', { 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })}
+                    {user.createdAt 
+                      ? new Date(user.createdAt).toLocaleDateString('en-GB', { 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })
+                      : user.lastLogin
+                        ? new Date(user.lastLogin).toLocaleDateString('en-GB', { 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                          })
+                        : 'Not available'
+                    }
                   </p>
                 </div>
               </div>

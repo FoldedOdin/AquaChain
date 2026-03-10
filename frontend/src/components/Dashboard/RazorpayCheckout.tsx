@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { CreditCard, Loader2, AlertCircle, CheckCircle, Shield } from 'lucide-react';
 import { RazorpayCheckoutProps, RazorpayError } from '../../types/ordering';
-import { PaymentService } from '../../services/paymentService';
+import { paymentService } from '../../services/paymentService';
 import { MockPaymentService } from '../../services/mockPaymentService';
 
 // Razorpay script URL
@@ -98,14 +98,19 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     const result = await makeRequest(
       async () => {
         try {
-          // Call backend to create Razorpay order (backend generates order ID)
-          const response = await PaymentService.createRazorpayOrder(amount);
+          // Call backend payment service to create Razorpay order
+          console.log('💳 Creating Razorpay order for amount:', amount);
+          const response = await paymentService.createRazorpayOrder({
+            amount,
+            currency: 'INR'
+          });
 
           if (response.success && response.data?.razorpayOrderId) {
+            console.log('✅ Razorpay order created:', response.data);
             setRazorpayOrderId(response.data.razorpayOrderId);
             return response.data;  // Return full data including razorpayOrderId and key
           } else {
-            throw new Error(response.error || 'Failed to create payment order');
+            throw new Error('Failed to create payment order');
           }
         } catch (apiError: any) {
           // Fallback to mock service if API is not available
@@ -143,18 +148,26 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     const result = await makeRequest(
       async () => {
         try {
-          // Try real API first
-          const verificationResponse = await PaymentService.verifyPayment(
-            response.razorpay_payment_id,
-            response.razorpay_order_id,
-            response.razorpay_signature
-          );
+          // Verify payment with backend
+          console.log('🔐 Verifying payment:', response);
+          const verificationResponse = await paymentService.verifyPayment({
+            paymentId: response.razorpay_payment_id,
+            orderId: response.razorpay_order_id,
+            signature: response.razorpay_signature
+          });
 
           if (verificationResponse.success && verificationResponse.data?.verified) {
-            onSuccess(response.razorpay_payment_id);
+            console.log('✅ Payment verified successfully');
+            // Pass all payment details to parent
+            onSuccess(
+              response.razorpay_payment_id,
+              response.razorpay_payment_id,
+              response.razorpay_order_id,
+              response.razorpay_signature
+            );
             return verificationResponse.data;
           } else {
-            throw new Error(verificationResponse.error || 'Payment verification failed');
+            throw new Error('Payment verification failed');
           }
         } catch (apiError: any) {
           // Fallback to mock verification if API is not available
@@ -167,7 +180,12 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           );
 
           if (verified) {
-            onSuccess(response.razorpay_payment_id);
+            onSuccess(
+              response.razorpay_payment_id,
+              response.razorpay_payment_id,
+              response.razorpay_order_id,
+              response.razorpay_signature
+            );
             return { verified: true, paymentId: response.razorpay_payment_id, orderId };
           } else {
             throw new Error('Mock payment verification failed');

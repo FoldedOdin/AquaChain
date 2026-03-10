@@ -201,7 +201,24 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
         throw new Error('Phone number is required. Please update your profile with a valid phone number.');
       }
 
+      // Step 1: Create device order
       await createOrder(orderRequest);
+      
+      // Step 2: Create COD payment record (if order was created successfully)
+      if (state.currentOrder?.id) {
+        try {
+          const { paymentService } = await import('../../services/paymentService');
+          await paymentService.createCODPayment({
+            orderId: state.currentOrder.id,
+            amount: orderAmount
+          });
+          console.log('✅ COD payment record created');
+        } catch (paymentError) {
+          console.warn('Failed to create COD payment record:', paymentError);
+          // Don't fail the order if payment record creation fails
+        }
+      }
+      
       setCurrentStep('order-tracking');
     } catch (error) {
       console.error('Failed to create COD order:', error);
@@ -225,8 +242,25 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
   }, []);
 
   // Handle online payment success
-  const handlePaymentSuccess = useCallback(async (paymentId: string) => {
+  const handlePaymentSuccess = useCallback(async (paymentId: string, razorpayPaymentId: string, razorpayOrderId: string, razorpaySignature: string) => {
     try {
+      console.log('💳 Payment success, verifying...', { paymentId, razorpayPaymentId, razorpayOrderId });
+      
+      // Step 1: Verify payment with backend
+      const { paymentService } = await import('../../services/paymentService');
+      const verifyResult = await paymentService.verifyPayment({
+        paymentId: razorpayPaymentId,
+        orderId: razorpayOrderId,
+        signature: razorpaySignature,
+      });
+
+      if (!verifyResult.success || !verifyResult.data.verified) {
+        throw new Error('Payment verification failed. Please contact support.');
+      }
+
+      console.log('✅ Payment verified successfully');
+
+      // Step 2: Create device order with payment reference
       // Re-validate profile before creating order (in case data changed)
       const validation = validateProfileComplete();
       if (!validation.isValid) {

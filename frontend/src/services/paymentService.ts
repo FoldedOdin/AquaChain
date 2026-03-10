@@ -1,150 +1,185 @@
 /**
- * Payment Service
- * Handles all payment-related API calls to AquaChain backend
+ * Payment Service Client
+ * 
+ * Integrates with existing Razorpay Lambda functions:
+ * - POST /api/payments/create-razorpay-order
+ * - POST /api/payments/verify-payment
+ * - POST /api/payments/create-cod-payment
+ * - GET /api/payments/payment-status
  */
 
-import { apiClient } from './apiClient';
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3000';
 
-export interface RazorpayOrderResponse {
+interface RazorpayOrderRequest {
+  amount: number;
+  currency?: string;
+}
+
+interface RazorpayOrderResponse {
   success: boolean;
   data: {
     paymentId: string;
-    orderId: string;  // Backend-generated order ID
-    razorpayOrderId: string;  // Razorpay's order ID
-    amount: number;  // Amount in paise
+    orderId: string;
+    razorpayOrderId: string;
+    amount: number;
     currency: string;
-    key: string;  // Razorpay key_id for frontend
+    key: string;
   };
-  error?: string;
 }
 
-export interface PaymentVerificationResponse {
+interface VerifyPaymentRequest {
+  paymentId: string;
+  orderId: string;
+  signature: string;
+}
+
+interface VerifyPaymentResponse {
   success: boolean;
   data: {
-    paymentId: string;
-    status: string;
     verified: boolean;
-  };
-  error?: string;
-}
-
-export interface CODPaymentResponse {
-  success: boolean;
-  data: {
     paymentId: string;
     status: string;
   };
-  error?: string;
 }
 
-export interface PaymentStatusResponse {
+interface CODPaymentRequest {
+  orderId: string;
+  amount: number;
+}
+
+interface CODPaymentResponse {
   success: boolean;
   data: {
     paymentId: string;
+    orderId: string;
     status: string;
     paymentMethod: string;
-    amount: number;
-    createdAt: string;
-    updatedAt: string;
-  } | {
-    status: string;
-    message: string;
   };
-  error?: string;
 }
 
-export class PaymentService {
-  /**
-   * Create a Razorpay order for online payment
-   * @param amount - Amount in INR
-   * @returns Razorpay order details including generated order ID
-   */
-  static async createRazorpayOrder(amount: number): Promise<RazorpayOrderResponse> {
-    try {
-      const response = await apiClient.post<RazorpayOrderResponse>(
-        '/api/payments/create-razorpay-order',
-        {
-          amount: amount,
-          currency: 'INR'
-        }
-      );
+interface PaymentStatusResponse {
+  success: boolean;
+  data: {
+    paymentId: string;
+    orderId: string;
+    status: string;
+    amount: number;
+    paymentMethod: string;
+  };
+}
 
-      return response.data;
-    } catch (error: any) {
-      console.error('Failed to create Razorpay order:', error);
-      throw new Error(error.message || 'Failed to create payment order');
+class PaymentService {
+  private getAuthToken(): string | null {
+    return localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+  }
+
+  private async makeRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const token = this.getAuthToken();
+    
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      const errorMessage = data?.message || data?.error || `Request failed with status ${response.status}`;
+      throw new Error(errorMessage);
     }
+
+    return data;
   }
 
   /**
-   * Verify Razorpay payment after successful payment
-   * @param paymentId - Razorpay payment ID
-   * @param orderId - Razorpay order ID
-   * @param signature - Razorpay signature
-   * @returns Verification result
+   * Create a Razorpay order
+   * Call this BEFORE opening Razorpay modal
    */
-  static async verifyPayment(
-    paymentId: string,
-    orderId: string,
-    signature: string
-  ): Promise<PaymentVerificationResponse> {
-    try {
-      const response = await apiClient.post<PaymentVerificationResponse>(
-        '/api/payments/verify-payment',
-        {
-          paymentId,
-          orderId,
-          signature
-        }
-      );
+  async createRazorpayOrder(request: RazorpayOrderRequest): Promise<RazorpayOrderResponse> {
+    console.log('💳 Creating Razorpay order:', request);
+    
+    const response = await this.makeRequest<RazorpayOrderResponse>(
+      '/api/payments/create-razorpay-order',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: request.amount,
+          currency: request.currency || 'INR',
+        }),
+      }
+    );
 
-      return response.data;
-    } catch (error: any) {
-      console.error('Failed to verify payment:', error);
-      throw new Error(error.message || 'Payment verification failed');
-    }
+    console.log('✅ Razorpay order created:', response);
+    return response;
   }
 
   /**
-   * Create a COD payment record
-   * @param orderId - Your order ID
-   * @param amount - Amount in INR
-   * @returns COD payment details
+   * Verify Razorpay payment signature
+   * Call this AFTER Razorpay payment success
    */
-  static async createCODPayment(orderId: string, amount: number): Promise<CODPaymentResponse> {
-    try {
-      const response = await apiClient.post<CODPaymentResponse>(
-        '/api/payments/create-cod-payment',
-        {
-          orderId,
-          amount
-        }
-      );
+  async verifyPayment(request: VerifyPaymentRequest): Promise<VerifyPaymentResponse> {
+    console.log('🔐 Verifying payment:', request);
+    
+    const response = await this.makeRequest<VerifyPaymentResponse>(
+      '/api/payments/verify-payment',
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
 
-      return response.data;
-    } catch (error: any) {
-      console.error('Failed to create COD payment:', error);
-      throw new Error(error.message || 'Failed to create COD payment');
-    }
+    console.log('✅ Payment verified:', response);
+    return response;
   }
 
   /**
-   * Get payment status for an order
-   * @param orderId - Your order ID
-   * @returns Payment status details
+   * Create COD payment record
+   * Call this AFTER order is created
    */
-  static async getPaymentStatus(orderId: string): Promise<PaymentStatusResponse> {
-    try {
-      const response = await apiClient.get<PaymentStatusResponse>(
-        `/api/payments/payment-status?orderId=${orderId}`
-      );
+  async createCODPayment(request: CODPaymentRequest): Promise<CODPaymentResponse> {
+    console.log('💵 Creating COD payment:', request);
+    
+    const response = await this.makeRequest<CODPaymentResponse>(
+      '/api/payments/create-cod-payment',
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
 
-      return response.data;
-    } catch (error: any) {
-      console.error('Failed to get payment status:', error);
-      throw new Error(error.message || 'Failed to get payment status');
-    }
+    console.log('✅ COD payment created:', response);
+    return response;
+  }
+
+  /**
+   * Get payment status by order ID
+   */
+  async getPaymentStatus(orderId: string): Promise<PaymentStatusResponse> {
+    console.log('📊 Getting payment status for order:', orderId);
+    
+    const response = await this.makeRequest<PaymentStatusResponse>(
+      `/api/payments/payment-status?orderId=${encodeURIComponent(orderId)}`,
+      {
+        method: 'GET',
+      }
+    );
+
+    console.log('✅ Payment status:', response);
+    return response;
   }
 }
 
-export default PaymentService;
+export const paymentService = new PaymentService();
+export type {
+  RazorpayOrderRequest,
+  RazorpayOrderResponse,
+  VerifyPaymentRequest,
+  VerifyPaymentResponse,
+  CODPaymentRequest,
+  CODPaymentResponse,
+  PaymentStatusResponse,
+};

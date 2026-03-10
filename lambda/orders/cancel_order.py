@@ -20,6 +20,16 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(obj)
 
 
+def cors_headers():
+    """Return consistent CORS headers"""
+    return {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+        'Access-Control-Allow-Methods': 'PUT,DELETE,OPTIONS'
+    }
+
+
 def handler(event, context):
     """
     Cancel an order
@@ -32,18 +42,29 @@ def handler(event, context):
         API Gateway response
     """
     try:
-        # Get order ID from path parameters
-        order_id = event['pathParameters']['orderId']
+        # Safely get order ID from path parameters
+        path_params = event.get('pathParameters') or {}
+        order_id = path_params.get('orderId')
+        
+        if not order_id:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers(),
+                'body': json.dumps({
+                    'success': False,
+                    'error': 'Missing orderId in path'
+                })
+            }
         
         # Parse request body for cancellation reason
         body = {}
         if event.get('body'):
             try:
-                body = json.loads(event['body'])
+                body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
             except json.JSONDecodeError:
                 pass
         
-        cancellation_reason = body.get('cancellationReason', 'No reason provided')
+        cancellation_reason = body.get('cancellationReason', body.get('reason', 'No reason provided'))
         
         # Get consumer ID from Cognito authorizer
         try:
@@ -51,12 +72,7 @@ def handler(event, context):
         except (KeyError, TypeError):
             return {
                 'statusCode': 401,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                    'Access-Control-Allow-Methods': 'DELETE,OPTIONS'
-                },
+                'headers': cors_headers(),
                 'body': json.dumps({
                     'success': False,
                     'error': 'Unauthorized'
@@ -70,12 +86,7 @@ def handler(event, context):
         if 'Item' not in response:
             return {
                 'statusCode': 404,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                    'Access-Control-Allow-Methods': 'DELETE,OPTIONS'
-                },
+                'headers': cors_headers(),
                 'body': json.dumps({
                     'success': False,
                     'error': 'Order not found'
@@ -84,16 +95,12 @@ def handler(event, context):
         
         order = response['Item']
         
-        # Verify the order belongs to the user
-        if order.get('userId') != consumer_id:
+        # Verify the order belongs to the user (check both userId and consumerId for compatibility)
+        order_owner = order.get('userId') or order.get('consumerId')
+        if order_owner != consumer_id:
             return {
                 'statusCode': 403,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                    'Access-Control-Allow-Methods': 'DELETE,OPTIONS'
-                },
+                'headers': cors_headers(),
                 'body': json.dumps({
                     'success': False,
                     'error': 'You do not have permission to cancel this order'
@@ -105,12 +112,7 @@ def handler(event, context):
         if current_status not in ['ORDER_PLACED', 'PENDING', 'PENDING_CONFIRMATION']:
             return {
                 'statusCode': 400,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                    'Access-Control-Allow-Methods': 'DELETE,OPTIONS'
-                },
+                'headers': cors_headers(),
                 'body': json.dumps({
                     'success': False,
                     'error': f'Order cannot be cancelled. Current status: {current_status}'
@@ -128,8 +130,8 @@ def handler(event, context):
             'message': f'Order cancelled by customer. Reason: {cancellation_reason}'
         })
         
-        # Update the order with cancellation reason
-        orders_table.update_item(
+        # Update the order with cancellation reason and return updated item
+        update_response = orders_table.update_item(
             Key={'orderId': order_id},
             UpdateExpression='SET #status = :status, updatedAt = :timestamp, statusHistory = :history, cancellationReason = :reason',
             ExpressionAttributeNames={
@@ -140,25 +142,30 @@ def handler(event, context):
                 ':timestamp': timestamp,
                 ':history': status_history,
                 ':reason': cancellation_reason
-            }
+            },
+            ReturnValues='ALL_NEW'
         )
+        
+        updated_order = update_response.get('Attributes', {})
         
         print(f"Order {order_id} cancelled successfully by user {consumer_id}")
         
+        # Return the full updated order object
         return {
             'statusCode': 200,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                'Access-Control-Allow-Methods': 'DELETE,OPTIONS'
-            },
+            'headers': cors_headers(),
             'body': json.dumps({
                 'success': True,
                 'message': 'Order cancelled successfully',
-                'orderId': order_id,
-                'status': 'CANCELLED'
-            })
+                'order': {
+                    'id': updated_order.get('orderId'),
+                    'consumerId': updated_order.get('userId') or updated_order.get('consumerId'),
+                    'status': updated_order.get('status'),
+                    'cancellationReason': updated_order.get('cancellationReason'),
+                    'updatedAt': updated_order.get('updatedAt'),
+                    'statusHistory': updated_order.get('statusHistory', [])
+                }
+            }, cls=DecimalEncoder)
         }
         
     except Exception as e:
@@ -167,12 +174,7 @@ def handler(event, context):
         traceback.print_exc()
         return {
             'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                'Access-Control-Allow-Methods': 'DELETE,OPTIONS'
-            },
+            'headers': cors_headers(),
             'body': json.dumps({
                 'success': False,
                 'error': 'Internal server error',

@@ -261,16 +261,16 @@ class EnhancedConsumerOrderingStack(Stack):
         self.order_management_function = lambda_.Function(
             self, "OrderManagementFunction",
             function_name=get_resource_name(self.config, "function", "order-management"),
-            handler="enhanced_order_management.lambda_handler",
+            handler="orders/enhanced_order_management.lambda_handler",
             code=lambda_.Code.from_asset(
-                "../../lambda/orders",
+                "../../lambda",
                 bundling={
                     "image": lambda_.Runtime.PYTHON_3_11.bundling_image,
                     "command": [
                         "bash", "-c",
-                        "pip install -r requirements.txt -t /asset-output && " +
-                        "cp -r . /asset-output"
-                        # Note: Removed shared directory copy - will use Lambda layer instead
+                        "pip install -r orders/requirements.txt -t /asset-output && " +
+                        "cp -r orders/* /asset-output/ && " +
+                        "cp -r shared /asset-output/shared"
                     ]
                 }
             ),

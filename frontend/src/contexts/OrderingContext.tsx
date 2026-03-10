@@ -153,7 +153,13 @@ interface OrderingProviderProps {
 const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
 
 // Helper function to convert API order response to Order type with proper Date objects
-const normalizeOrder = (apiOrder: any): Order => {
+const normalizeOrder = (apiOrder: any): Order | null => {
+  // Safety check: ensure apiOrder exists
+  if (!apiOrder) {
+    console.error('normalizeOrder received undefined apiOrder');
+    return null;
+  }
+
   return {
     ...apiOrder,
     createdAt: new Date(apiOrder.createdAt),
@@ -176,22 +182,100 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
 
   // API call helper
   const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
+    console.log('🚀 API Call Starting:', { endpoint, method: options.method });
+    
     const token = getAuthToken();
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Network error' }));
-      throw new Error(error.error || error.message || 'Request failed');
+      console.log('📡 Response received:', { 
+        endpoint, 
+        status: response.status, 
+        ok: response.ok,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+
+      // Get response text first
+      const responseText = await response.text();
+      console.log('📄 Response text:', { endpoint, text: responseText, length: responseText.length });
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+        console.log('📦 Parsed data:', { endpoint, data, dataType: typeof data });
+      } catch (parseError) {
+        console.error('❌ JSON parse error:', { error: parseError, responseText });
+        // If not JSON, treat the text as the error message
+        if (!response.ok) {
+          throw new Error(responseText || `Request failed with status ${response.status}`);
+        }
+        data = responseText;
+      }
+
+      if (!response.ok) {
+        // Handle error responses
+        console.error('❌ Response not OK:', { status: response.status, data });
+        
+        // Extract error message safely
+        let errorMessage = 'Request failed';
+        if (typeof data === 'string') {
+          errorMessage = data || `Request failed with status ${response.status}`;
+        } else if (data && typeof data === 'object') {
+          // Backend returns { error: true, message: "...", code: "..." }
+          errorMessage = data.message || data.errorMessage || data.error || `Request failed with status ${response.status}`;
+          // If error is a boolean, use the message field instead
+          if (typeof data.error === 'boolean' && data.message) {
+            errorMessage = data.message;
+          }
+        }
+        
+        console.error('❌ Throwing error:', errorMessage);
+        throw new Error(String(errorMessage)); // Ensure it's a string
+      }
+
+      // Handle different response formats
+      console.log('✅ Response OK, validating format...');
+      
+      // Case 1: Backend returns { success: true, data: {...}, message: "..." }
+      if (data && typeof data === 'object' && 'success' in data) {
+        console.log('📋 Format: Object with success field', { success: data.success });
+        if (data.success === false) {
+          const errorMsg = data.error || data.message || 'Request failed';
+          console.error('❌ Backend returned success=false:', errorMsg);
+          throw new Error(String(errorMsg)); // Ensure it's a string
+        }
+        console.log('✅ Returning success response');
+        return data; // Return the whole response object
+      }
+
+      // Case 2: Backend returns plain boolean (true)
+      if (data === true || data === 'true') {
+        console.log('📋 Format: Plain boolean true');
+        return { success: true };
+      }
+
+      // Case 3: Backend returns plain data object
+      console.log('📋 Format: Plain data object');
+      return data;
+      
+    } catch (error) {
+      console.error('❌ API Call failed:', { 
+        endpoint, 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      throw error;
     }
-
-    return response.json();
   }, [getAuthToken]);
 
   // Set payment method
@@ -218,11 +302,28 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
         body: JSON.stringify(orderRequest),
       });
 
+      console.log('Order API response:', response);
+
+      // apiCall already returns the parsed body directly (not wrapped in { data: ... })
+      // Backend returns { success: true, order: {...}, message: "..." }
+      const apiOrder = response?.order || response;
+      
+      if (!apiOrder || !apiOrder.id) {
+        console.error('Invalid API response structure:', response);
+        throw new Error('Invalid API response: missing order data');
+      }
+
       // Normalize the order response to convert string timestamps to Date objects
-      const normalizedOrder = normalizeOrder(response.order);
+      const normalizedOrder = normalizeOrder(apiOrder);
+      
+      if (!normalizedOrder) {
+        throw new Error('Failed to normalize order data');
+      }
+
       dispatch({ type: 'ORDER_CREATED', payload: normalizedOrder });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
+      console.error('Failed to create COD order:', error);
       dispatch({ type: 'SET_ERROR', payload: errorMessage });
       throw error;
     }
@@ -238,7 +339,19 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
         body: JSON.stringify({ status }),
       });
 
-      const normalizedOrder = normalizeOrder(response.order);
+      // Extract order from response - backend returns { success, data, message }
+      const apiOrder = response?.data;
+      
+      if (!apiOrder) {
+        throw new Error('Invalid API response: missing order data');
+      }
+
+      const normalizedOrder = normalizeOrder(apiOrder);
+      
+      if (!normalizedOrder) {
+        throw new Error('Failed to normalize order data');
+      }
+
       dispatch({ type: 'ORDER_UPDATED', payload: normalizedOrder });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update order status';
@@ -254,9 +367,10 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
 
-      await apiCall(`/api/orders/${orderId}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify({ reason }),
+      // Use DELETE method with cancel_order Lambda
+      await apiCall(`/api/orders/${orderId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ cancellationReason: reason }),
       });
 
       dispatch({ type: 'ORDER_CANCELLED', payload: orderId });
@@ -280,8 +394,14 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
       });
 
       // Update order with payment information
-      if (response.order) {
-        dispatch({ type: 'ORDER_UPDATED', payload: response.order });
+      // Backend returns { success, data, message }
+      const apiOrder = response?.data;
+      
+      if (apiOrder) {
+        const normalizedOrder = normalizeOrder(apiOrder);
+        if (normalizedOrder) {
+          dispatch({ type: 'ORDER_UPDATED', payload: normalizedOrder });
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Payment processing failed';
@@ -298,7 +418,11 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
       dispatch({ type: 'SET_LOADING', payload: true });
 
       const response = await apiCall('/api/orders/history');
-      dispatch({ type: 'LOAD_ORDER_HISTORY', payload: response.orders || [] });
+      
+      // Backend returns { success, data, count }
+      const orders = response?.data || [];
+      
+      dispatch({ type: 'LOAD_ORDER_HISTORY', payload: orders });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load order history';
       dispatch({ type: 'SET_ERROR', payload: errorMessage });

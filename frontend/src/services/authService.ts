@@ -126,19 +126,19 @@ class AuthService {
 
       // Check auth mode: use AWS Cognito ONLY if explicitly set to 'aws'
       // Don't use AWS mode just because NODE_ENV is production
-      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws';
+      const useAmplifySDK = process.env.REACT_APP_AUTH_MODE === 'aws';
       
-      // Check if we have a local backend endpoint
-      const hasLocalBackend = process.env.REACT_APP_API_ENDPOINT && 
-                             (process.env.REACT_APP_API_ENDPOINT.includes('localhost') || 
-                              process.env.REACT_APP_API_ENDPOINT.includes('127.0.0.1'));
+      // Check if we have a custom backend endpoint (AWS API Gateway)
+      const hasCustomBackend = process.env.REACT_APP_API_ENDPOINT && 
+                               !process.env.REACT_APP_API_ENDPOINT.includes('localhost') &&
+                               !process.env.REACT_APP_API_ENDPOINT.includes('127.0.0.1');
       
-      // Use local backend if available, unless explicitly set to AWS mode
-      if (!useAWS || hasLocalBackend) {
-        // Development mode with local backend
+      // Use custom backend API if available, unless explicitly set to Amplify SDK mode
+      if (!useAmplifySDK || hasCustomBackend) {
+        // Using custom backend API (deployed on AWS API Gateway + Lambda)
         const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
         
-        console.log('🔐 Using local backend authentication:', apiEndpoint);
+        console.log('🔐 Using custom backend API authentication:', apiEndpoint);
         
         const response = await fetch(`${apiEndpoint}/api/auth/signin`, {
           method: 'POST',
@@ -167,7 +167,7 @@ class AuthService {
         localStorage.setItem('aquachain_user', JSON.stringify(user));
         localStorage.setItem('aquachain_role', userRole);
 
-        console.log('✅ Local backend authentication successful');
+        console.log('✅ Custom backend API authentication successful');
 
         // Track login event
         await this.trackAuthEvent('login', userRole);

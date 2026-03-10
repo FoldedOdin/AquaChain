@@ -167,6 +167,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
           const userData = JSON.parse(storedUser);
           
+          // Normalize role: remove trailing 's' if present (backend may return 'consumers', 'technicians', 'admins')
+          if (userData.role && typeof userData.role === 'string') {
+            userData.role = userData.role.replace(/s$/, '');
+          }
+          
           // ALWAYS restore user session from localStorage first
           // This prevents redirect to landing page on refresh
           setUser(userData);
@@ -331,14 +336,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error('Email and password are required');
       }
 
-      // Check if we should use local backend
-      const hasLocalBackend = process.env.REACT_APP_API_ENDPOINT?.includes('localhost') || 
-                             process.env.REACT_APP_API_ENDPOINT?.includes('127.0.0.1');
-      const useAWS = process.env.REACT_APP_AUTH_MODE === 'aws';
+      // Check if we should use custom backend API (vs Amplify SDK)
+      const hasCustomBackend = process.env.REACT_APP_API_ENDPOINT && 
+                               !process.env.REACT_APP_API_ENDPOINT.includes('localhost') &&
+                               !process.env.REACT_APP_API_ENDPOINT.includes('127.0.0.1');
+      const useAmplifySDK = process.env.REACT_APP_AUTH_MODE === 'aws';
 
-      if (!useAWS || hasLocalBackend) {
-        // Development mode with local dev server
-        console.log('🔐 Using local backend for login');
+      if (!useAmplifySDK || hasCustomBackend) {
+        // Using custom backend API (deployed on AWS API Gateway)
+        console.log('🔐 Using custom backend API for login');
         
         const authService = (await import('../services/authService')).default;
         const result = await authService.signIn({ email, password, rememberMe: true });
@@ -347,15 +353,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const userProfile: UserProfile = {
           userId: result.user.userId || 'user-' + Date.now(),
           email: result.user.email,
-          role: result.user.role || 'consumer',
+          // Normalize role: remove trailing 's' if present (backend returns 'consumers', 'technicians', 'admins')
+          role: (result.user.role || 'consumer').replace(/s$/, '') as 'admin' | 'technician' | 'consumer',
           profile: {
-            firstName: result.user.firstName || result.user.name?.split(' ')[0] || '',
-            lastName: result.user.lastName || result.user.name?.split(' ')[1] || '',
+            firstName: result.user.firstName || '',
+            lastName: result.user.lastName || '',
             phone: result.user.phone || '',
             address: result.user.address || null
           },
           deviceIds: result.user.deviceIds || [],
-          preferences: {
+          createdAt: result.user.createdAt,
+          lastLogin: result.user.lastLogin,
+          preferences: result.user.preferences || {
             notifications: {
               push: true,
               sms: true,
@@ -369,8 +378,61 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.setItem('aquachain_user', JSON.stringify(userProfile));
         localStorage.setItem('aquachain_token', result.session.token || 'dev-token-' + Date.now());
 
+        console.log('💾 User profile saved to localStorage:', userProfile);
+        console.log('🔑 Token saved to localStorage');
+        
         setUser(userProfile);
         setIsAuthenticated(true);
+        
+        console.log('✅ Auth state updated - user:', userProfile.email, 'role:', userProfile.role);
+        console.log('✅ isAuthenticated set to true');
+        
+        // Fetch complete profile from backend in background
+        console.log('🔄 Fetching complete profile from backend...');
+        setTimeout(async () => {
+          try {
+            const token = result.session.token || localStorage.getItem('aquachain_token');
+            const profileResponse = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              }
+            });
+
+            if (profileResponse.ok) {
+              const profileResult = await profileResponse.json();
+              if (profileResult.success && profileResult.profile) {
+                console.log('✅ Complete profile loaded from backend:', profileResult.profile);
+                
+                // Update profile with complete data from backend
+                const completeProfile: UserProfile = {
+                  ...userProfile,
+                  userId: profileResult.profile.userId || userProfile.userId,
+                  email: profileResult.profile.email || userProfile.email,
+                  profile: {
+                    firstName: profileResult.profile.profile?.firstName || profileResult.profile.firstName || userProfile.profile.firstName,
+                    lastName: profileResult.profile.profile?.lastName || profileResult.profile.lastName || userProfile.profile.lastName,
+                    phone: profileResult.profile.profile?.phone || profileResult.profile.phone || userProfile.profile.phone,
+                    address: profileResult.profile.profile?.address || profileResult.profile.address || userProfile.profile.address
+                  },
+                  deviceIds: profileResult.profile.deviceIds || userProfile.deviceIds,
+                  createdAt: profileResult.profile.createdAt || userProfile.createdAt,
+                  lastLogin: profileResult.profile.lastLogin || userProfile.lastLogin,
+                  preferences: profileResult.profile.preferences || userProfile.preferences
+                };
+                
+                localStorage.setItem('aquachain_user', JSON.stringify(completeProfile));
+                setUser(completeProfile);
+                console.log('✅ Profile updated with complete data from backend');
+              }
+            } else {
+              console.log('ℹ️ Could not load complete profile (using cached data)');
+            }
+          } catch (error) {
+            console.log('ℹ️ Background profile load failed (using cached data):', error);
+          }
+        }, 500);
         
         // Track login timestamp in DynamoDB
         console.log('🔄 Attempting to track login timestamp...');
@@ -394,7 +456,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.warn('⚠️ Failed to track login (non-critical):', trackError);
         }
       } else {
-        // Production mode with AWS Cognito
+        // Production mode with AWS Cognito via Amplify SDK
         const { signIn, fetchAuthSession, getCurrentUser } = await import('aws-amplify/auth');
         const signInResult = await signIn({ username: email, password });
 

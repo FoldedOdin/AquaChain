@@ -339,14 +339,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
-      const response = await fetch(`${apiEndpoint}/api/orders/${cancelOrderId}`, {
-        method: 'DELETE',
+      
+      // Use PUT /cancel endpoint (only one configured in API Gateway)
+      const response = await fetch(`${apiEndpoint}/api/orders/${cancelOrderId}/cancel`, {
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          cancellationReason: finalReason
+          reason: finalReason
         })
       });
 
@@ -376,13 +378,18 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+      
+      // Use PUT /cancel endpoint (only one configured in API Gateway)
       const cancelPromises = orderIds.map(orderId =>
-        fetch(`${apiEndpoint}/api/orders/${orderId}`, {
-          method: 'DELETE',
+        fetch(`${apiEndpoint}/api/orders/${orderId}/cancel`, {
+          method: 'PUT',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            reason: 'Bulk cancellation by user'
+          })
         })
       );
 

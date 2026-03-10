@@ -1106,7 +1106,7 @@ class AquaChainApiStack(Stack):
                 authorizer=self.cognito_authorizer
             )
             
-            print("✅ Order management API routes configured successfully")
+            print("[OK] Order management API routes configured successfully")
             print(f"  Lambda ARN: {order_management_lambda.function_arn}")
             print("  Routes created:")
             print("    - POST /api/orders")
@@ -1116,7 +1116,7 @@ class AquaChainApiStack(Stack):
             print("    - PUT /api/orders/{orderId}/cancel")
         except Exception as e:
             # Order management Lambda doesn't exist yet, skip
-            print(f"⚠️  Order management Lambda not found, skipping API integration: {e}")
+            print(f"[WARNING] Order management Lambda not found, skipping API integration: {e}")
             pass
         
         # /api/webhooks - Webhook endpoints (no authentication required)

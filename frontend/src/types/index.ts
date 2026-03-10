@@ -76,6 +76,8 @@ export interface UserProfile {
     theme: 'light' | 'dark' | 'auto';
     language: string;
   };
+  createdAt?: string; // Timestamp when user account was created
+  lastLogin?: string; // Timestamp of last login
   workSchedule?: {
     monday: { start: string; end: string; };
     tuesday: { start: string; end: string; };
