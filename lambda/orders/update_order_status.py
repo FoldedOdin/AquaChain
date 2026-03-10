@@ -87,8 +87,11 @@ def handler(event, context):
                 })
             }
         
-        # Validate status
-        valid_statuses = ['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+        # Validate status - aligned with frontend OrderStatus enum
+        valid_statuses = [
+            'PENDING_PAYMENT', 'PENDING_CONFIRMATION', 'ORDER_PLACED',
+            'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'FAILED'
+        ]
         if new_status not in valid_statuses:
             return {
                 'statusCode': 400,

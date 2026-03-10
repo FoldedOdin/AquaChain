@@ -248,14 +248,15 @@ class AquaChainApiStack(Stack):
         """
         
         # Cognito Authorizer
-        # IMPORTANT: results_cache_ttl_in_seconds=0 ensures fresh token validation
+        # IMPORTANT: results_cache_ttl enables token caching for better performance
+        # Cache tokens for 5 minutes (300 seconds) to reduce Cognito API calls
         # identity_source ensures the Authorization header is used for caching
         self.cognito_authorizer = apigateway.CognitoUserPoolsAuthorizer(
             self, "CognitoAuthorizer",
             cognito_user_pools=[self.user_pool],
             authorizer_name="AquaChainAuthorizer",
             identity_source="method.request.header.Authorization",
-            results_cache_ttl=Duration.seconds(0)  # Disable caching to ensure fresh claims
+            results_cache_ttl=Duration.seconds(300)  # Cache for 5 minutes (production recommended)
         )
         
         # REST API

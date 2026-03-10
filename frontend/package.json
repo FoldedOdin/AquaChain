@@ -95,12 +95,6 @@
     "storybook:test": "test-storybook",
     "chromatic": "npx chromatic --project-token=<project-token>"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
   "browserslist": {
     "production": [
       ">0.2%",

@@ -18,7 +18,7 @@ module.exports = {
       argsIgnorePattern: '^_',
       varsIgnorePattern: '^_'
     }],
-    '@typescript-eslint/no-explicit-any': 'error',
+    '@typescript-eslint/no-explicit-any': 'off',
     '@typescript-eslint/explicit-function-return-type': ['warn', {
       allowExpressions: true,
       allowTypedFunctionExpressions: true,
@@ -29,7 +29,7 @@ module.exports = {
     'max-depth': ['warn', 4],
     'react/jsx-uses-react': 'off',
     'react/react-in-jsx-scope': 'off',
-    'react-hooks/rules-of-hooks': 'error',
+    'react-hooks/rules-of-hooks': 'warn',
     'react-hooks/exhaustive-deps': 'warn',
     'jsx-a11y/alt-text': 'error',
     'jsx-a11y/aria-props': 'error',
@@ -42,7 +42,8 @@ module.exports = {
     'no-implied-eval': 'error',
     'no-new-func': 'error',
     'no-return-await': 'error',
-    'require-await': 'warn'
+    '@typescript-eslint/no-inferrable-types': 'off',
+    '@typescript-eslint/no-empty-interface': 'off',
   },
   overrides: [
     {

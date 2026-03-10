@@ -272,22 +272,22 @@ class EnhancedApiClient extends ApiClient {
   
   // Create Razorpay order
   async createRazorpayOrder(amount: number, orderId: string): Promise<ApiResponse<RazorpayOrder>> {
-    return this.post('/api/payments/razorpay/create', { amount, orderId });
+    return this.post('/api/payments/create-razorpay-order', { amount, orderId });
   }
 
   // Verify Razorpay payment
   async verifyRazorpayPayment(paymentId: string, orderId: string, signature: string): Promise<ApiResponse<boolean>> {
-    return this.post('/api/payments/razorpay/verify', { paymentId, orderId, signature });
+    return this.post('/api/payments/verify-payment', { paymentId, orderId, signature });
   }
 
   // Create COD payment
   async createCODPayment(orderId: string, amount: number): Promise<ApiResponse<Payment>> {
-    return this.post('/api/payments/cod/create', { orderId, amount });
+    return this.post('/api/payments/create-cod-payment', { orderId, amount });
   }
 
   // Get payment status
   async getPaymentStatus(orderId: string): Promise<ApiResponse<PaymentStatus>> {
-    return this.get(`/api/payments/status/${orderId}`);
+    return this.get(`/api/payments/payment-status?orderId=${orderId}`);
   }
 
   /**

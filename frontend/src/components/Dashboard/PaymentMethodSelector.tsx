@@ -87,7 +87,7 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
               `}
               whileHover={!disabled ? { scale: 1.02 } : {}}
               whileTap={!disabled ? { scale: 0.98 } : {}}
-              aria-pressed={isSelected}
+              aria-checked={isSelected}
               aria-describedby={`${method.id}-description`}
               role="radio"
               tabIndex={0}

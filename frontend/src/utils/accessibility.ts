@@ -3,14 +3,17 @@ let axe: any;
 let toHaveNoViolations: any;
 
 if (process.env.NODE_ENV === 'test') {
-  const jestAxe = require('jest-axe');
-  axe = jestAxe.axe;
-  toHaveNoViolations = jestAxe.toHaveNoViolations;
-  
-  // Extend Jest matchers (only in test environment)
-  if (typeof expect !== 'undefined') {
-    expect.extend(toHaveNoViolations);
-  }
+  import('jest-axe').then((jestAxe) => {
+    axe = jestAxe.axe;
+    toHaveNoViolations = jestAxe.toHaveNoViolations;
+    
+    // Extend Jest matchers (only in test environment)
+    if (typeof expect !== 'undefined') {
+      expect.extend(toHaveNoViolations);
+    }
+  }).catch(() => {
+    // Silently fail if jest-axe is not available
+  });
 }
 
 export interface AccessibilityConfig {
@@ -40,7 +43,9 @@ export const DEFAULT_A11Y_CONFIG: AccessibilityConfig = {
 };
 
 export class AccessibilityTester {
-  constructor(_config: AccessibilityConfig = DEFAULT_A11Y_CONFIG) {}
+  constructor(_config: AccessibilityConfig = DEFAULT_A11Y_CONFIG) {
+    // Configuration stored for future use
+  }
 
   /**
    * Test a DOM element for accessibility violations

@@ -1,7 +1,0 @@
-[
-  {
-    "op": "replace",
-    "path": "/responseParameters/method.response.header.Access-Control-Allow-Methods",
-    "value": "'GET,POST,PUT,DELETE,OPTIONS'"
-  }
-]

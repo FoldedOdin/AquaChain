@@ -414,10 +414,123 @@ def lambda_handler(event, context):
             'body': json.dumps(new_tokens)
         }
     
+    elif http_method == 'POST' and path.endswith('/signin'):
+        # Email/password signin endpoint
+        body = json.loads(event.get('body', '{}'))
+        email = body.get('email')
+        password = body.get('password')
+        
+        if not email or not password:
+            raise ValidationError('Email and password are required')
+        
+        # Extract request context for logging
+        request_context = {
+            'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+            'user_agent': event.get('headers', {}).get('User-Agent', 'unknown'),
+            'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
+            'source': 'api'
+        }
+        
+        # Use Cognito to authenticate user
+        import boto3
+        from botocore.exceptions import ClientError
+        
+        cognito_client = boto3.client('cognito-idp', region_name=region)
+        
+        try:
+            # Initiate authentication with Cognito
+            response = cognito_client.initiate_auth(
+                ClientId=client_id,
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={
+                    'USERNAME': email,
+                    'PASSWORD': password
+                }
+            )
+            
+            # Extract tokens from response
+            auth_result = response['AuthenticationResult']
+            access_token = auth_result['AccessToken']
+            id_token = auth_result['IdToken']
+            refresh_token = auth_result['RefreshToken']
+            
+            # Decode ID token to get user info
+            import jwt
+            decoded_token = jwt.decode(id_token, options={"verify_signature": False})
+            
+            user_id = decoded_token.get('sub')
+            user_role = decoded_token.get('cognito:groups', ['consumers'])[0]
+            
+            # Log successful authentication
+            audit_logger.log_event(
+                email=email,
+                event_type='USER_SIGNIN',
+                status='SUCCESS',
+                ip_address=request_context['ip_address'],
+                user_agent=request_context['user_agent'],
+                metadata={'role': user_role}
+            )
+            
+            return {
+                'statusCode': 200,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                    'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+                    'Content-Type': 'application/json'
+                },
+                'body': json.dumps({
+                    'success': True,
+                    'token': id_token,
+                    'refreshToken': refresh_token,
+                    'user': {
+                        'id': user_id,
+                        'email': decoded_token.get('email'),
+                        'name': decoded_token.get('name', decoded_token.get('email')),
+                        'role': user_role,
+                        'emailVerified': decoded_token.get('email_verified', False)
+                    }
+                })
+            }
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            
+            # Log failed authentication
+            audit_logger.log_event(
+                email=email,
+                event_type='USER_SIGNIN',
+                status='FAILURE',
+                ip_address=request_context['ip_address'],
+                user_agent=request_context['user_agent'],
+                metadata={'error': error_code}
+            )
+            
+            if error_code == 'NotAuthorizedException':
+                raise ValidationError('Invalid email or password', error_code='INVALID_CREDENTIALS')
+            elif error_code == 'UserNotConfirmedException':
+                raise ValidationError('Email not verified', error_code='EMAIL_NOT_VERIFIED')
+            elif error_code == 'UserNotFoundException':
+                raise ValidationError('User not found', error_code='USER_NOT_FOUND')
+            else:
+                raise ValidationError('Authentication failed', error_code='AUTH_FAILED')
+    
     elif http_method == 'POST' and '/google/callback' in path:
         # Google OAuth callback endpoint - delegate to google_oauth_handler
         from google_oauth_handler import lambda_handler as google_oauth_handler
         return google_oauth_handler(event, context)
+    
+    elif http_method == 'OPTIONS':
+        # Handle CORS preflight requests
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET'
+            },
+            'body': ''
+        }
     
     else:
         raise ValidationError('Endpoint not found', error_code='ENDPOINT_NOT_FOUND')

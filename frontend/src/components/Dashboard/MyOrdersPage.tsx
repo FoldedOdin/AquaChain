@@ -370,7 +370,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
   // Handle bulk cancel orders (for multiple selection)
   const handleBulkCancelOrders = async (orderIds: string[]) => {
-    if (!confirm(`Are you sure you want to cancel ${orderIds.length} orders? This action cannot be undone.`)) return;
+    if (!window.confirm(`Are you sure you want to cancel ${orderIds.length} orders? This action cannot be undone.`)) return;
 
     setIsCancelling(true);
     try {

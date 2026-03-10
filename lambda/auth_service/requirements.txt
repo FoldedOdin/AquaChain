@@ -5,4 +5,5 @@
 # - botocore
 
 # Function-specific dependencies
-cryptography>=44.0.1,<46
+PyJWT>=2.8.0
+requests>=2.31.0
