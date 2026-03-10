@@ -4,8 +4,12 @@ const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'https://api.aquachai
 
 class TechnicianService {
   private async getAuthToken(): Promise<string> {
-    // This would get the token from the auth context
-    return 'mock-token';
+    // Get token from localStorage (set by AuthContext)
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+    return token;
   }
 
   private async apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

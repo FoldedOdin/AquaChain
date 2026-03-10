@@ -25,20 +25,46 @@ const ViewLoadingFallback = () => (
 const TechnicianDashboard = () => {
   const [selectedTask, setSelectedTask] = useState<TechnicianTask | null>(null);
   const [view, setView] = useState<'list' | 'map' | 'history'>('list');
+  const [tasks, setTasks] = useState<TechnicianTask[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   // Use shared hooks
   const dashboardData = useDashboardData();
   const { exportData, exporting } = useDataExport();
 
-  // Extract data from the hook
-  const tasks = useMemo(() => [], []); // TODO: Implement technician tasks fetching
-  const isLoading = dashboardData.loading;
-  const error = dashboardData.error;
+  // Fetch tasks from API
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const fetchedTasks = await technicianService.getAssignedTasks();
+        setTasks(fetchedTasks);
+      } catch (err) {
+        console.error('Error fetching tasks:', err);
+        setError(err instanceof Error ? err : new Error('Failed to fetch tasks'));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTasks();
+  }, []);
   
   // Refetch function
-  const refetch = useCallback(() => {
-    // Trigger refresh via context
-    window.location.reload();
+  const refetch = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const fetchedTasks = await technicianService.getAssignedTasks();
+      setTasks(fetchedTasks);
+    } catch (err) {
+      console.error('Error refetching tasks:', err);
+      setError(err instanceof Error ? err : new Error('Failed to fetch tasks'));
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   // Set initial selected task
