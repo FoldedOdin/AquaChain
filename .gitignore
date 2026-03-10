@@ -525,7 +525,6 @@ scripts/deployment/deploy-admin-lambda.bat
 infrastructure/cdk/tests/
 
 # Temporary test and fix files
-*FIX*.md
 *WORKING*.md
 test-*.html
 test-*.ps1
