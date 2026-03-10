@@ -38,7 +38,7 @@ class TokenManager:
     Implements requirement 8.2 for secure token validation.
     """
     
-    def __init__(self, user_pool_id: str, region: str = 'us-east-1'):
+    def __init__(self, user_pool_id: str, region: str = 'ap-south-1'):
         self.user_pool_id = user_pool_id
         self.region = region
         self.issuer = f'https://cognito-idp.{region}.amazonaws.com/{user_pool_id}'

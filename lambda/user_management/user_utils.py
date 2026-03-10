@@ -22,7 +22,7 @@ class UserUtils:
     Utility class for common user management operations.
     """
     
-    def __init__(self, region: str = 'us-east-1'):
+    def __init__(self, region: str = 'ap-south-1'):
         self.region = region
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.users_table = self.dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))

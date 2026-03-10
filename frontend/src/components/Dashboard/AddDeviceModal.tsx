@@ -46,11 +46,11 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onDevi
           'Authorization': `Bearer ${localStorage.getItem('aquachain_token')}`
         },
         body: JSON.stringify({
-          device_id: deviceId.trim(),
-          name: deviceName.trim() || `Device ${deviceId}`,
+          deviceId: deviceId.trim(),
+          deviceName: deviceName.trim() || `Device ${deviceId}`,
           location: location.trim() || 'Not specified',
-          water_source_type: waterSourceType,
-          pairing_code: pairingCode.trim() || undefined
+          waterSourceType: waterSourceType,
+          pairingCode: pairingCode.trim() || undefined
         })
       });
 

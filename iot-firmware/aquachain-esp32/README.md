@@ -1,27 +1,44 @@
 # AquaChain ESP32 Firmware
 
-Complete firmware for ESP32-based water quality monitoring device.
+## ⚠️ SECURITY FIRST - READ THIS BEFORE STARTING
+
+This firmware uses a **secrets.h** file for credentials that is **NOT committed to git**. This prevents accidental credential leaks.
+
+### Quick Security Setup
+
+```bash
+# 1. Copy the template
+cd iot-firmware/aquachain-esp32/aquachain-esp32-improved/
+cp secrets.h.template secrets.h
+
+# 2. Edit secrets.h with your actual credentials
+# (Use your favorite text editor)
+
+# 3. Verify secrets.h is in .gitignore
+git status  # Should NOT show secrets.h
+```
 
 ## Hardware Requirements
 
 - ESP32-WROOM-32 development board
-- pH sensor (analog output)
-- Turbidity sensor (analog output)
-- TDS sensor (analog output)
-- Temperature sensor (analog output)
+- pH sensor (analog output, GPIO 35)
+- Turbidity sensor (analog output, GPIO 34)
+- TDS sensor (analog output, GPIO 34)
+- Temperature sensor (analog output, GPIO 32)
+- LED indicator (GPIO 2, built-in)
 - Power supply (5V USB or battery)
 
 ## Software Requirements
 
 - Arduino IDE 2.0+ or PlatformIO
-- ESP32 board support package
+- ESP32 board support package (v2.0.14+)
 - Required libraries:
   - WiFi (built-in)
   - WiFiClientSecure (built-in)
-  - PubSubClient (install via Library Manager)
-  - ArduinoJson (install via Library Manager)
+  - PubSubClient 2.8.0+ (install via Library Manager)
+  - ArduinoJson 6.21.0+ (install via Library Manager)
 
-## Installation
+## Installation Steps
 
 ### 1. Install Arduino IDE
 Download from: https://www.arduino.cc/en/software
@@ -34,182 +51,324 @@ Download from: https://www.arduino.cc/en/software
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
    ```
 4. Go to Tools → Board → Boards Manager
-5. Search for "ESP32" and install
+5. Search for "ESP32" and install version 2.0.14+
 
 ### 3. Install Required Libraries
 1. Go to Sketch → Include Library → Manage Libraries
 2. Install:
-   - PubSubClient by Nick O'Leary
-   - ArduinoJson by Benoit Blanchon
+   - **PubSubClient** by Nick O'Leary (v2.8.0+)
+   - **ArduinoJson** by Benoit Blanchon (v6.21.0+)
 
-### 4. Configure Device
+### 4. Get AWS IoT Certificates
 
-Edit `config.h` and replace:
+**Option A: Using AWS Console**
+1. Go to AWS IoT Core Console
+2. Navigate to: Manage → Things → Create Thing
+3. Create a new Thing (e.g., "AquaChain-Device-001")
+4. Download certificates:
+   - Device certificate (xxx-certificate.pem.crt)
+   - Private key (xxx-private.pem.key)
+   - Root CA certificate (AmazonRootCA1.pem)
 
-```cpp
-#define DEVICE_ID "ESP32-001"  // Unique device ID
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+**Option B: Using AWS CLI**
+```bash
+# Create certificates
+aws iot create-keys-and-certificate \
+  --set-as-active \
+  --certificate-pem-outfile device.crt \
+  --public-key-outfile device.public.key \
+  --private-key-outfile device.private.key
+
+# Get IoT endpoint
+aws iot describe-endpoint --endpoint-type iot:Data-ATS
 ```
 
-### 5. Add AWS IoT Certificates
+### 5. Configure secrets.h
 
-1. Go to AWS IoT Core Console
-2. Create a new Thing (device)
-3. Download certificates:
-   - Device certificate
-   - Private key
-   - Root CA certificate
-4. Paste certificate contents into `config.h`
+```bash
+# Copy template
+cp secrets.h.template secrets.h
+
+# Edit secrets.h with your credentials
+nano secrets.h  # or use any text editor
+```
+
+Fill in:
+- `WIFI_SSID` - Your WiFi network name
+- `WIFI_PASSWORD` - Your WiFi password
+- `AWS_IOT_ENDPOINT` - Your AWS IoT endpoint (from step 4)
+- `THING_NAME` - Your device name (e.g., "AquaChain-Device-001")
+- `AWS_CERT_CA` - Root CA certificate content
+- `AWS_CERT_CRT` - Device certificate content
+- `AWS_CERT_PRIVATE` - Private key content
+
+**Important:** Copy the ENTIRE certificate including the BEGIN/END lines!
 
 ### 6. Upload to ESP32
 
 1. Connect ESP32 via USB
-2. Select board: Tools → Board → ESP32 Dev Module
-3. Select port: Tools → Port → (your COM port)
-4. Click Upload button
+2. Select board: **Tools → Board → ESP32 Dev Module**
+3. Select port: **Tools → Port → (your COM port)**
+4. Set upload speed: **Tools → Upload Speed → 115200**
+5. Click **Upload** button (→)
 
 ## Wiring Diagram
 
 ```
-ESP32 Pin    →    Sensor
----------         ------
-GPIO 34      →    pH sensor output
-GPIO 35      →    Turbidity sensor output
-GPIO 32      →    TDS sensor output
-GPIO 33      →    Temperature sensor output
+ESP32 Pin    →    Sensor/Component
+---------         ----------------
+GPIO 34      →    TDS sensor output
+GPIO 35      →    pH sensor output
+GPIO 32      →    Temperature sensor output
+GPIO 2       →    LED indicator (built-in)
 3.3V         →    Sensor VCC
 GND          →    Sensor GND
 ```
 
 ## Testing
 
-### Serial Monitor
-1. Open Tools → Serial Monitor
-2. Set baud rate to 115200
-3. You should see:
-   ```
-   AquaChain ESP32 Starting...
-   Device ID: ESP32-001
-   Connecting to WiFi: YourSSID
-   WiFi connected!
-   IP address: 192.168.1.100
-   Connecting to AWS IoT Core...Connected!
-   Publishing sensor data:
-   {"deviceId":"ESP32-001","timestamp":"2024-01-01T00:01:00Z",...}
-   Published successfully!
-   ```
+### 1. Serial Monitor
+1. Open **Tools → Serial Monitor**
+2. Set baud rate to **115200**
+3. Press **EN** button on ESP32 to restart
 
-### AWS IoT Core Test
-1. Go to AWS IoT Core Console
-2. Click "Test" in left menu
-3. Subscribe to topic: `aquachain/ESP32-001/data`
-4. You should see messages every 60 seconds
+Expected output:
+```
+=== AquaChain ESP32 Starting ===
+Firmware Version: 2.0 (Improved)
+Connecting to WiFi: YourSSID
+.....
+WiFi connected!
+IP Address: 192.168.1.100
+Signal Strength: -45 dBm
+Attempting MQTT connection to: xxxxx.iot.ap-south-1.amazonaws.com
+Thing Name: AquaChain-Device-001
+MQTT connected!
+Subscribed to command topic
+Publishing telemetry: {"device_id":"AquaChain-Device-001",...}
+Telemetry published successfully
+```
+
+### 2. AWS IoT Core Test
+1. Go to **AWS IoT Core Console**
+2. Click **MQTT test client** in left menu
+3. Subscribe to topic: `aquachain/device/telemetry`
+4. You should see messages every 30 seconds
+
+### 3. LED Indicator
+- **Solid ON**: Connected to WiFi and MQTT
+- **Blinking (2 fast)**: Publishing telemetry successfully
+- **Blinking (5 fast)**: Publish failed
+- **OFF**: Disconnected
 
 ## Troubleshooting
 
 ### WiFi Connection Failed
-- Check SSID and password in config.h
+```
+Symptoms: "WiFi connection failed! Restarting..."
+Solutions:
+- Verify WIFI_SSID and WIFI_PASSWORD in secrets.h
 - Ensure 2.4GHz WiFi (ESP32 doesn't support 5GHz)
-- Check WiFi signal strength
+- Check WiFi signal strength (move closer to router)
+- Verify WiFi allows new device connections
+```
 
-### AWS IoT Connection Failed
-- Verify certificates are correctly pasted
-- Check IoT endpoint URL
-- Ensure IoT policy allows connect/publish
-- Verify device is registered in IoT Core
+### MQTT Connection Failed
+
+**Error: MQTT_CONNECT_BAD_CREDENTIALS (rc=4)**
+```
+Solutions:
+- Verify certificates are correctly pasted in secrets.h
+- Check for extra spaces or line breaks in certificates
+- Ensure certificates include BEGIN/END lines
+- Verify certificate is active in AWS IoT Core
+```
+
+**Error: MQTT_CONNECT_UNAUTHORIZED (rc=5)**
+```
+Solutions:
+- Check IoT policy allows connect/publish/subscribe
+- Verify Thing name matches THING_NAME in secrets.h
+- Ensure certificate is attached to Thing
+- Run: scripts/diagnostics/check-iot-thing-config.py
+```
+
+**Error: MQTT_CONNECTION_TIMEOUT (rc=-4)**
+```
+Solutions:
+- Verify AWS_IOT_ENDPOINT is correct
+- Check internet connectivity
+- Ensure port 8883 is not blocked by firewall
+- Try different WiFi network
+```
 
 ### No Sensor Readings
-- Check sensor wiring
-- Verify sensor power supply (3.3V or 5V)
-- Calibrate sensors using manufacturer instructions
+```
+Symptoms: Readings show 0 or unrealistic values
+Solutions:
+- Check sensor wiring (VCC, GND, Signal)
+- Verify sensor power supply (3.3V or 5V per sensor spec)
+- Test sensors individually with multimeter
+- Calibrate sensors (see Calibration section)
+```
+
+### Device Keeps Restarting
+```
+Symptoms: "Max reconnect attempts reached. Restarting..."
+Solutions:
+- Check all connection issues above
+- Increase MAX_RECONNECT_ATTEMPTS in firmware
+- Verify power supply is stable (use USB power, not battery)
+- Check serial monitor for specific error codes
+```
 
 ## Calibration
 
-Each sensor type requires calibration:
+### pH Sensor Calibration
+```cpp
+// In firmware, adjust phCalibration value
+// Default: 1.0
+// If reading 7.0 shows as 6.5, set to: 7.0/6.5 = 1.077
+```
 
-### pH Sensor
 1. Use pH 7.0 buffer solution
-2. Adjust offset in `readPH()` function
-3. Use pH 4.0 and 10.0 for slope calibration
+2. Note the reading
+3. Calculate: `phCalibration = 7.0 / reading`
+4. Send calibration command via MQTT (see Commands section)
 
-### Turbidity Sensor
-1. Use distilled water (0 NTU)
-2. Use formazin standards (100, 400, 800 NTU)
-3. Adjust formula in `readTurbidity()`
+### TDS Sensor Calibration
+```cpp
+// In firmware, adjust tdsCalibration value
+// Default: 1.0
+// If 1413 μS/cm solution shows as 1300, set to: 1413/1300 = 1.087
+```
 
-### TDS Sensor
-1. Use 0 ppm (distilled water)
-2. Use calibration solution (1413 μS/cm)
-3. Adjust formula in `readTDS()`
+1. Use 1413 μS/cm calibration solution
+2. Note the reading
+3. Calculate: `tdsCalibration = 1413 / reading`
 
-### Temperature Sensor
-1. Use ice water (0°C)
-2. Use boiling water (100°C)
-3. Adjust formula in `readTemperature()`
+### Temperature Sensor Calibration
+```cpp
+// In firmware, adjust tempOffset value
+// Default: 0.0
+// If reading 25°C shows as 27°C, set to: -2.0
+```
 
-## Data Format
+1. Use calibrated thermometer
+2. Note the difference
+3. Set: `tempOffset = actual - reading`
 
-### Sensor Data Topic
-`aquachain/{deviceId}/data`
+## MQTT Topics
 
+### Device Publishes To:
+- `aquachain/device/telemetry` - Sensor readings (every 30s)
+- `aquachain/device/status` - Device status (on connect/disconnect)
+
+### Device Subscribes To:
+- `aquachain/device/command` - Remote commands
+
+## Commands
+
+Send commands via AWS IoT Core MQTT test client:
+
+### Restart Device
 ```json
 {
-  "deviceId": "ESP32-001",
-  "timestamp": "2024-01-01T00:01:00Z",
-  "readings": {
-    "pH": 7.2,
-    "turbidity": 3.5,
-    "tds": 450,
-    "temperature": 22.5
-  },
-  "location": {
-    "latitude": 0.0,
-    "longitude": 0.0
-  },
-  "diagnostics": {
-    "batteryLevel": 100,
-    "signalStrength": -45,
-    "sensorStatus": "normal"
-  }
+  "command": "restart"
 }
 ```
 
-### Telemetry Topic
-`aquachain/{deviceId}/telemetry`
-
+### Update Calibration
 ```json
 {
-  "deviceId": "ESP32-001",
-  "timestamp": "2024-01-01T00:01:00Z",
+  "command": "calibrate",
+  "tds_cal": 1.087,
+  "ph_cal": 1.077,
+  "temp_offset": -2.0
+}
+```
+
+## Data Format
+
+### Telemetry Message
+```json
+{
+  "device_id": "AquaChain-Device-001",
+  "timestamp": 123456789,
+  "tds": 450.5,
+  "ph": 7.2,
+  "temperature": 22.5,
+  "wifi_rssi": -45
+}
+```
+
+### Status Message
+```json
+{
+  "device_id": "AquaChain-Device-001",
   "status": "online",
-  "batteryLevel": 100,
-  "signalStrength": -45,
-  "freeHeap": 200000,
-  "uptime": 3600
+  "uptime": 3600,
+  "free_heap": 200000
 }
 ```
 
 ## Power Consumption
 
-- Active (WiFi + sensors): ~160mA @ 3.3V
-- Deep sleep: ~10μA @ 3.3V
-- Battery life (2000mAh): ~12 hours active, ~8 months sleep
+- **Active (WiFi + MQTT)**: ~160mA @ 3.3V
+- **Deep sleep**: ~10μA @ 3.3V (not implemented in v2.0)
+- **Battery life (2000mAh)**: ~12 hours continuous operation
 
-## Security
+## Security Features
 
-- TLS 1.2 encryption for all MQTT communication
-- Certificate-based device authentication
-- No hardcoded credentials in firmware
-- Secure boot (optional, requires ESP32 configuration)
+✅ **TLS 1.2 encryption** for all MQTT communication
+✅ **Certificate-based authentication** (no passwords over network)
+✅ **No hardcoded credentials** (uses secrets.h, not committed to git)
+✅ **Secure credential storage** (secrets.h in .gitignore)
+✅ **Connection retry with backoff** (prevents brute force)
+✅ **Automatic restart** after max failures (prevents stuck state)
+
+## Firmware Updates (OTA)
+
+Over-the-air updates are planned for v3.0. Current version requires USB upload.
+
+## Diagnostic Scripts
+
+Run these scripts to verify your setup:
+
+```bash
+# Check Thing configuration
+python scripts/diagnostics/check-iot-thing-config.py --thing-name AquaChain-Device-001
+
+# Verify certificates
+python scripts/diagnostics/verify-thing-certificates.py --thing-name AquaChain-Device-001
+
+# Pre-upload checklist
+python scripts/diagnostics/pre-upload-checklist.py
+```
 
 ## Support
 
-For issues or questions:
-1. Check AWS IoT Core logs
-2. Check CloudWatch logs for Lambda errors
-3. Review device serial output
-4. Contact support team
+### Documentation
+- [IoT Quick Start Guide](../../DOCS/iot/QUICK-START-UPLOAD-FIRMWARE.md)
+- [Connection Troubleshooting](../../DOCS/iot/COMPLETE-CONNECTION-FIX-SUMMARY.md)
+- [MQTT Error Codes](../../DOCS/iot/MQTT-ERROR-CODES.md)
+
+### Scripts
+- `scripts/diagnostics/` - Diagnostic tools
+- `scripts/monitoring/` - Health monitoring
+- `scripts/deployment/` - Deployment helpers
+
+### Getting Help
+1. Check serial monitor output for error codes
+2. Run diagnostic scripts
+3. Review AWS IoT Core logs
+4. Check CloudWatch logs for Lambda errors
+5. Consult documentation in DOCS/iot/
+
+## Version History
+
+- **v2.0 (Improved)** - Security hardening, secrets.h, better error handling
+- **v1.0** - Initial release
 
 ## License
 

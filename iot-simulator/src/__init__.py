@@ -1,1 +1,0 @@
-# AquaChain IoT Simulator Package

@@ -54,7 +54,7 @@ class UserManagementService:
     Implements requirement 8.1 for user registration workflow with email verification.
     """
     
-    def __init__(self, user_pool_id: str, client_id: str, region: str = 'us-east-1'):
+    def __init__(self, user_pool_id: str, client_id: str, region: str = 'ap-south-1'):
         self.user_pool_id = user_pool_id
         self.client_id = client_id
         self.region = region
@@ -886,7 +886,7 @@ def lambda_handler(event, context):
     # Get configuration
     user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
     client_id = os.environ.get('COGNITO_CLIENT_ID')
-    region = os.environ.get('AWS_REGION', 'us-east-1')
+    region = os.environ.get('AWS_REGION', 'ap-south-1')
     
     if not user_pool_id or not client_id:
         raise ValidationError('Missing Cognito configuration')

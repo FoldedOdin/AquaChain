@@ -8,6 +8,7 @@ import boto3
 import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
+from decimal import Decimal
 import logging
 
 # Configure logging
@@ -22,9 +23,9 @@ lambda_client = boto3.client('lambda')
 # Environment variables
 ALERTS_TABLE = 'aquachain-alerts'
 USERS_TABLE = 'aquachain-users'
-CRITICAL_ALERTS_TOPIC = 'arn:aws:sns:us-east-1:123456789012:aquachain-critical-alerts'
-WARNING_ALERTS_TOPIC = 'arn:aws:sns:us-east-1:123456789012:aquachain-warning-alerts'
-NOTIFICATION_LAMBDA = 'AquaChain-Notification-Service'
+CRITICAL_ALERTS_TOPIC = 'arn:aws:sns:ap-south-1:758346259059:aquachain-topic-critical-alerts-dev'
+WARNING_ALERTS_TOPIC = 'arn:aws:sns:ap-south-1:758346259059:aquachain-topic-monitoring-warning-dev'
+NOTIFICATION_LAMBDA = 'aquachain-function-notification-dev'
 
 # Alert thresholds based on requirements
 CRITICAL_THRESHOLDS = {
@@ -258,6 +259,18 @@ def get_alert_reasons(reading: Dict[str, Any], alert_level: str) -> List[str]:
     
     return reasons
 
+def convert_floats_to_decimal(obj):
+    """
+    Recursively convert float values to Decimal for DynamoDB compatibility
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {k: convert_floats_to_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_floats_to_decimal(item) for item in obj]
+    return obj
+
 def store_alert(alert: Dict[str, Any]) -> None:
     """
     Store alert record in DynamoDB
@@ -269,7 +282,10 @@ def store_alert(alert: Dict[str, Any]) -> None:
         ttl_timestamp = int((datetime.utcnow() + timedelta(days=30)).timestamp())
         alert['ttl'] = ttl_timestamp
         
-        table.put_item(Item=alert)
+        # Convert floats to Decimal for DynamoDB
+        alert_decimal = convert_floats_to_decimal(alert)
+        
+        table.put_item(Item=alert_decimal)
         
         logger.info(f"Stored alert {alert['alertId']} for device {alert['deviceId']}")
         

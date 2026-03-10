@@ -9,6 +9,7 @@ import boto3
 import logging
 from datetime import datetime
 from typing import Dict, Any
+from decimal import Decimal
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -24,6 +25,18 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
+def decimal_to_number(obj):
+    """Convert Decimal objects to int or float for JSON serialization"""
+    if isinstance(obj, list):
+        return [decimal_to_number(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: decimal_to_number(v) for k, v in obj.items()}
+    elif isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    else:
+        return obj
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main handler for device management operations
@@ -36,13 +49,15 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info(f"Device management request: {http_method} {path}")
         
         # Route to appropriate handler
+        path_params = event.get('pathParameters', {})
+        
         if http_method == 'POST' and '/devices/register' in path:
             return register_device(event, context)
+        elif http_method == 'GET' and path_params and path_params.get('deviceId'):
+            return get_device(event, context)
         elif http_method == 'GET' and '/devices' in path:
             return list_devices(event, context)
-        elif http_method == 'GET' and '/devices/' in path:
-            return get_device(event, context)
-        elif http_method == 'DELETE' and '/devices/' in path:
+        elif http_method == 'DELETE' and path_params and path_params.get('deviceId'):
             return delete_device(event, context)
         else:
             return create_response(404, {'error': 'Not found'})
@@ -61,7 +76,7 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         # Parse request
         body = json.loads(event.get('body', '{}'))
-        device_id = body.get('deviceId')
+        device_id = body.get('deviceId') or body.get('device_id')
         user_id = get_user_id_from_event(event)
         
         if not device_id or not user_id:
@@ -69,29 +84,47 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'error': 'Missing deviceId or userId'
             })
         
-        # Validate device ID format
-        if not device_id.startswith('ESP32-') and not device_id.startswith('AQ-'):
+        # Validate device ID format (supports multiple formats)
+        # Formats: AQ-001, ESP-001, ESP32-XXX, AquaChain-Device-001
+        import re
+        if not re.match(r'^(AQ-[0-9]{3}|ESP-[0-9]{3}|ESP32-.+|AquaChain-Device-[0-9]{3})$', device_id):
             return create_response(400, {
-                'error': 'Invalid device ID format. Must start with ESP32- or AQ-'
+                'error': 'Invalid device ID format. Must be AQ-XXX, ESP-XXX, ESP32-XXX, or AquaChain-Device-XXX'
             })
         
-        # Check if device already registered
+        # Check if device exists in IoT Core
+        try:
+            iot_client.describe_thing(thingName=device_id)
+        except iot_client.exceptions.ResourceNotFoundException:
+            return create_response(404, {
+                'error': f'Device {device_id} not found in IoT registry. Please provision device first.'
+            })
+        except Exception as e:
+            logger.warning(f"Could not verify device in IoT Core: {str(e)}")
+        
+        # Check if device already registered (prevent hijacking)
         devices_table = dynamodb.Table(DEVICES_TABLE)
         existing = devices_table.get_item(Key={'deviceId': device_id}).get('Item')
         
-        if existing and existing.get('userId'):
-            return create_response(409, {
-                'error': 'Device already registered to another user'
-            })
+        if existing:
+            existing_owner = existing.get('userId')
+            if existing_owner and existing_owner != user_id:
+                return create_response(409, {
+                    'error': 'Device already registered to another user'
+                })
+            elif existing_owner == user_id:
+                return create_response(409, {
+                    'error': 'Device already registered to your account'
+                })
         
-        # Create device record
+        # Create device record (using camelCase for DynamoDB - matches table schema)
         timestamp = datetime.utcnow().isoformat() + 'Z'
         device_record = {
             'deviceId': device_id,
             'userId': user_id,
-            'deviceName': body.get('deviceName', f'Device {device_id}'),
+            'deviceName': body.get('deviceName') or body.get('name', f'Device {device_id}'),
             'location': body.get('location', 'Unknown'),
-            'waterSourceType': body.get('waterSourceType', 'household'),
+            'waterSourceType': body.get('waterSourceType') or body.get('water_source_type', 'household'),
             'status': 'active',
             'createdAt': timestamp,
             'lastSeen': timestamp,
@@ -120,9 +153,20 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         logger.info(f"Device {device_id} registered to user {user_id}")
         
+        # Return camelCase for frontend (already in camelCase)
+        response_device = {
+            'deviceId': device_id,
+            'userId': user_id,
+            'deviceName': device_record['deviceName'],
+            'location': device_record['location'],
+            'waterSourceType': device_record['waterSourceType'],
+            'status': device_record['status'],
+            'createdAt': device_record['createdAt']
+        }
+        
         return create_response(200, {
             'message': 'Device registered successfully',
-            'device': device_record
+            'device': response_device
         })
         
     except Exception as e:
@@ -141,16 +185,27 @@ def list_devices(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if not user_id:
             return create_response(401, {'error': 'Unauthorized'})
         
-        # Query devices by userId using GSI
+        # Query devices by user_id using GSI
         devices_table = dynamodb.Table(DEVICES_TABLE)
         
-        # Scan with filter (not optimal but works for MVP)
-        response = devices_table.scan(
-            FilterExpression='userId = :userId',
-            ExpressionAttributeValues={':userId': user_id}
-        )
+        # Use GSI for efficient query
+        try:
+            response = devices_table.query(
+                IndexName='userId-createdAt-index',
+                KeyConditionExpression='userId = :userId',
+                ExpressionAttributeValues={':userId': user_id}
+            )
+        except Exception:
+            # Fallback to scan if GSI not available
+            response = devices_table.scan(
+                FilterExpression='userId = :userId',
+                ExpressionAttributeValues={':userId': user_id}
+            )
         
-        devices = response.get('Items', [])
+        devices_raw = response.get('Items', [])
+        
+        # Data is already in camelCase from DynamoDB, but convert Decimals
+        devices = decimal_to_number(devices_raw)
         
         logger.info(f"Found {len(devices)} devices for user {user_id}")
         
@@ -188,6 +243,9 @@ def get_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if device.get('userId') != user_id:
             return create_response(403, {'error': 'Access denied'})
         
+        # Data is already in camelCase from DynamoDB, but convert Decimals
+        device = decimal_to_number(device)
+        
         return create_response(200, {'device': device})
         
     except Exception as e:
@@ -221,10 +279,9 @@ def delete_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Remove user association (don't delete device)
         devices_table.update_item(
             Key={'deviceId': device_id},
-            UpdateExpression='SET userId = :null, #status = :status',
+            UpdateExpression='REMOVE userId SET #status = :status',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
-                ':null': None,
                 ':status': 'unregistered'
             }
         )
