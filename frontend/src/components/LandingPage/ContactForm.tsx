@@ -97,7 +97,25 @@ const ContactForm: React.FC<ContactFormProps> = ({ onSubmit, className = '' }) =
 
   // Handle input changes with sanitization
   const handleInputChange = (field: keyof ContactFormData, value: string) => {
-    const sanitizedValue = sanitizeInput(value);
+    let sanitizedValue: string;
+    
+    // Use appropriate sanitization based on field type
+    if (field === 'name') {
+      // Names: letters, spaces, hyphens, apostrophes only
+      sanitizedValue = sanitizeInput(value);
+    } else if (field === 'email') {
+      // Email: basic sanitization, preserve @ and .
+      sanitizedValue = value.trim();
+    } else if (field === 'phone') {
+      // Phone: numbers, spaces, +, -, (, )
+      sanitizedValue = value.replace(/[^0-9\s\+\-\(\)]/g, '');
+    } else if (field === 'message') {
+      // Message: allow most characters for proper communication
+      // Only prevent actual XSS attempts, allow spaces and punctuation
+      sanitizedValue = value;
+    } else {
+      sanitizedValue = value;
+    }
     
     setFormData(prev => ({
       ...prev,

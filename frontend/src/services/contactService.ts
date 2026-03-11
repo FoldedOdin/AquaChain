@@ -20,8 +20,9 @@ interface ContactFormError {
   error: string;
 }
 
-const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_URL || 'http://localhost:3002';
-const CONTACT_ENDPOINT = `${API_BASE_URL}/contact`;
+// Contact form uses a separate API Gateway
+const CONTACT_API_URL = process.env.REACT_APP_CONTACT_API_URL || 'https://946twwm7kf.execute-api.ap-south-1.amazonaws.com/prod';
+const CONTACT_ENDPOINT = `${CONTACT_API_URL}/contact`;
 
 /**
  * Submit contact form data to the backend API
