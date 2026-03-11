@@ -403,6 +403,88 @@ class AquaChainApiStack(Stack):
         # /api/v1/technician - Technician-specific endpoints
         technician_resource = api_v1.add_resource("technician")
         
+        # /api/v1/technician/tasks - Get assigned tasks for technician
+        technician_tasks_resource = technician_resource.add_resource("tasks")
+        technician_tasks_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/{taskId}/accept - Accept a task
+        technician_task_resource = technician_tasks_resource.add_resource("{taskId}")
+        technician_task_accept_resource = technician_task_resource.add_resource("accept")
+        technician_task_accept_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/{taskId}/status - Update task status
+        technician_task_status_resource = technician_task_resource.add_resource("status")
+        technician_task_status_resource.add_method(
+            "PUT",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/{taskId}/notes - Add notes to task
+        technician_task_notes_resource = technician_task_resource.add_resource("notes")
+        technician_task_notes_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/{taskId}/attachments - Upload attachments
+        technician_task_attachments_resource = technician_task_resource.add_resource("attachments")
+        technician_task_attachments_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/{taskId}/complete - Complete a task
+        technician_task_complete_resource = technician_task_resource.add_resource("complete")
+        technician_task_complete_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/history - Get task history
+        technician_tasks_history_resource = technician_tasks_resource.add_resource("history")
+        technician_tasks_history_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/tasks/{taskId}/route - Get route to task location
+        technician_task_route_resource = technician_task_resource.add_resource("route")
+        technician_task_route_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
+        # /api/v1/technician/location - Update technician location
+        technician_location_resource = technician_resource.add_resource("location")
+        technician_location_resource.add_method(
+            "PUT",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
         # /api/v1/technician/inventory
         technician_inventory_resource = technician_resource.add_resource("inventory")
         technician_inventory_resource.add_method(

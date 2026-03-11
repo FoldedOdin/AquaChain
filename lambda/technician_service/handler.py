@@ -79,6 +79,20 @@ def lambda_handler(event, context):
             return update_service_request_status(path_parameters['requestId'], body, user_info)
         elif resource == '/api/v1/technician/tasks' and http_method == 'GET':
             return get_technician_tasks(query_parameters, user_info)
+        elif resource == '/api/v1/technician/tasks/{taskId}/accept' and http_method == 'POST':
+            return accept_technician_task(path_parameters['taskId'], user_info)
+        elif resource == '/api/v1/technician/tasks/{taskId}/status' and http_method == 'PUT':
+            return update_technician_task_status(path_parameters['taskId'], body, user_info)
+        elif resource == '/api/v1/technician/tasks/{taskId}/notes' and http_method == 'POST':
+            return add_technician_task_note(path_parameters['taskId'], body, user_info)
+        elif resource == '/api/v1/technician/tasks/{taskId}/complete' and http_method == 'POST':
+            return complete_technician_task(path_parameters['taskId'], body, user_info)
+        elif resource == '/api/v1/technician/tasks/history' and http_method == 'GET':
+            return get_technician_task_history(query_parameters, user_info)
+        elif resource == '/api/v1/technician/tasks/{taskId}/route' and http_method == 'GET':
+            return get_task_route(path_parameters['taskId'], user_info)
+        elif resource == '/api/v1/technician/location' and http_method == 'PUT':
+            return update_technician_location(body, user_info)
         elif resource == '/api/v1/technicians/available' and http_method == 'GET':
             return get_available_technicians(query_parameters, user_info)
         elif resource == '/api/v1/technicians/{technicianId}/availability' and http_method == 'PUT':
@@ -699,3 +713,249 @@ def request_inventory_restock(restock_data: dict, user_info: dict):
     except Exception as e:
         logger.error(f"Error requesting inventory restock: {str(e)}")
         return create_response(500, {'error': 'Failed to submit restock request'})
+
+
+
+def accept_technician_task(task_id: str, user_info: dict):
+    """Accept a task assignment"""
+    try:
+        # Only technicians can accept tasks
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Update service request status to 'accepted'
+        result = service_request_manager.update_service_request_status(
+            task_id,
+            'accepted',
+            user_info['userId'],
+            'Task accepted by technician'
+        )
+        
+        if result['success']:
+            return create_response(200, {
+                'success': True,
+                'message': 'Task accepted successfully',
+                'task': result['service_request']
+            })
+        else:
+            return create_response(400, {'error': result['error']})
+        
+    except Exception as e:
+        logger.error(f"Error accepting task: {str(e)}")
+        return create_response(500, {'error': 'Failed to accept task'})
+
+
+def update_technician_task_status(task_id: str, update_data: dict, user_info: dict):
+    """Update task status"""
+    try:
+        # Only technicians can update task status
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        status = update_data.get('status')
+        note = update_data.get('note', '')
+        
+        if not status:
+            return create_response(400, {'error': 'Status is required'})
+        
+        # Update service request status
+        result = service_request_manager.update_service_request_status(
+            task_id,
+            status,
+            user_info['userId'],
+            note,
+            update_data
+        )
+        
+        if result['success']:
+            return create_response(200, {
+                'success': True,
+                'message': 'Task status updated successfully',
+                'task': result['service_request']
+            })
+        else:
+            return create_response(400, {'error': result['error']})
+        
+    except Exception as e:
+        logger.error(f"Error updating task status: {str(e)}")
+        return create_response(500, {'error': 'Failed to update task status'})
+
+
+def add_technician_task_note(task_id: str, note_data: dict, user_info: dict):
+    """Add a note to a task"""
+    try:
+        # Only technicians can add notes
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        content = note_data.get('content')
+        if not content:
+            return create_response(400, {'error': 'Note content is required'})
+        
+        # Add note to service request
+        result = service_request_manager.add_service_note(
+            task_id,
+            user_info['userId'],
+            'technician_note',
+            content,
+            note_data.get('attachments')
+        )
+        
+        if result['success']:
+            return create_response(200, {
+                'success': True,
+                'message': 'Note added successfully',
+                'note': result['note']
+            })
+        else:
+            return create_response(400, {'error': result['error']})
+        
+    except Exception as e:
+        logger.error(f"Error adding task note: {str(e)}")
+        return create_response(500, {'error': 'Failed to add note'})
+
+
+def complete_technician_task(task_id: str, completion_data: dict, user_info: dict):
+    """Complete a task"""
+    try:
+        # Only technicians can complete tasks
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Complete service request
+        result = service_request_manager.complete_service_request(
+            task_id,
+            user_info['userId'],
+            completion_data
+        )
+        
+        if result['success']:
+            return create_response(200, {
+                'success': True,
+                'message': 'Task completed successfully',
+                'task': result['service_request']
+            })
+        else:
+            return create_response(400, {'error': result['error']})
+        
+    except Exception as e:
+        logger.error(f"Error completing task: {str(e)}")
+        return create_response(500, {'error': 'Failed to complete task'})
+
+
+def get_technician_task_history(query_params: dict, user_info: dict):
+    """Get task history for technician"""
+    try:
+        # Only technicians can access their history
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        limit = int(query_params.get('limit', 50))
+        
+        # Get service request history
+        result = service_request_manager.get_service_request_history(
+            user_info['userId'],
+            'technician',
+            limit,
+            'completed'  # Only show completed tasks in history
+        )
+        
+        if result['success']:
+            return create_response(200, {
+                'tasks': result['service_requests'],
+                'count': result['count']
+            })
+        else:
+            return create_response(400, {'error': result['error']})
+        
+    except Exception as e:
+        logger.error(f"Error getting task history: {str(e)}")
+        return create_response(500, {'error': 'Failed to get task history'})
+
+
+def get_task_route(task_id: str, user_info: dict):
+    """Get route to task location"""
+    try:
+        # Only technicians can get routes
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Get service request
+        response = service_requests_table.get_item(Key={'requestId': task_id})
+        
+        if 'Item' not in response:
+            return create_response(404, {'error': 'Task not found'})
+        
+        service_request = response['Item']
+        
+        # Verify technician is assigned to this task
+        if service_request.get('technicianId') != user_info['userId']:
+            return create_response(403, {'error': 'Access denied'})
+        
+        # Get task location
+        task_location = service_request.get('location')
+        if not task_location:
+            return create_response(400, {'error': 'Task location not available'})
+        
+        # In production, this would use AWS Location Service to calculate route
+        # For now, return mock route data
+        route_data = {
+            'taskId': task_id,
+            'destination': task_location,
+            'estimatedDuration': 1800,  # 30 minutes in seconds
+            'estimatedDistance': 15000,  # 15 km in meters
+            'routeUrl': f"https://maps.google.com/?q={task_location.get('latitude')},{task_location.get('longitude')}"
+        }
+        
+        return create_response(200, route_data)
+        
+    except Exception as e:
+        logger.error(f"Error getting task route: {str(e)}")
+        return create_response(500, {'error': 'Failed to get route'})
+
+
+def update_technician_location(location_data: dict, user_info: dict):
+    """Update technician's current location"""
+    try:
+        # Only technicians can update their location
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+        
+        latitude = location_data.get('latitude')
+        longitude = location_data.get('longitude')
+        
+        if latitude is None or longitude is None:
+            return create_response(400, {'error': 'Latitude and longitude are required'})
+        
+        # Update technician location in users table
+        try:
+            users_table.update_item(
+                Key={'userId': user_info['userId']},
+                UpdateExpression='SET currentLocation = :location, locationUpdatedAt = :timestamp',
+                ExpressionAttributeValues={
+                    ':location': {
+                        'latitude': Decimal(str(latitude)),
+                        'longitude': Decimal(str(longitude))
+                    },
+                    ':timestamp': datetime.utcnow().isoformat() + 'Z'
+                }
+            )
+            
+            logger.info(f"Updated location for technician {user_info['userId']}")
+            
+            return create_response(200, {
+                'success': True,
+                'message': 'Location updated successfully',
+                'location': {
+                    'latitude': latitude,
+                    'longitude': longitude
+                }
+            })
+            
+        except Exception as db_error:
+            logger.error(f"Error updating location in database: {str(db_error)}")
+            return create_response(500, {'error': 'Failed to update location'})
+        
+    except Exception as e:
+        logger.error(f"Error updating technician location: {str(e)}")
+        return create_response(500, {'error': 'Failed to update location'})

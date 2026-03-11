@@ -119,9 +119,8 @@ obj/
 
 # CDK outputs
 cdk.out/
-infrastructure/cdk/cdk-out-orders/
-infrastructure/cdk/cdk.out.orders/
-infrastructure/cdk/cdk.out.temp/
+infrastructure/cdk/cdk-out-*/
+infrastructure/cdk/cdk.out.*/
 *.d.ts
 cdk.context.json
 
@@ -494,7 +493,6 @@ tests/integration/test_*_preservation_README.md
 *.rar
 *.7z
 *.csv
-DOCS/
 # =============================================================================
 # ALLOW SPECIFIC IMPORTANT FILES
 # =============================================================================
@@ -549,6 +547,8 @@ scripts/deployment/fix_*.py
 
 # Temporary testing scripts
 scripts/testing/create-test-*.py
+!scripts/testing/create-test-service-request.py
+!scripts/testing/create-test-service-request.bat
 
 # Lambda deployment packages
 lambda/*/deployment-package/
