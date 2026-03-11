@@ -152,22 +152,50 @@ class SecureLedgerService:
     
     def _store_ledger_entry(self, ledger_entry: Dict[str, Any]) -> None:
         """
-        Store ledger entry in DynamoDB with conditional write
+        Store ledger entry in DynamoDB with conditional write and create S3 backup
         """
         try:
-            # Use conditional write to ensure sequence number uniqueness
+            # Use conditional write to ensure sequence number uniqueness and immutability
             self.ledger_table.put_item(
                 Item=ledger_entry,
-                ConditionExpression='attribute_not_exists(sequenceNumber)'
+                ConditionExpression='attribute_not_exists(sequenceNumber) AND attribute_not_exists(partition_key)'
             )
+            
+            # Create immutable S3 backup asynchronously
+            self._create_s3_backup(ledger_entry)
             
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                logger.error(f"Sequence number collision: {ledger_entry['sequenceNumber']}")
-                raise LedgerError("Sequence number already exists")
+                logger.error(f"Sequence number collision or entry already exists: {ledger_entry['sequenceNumber']}")
+                raise LedgerError("Sequence number already exists - ledger entry is immutable")
             else:
                 logger.error(f"Error storing ledger entry: {e}")
                 raise LedgerError(f"Failed to store ledger entry: {e}")
+    
+    def _create_s3_backup(self, ledger_entry: Dict[str, Any]) -> None:
+        """
+        Create immutable S3 backup of ledger entry
+        """
+        try:
+            # Invoke backup service asynchronously
+            lambda_client = boto3.client('lambda')
+            
+            backup_payload = {
+                'operation': 'backup_entry',
+                'ledgerEntry': ledger_entry
+            }
+            
+            lambda_client.invoke(
+                FunctionName='aquachain-function-ledger-backup-service-dev',
+                InvocationType='Event',  # Asynchronous invocation
+                Payload=json.dumps(backup_payload, default=str)
+            )
+            
+            logger.info(f"Initiated S3 backup for sequence {ledger_entry['sequenceNumber']}")
+            
+        except Exception as e:
+            # Don't fail ledger creation if backup fails, but log the error
+            logger.warning(f"Error creating S3 backup: {e}")
     
     def verify_hash_chain(self, start_sequence: int, end_sequence: int) -> Dict[str, Any]:
         """

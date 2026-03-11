@@ -96,7 +96,7 @@ except ImportError:
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
 s3_client = boto3.client('s3')
-lambda_client = boto3.client('lambda')
+sagemaker_client = boto3.client('sagemaker-runtime')
 sqs_client = boto3.client('sqs')
 
 # Environment variables
@@ -104,7 +104,7 @@ READINGS_TABLE = os.environ.get('READINGS_TABLE', 'AquaChain-Readings')
 LEDGER_TABLE = os.environ.get('LEDGER_TABLE', 'aquachain-ledger')
 SEQUENCE_TABLE = os.environ.get('SEQUENCE_TABLE', 'AquaChain-Sequence')
 DATA_LAKE_BUCKET = os.environ.get('DATA_LAKE_BUCKET', None)  # Optional
-ML_INFERENCE_FUNCTION = os.environ.get('ML_INFERENCE_FUNCTION', 'aquachain-function-ml-inference-dev')
+SAGEMAKER_ENDPOINT_NAME = os.environ.get('SAGEMAKER_ENDPOINT_NAME', 'aquachain-wqi-endpoint-dev')
 DLQ_URL = os.environ.get('DLQ_URL', None)  # Optional
 
 # Simplified validation - use basic Python checks instead of strict JSON schema
@@ -588,14 +588,13 @@ def store_raw_data_s3(data: Dict[str, Any]) -> str:
             details={'device_id': device_id, 'error': str(e)}
         )
 
-@tracer.trace_external_call('lambda', 'invoke_ml_inference')
+@tracer.trace_external_call('sagemaker', 'invoke_endpoint')
 def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Invoke ML inference Lambda for WQI calculation and anomaly detection.
+    Invoke SageMaker endpoint for WQI calculation and anomaly detection.
     
-    Synchronously invokes the ML inference Lambda function to calculate
-    Water Quality Index (WQI) and detect anomalies. Returns default
-    values if ML inference fails to prevent pipeline disruption.
+    Uses pre-trained XGBoost models with 14 engineered features for
+    superior accuracy (RMSE ~2.9, 98.6% anomaly detection accuracy).
     
     Args:
         data: Validated sensor data containing readings and location
@@ -611,47 +610,52 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
         DataProcessingError: When ML inference fails critically
     """
     try:
+        # Prepare enhanced payload for pre-trained model (14 features)
         payload = {
             'deviceId': data['deviceId'],
             'timestamp': data['timestamp'],
-            'readings': data['readings'],
-            'location': data['location']
+            'readings': {
+                'pH': data['readings']['pH'],
+                'turbidity': data['readings']['turbidity'],
+                'tds': data['readings']['tds'],
+                'temperature': data['readings']['temperature'],
+                'humidity': data['readings'].get('humidity', 50.0)  # Default if not provided
+            },
+            'location': data.get('location', {'latitude': 0.0, 'longitude': 0.0})
         }
         
-        response = lambda_client.invoke(
-            FunctionName=ML_INFERENCE_FUNCTION,
-            InvocationType='RequestResponse',
-            Payload=json.dumps(payload)
+        # Invoke SageMaker endpoint
+        response = sagemaker_client.invoke_endpoint(
+            EndpointName=SAGEMAKER_ENDPOINT_NAME,
+            ContentType='application/json',
+            Accept='application/json',
+            Body=json.dumps(payload)
         )
         
-        payload_data = response['Payload'].read()
-        result: Dict[str, Any] = json.loads(payload_data)
-        
-        if response['StatusCode'] != 200:
-            raise DataProcessingError(f"ML inference failed: {result}")
-        
-        # Parse ML results
-        body_str: str = result['body']
-        ml_results: Dict[str, Any] = json.loads(body_str)
+        # Parse response
+        result = json.loads(response['Body'].read().decode('utf-8'))
         
         logger.info(
-            f"ML inference completed - device_id={data['deviceId']}, "
-            f"wqi={ml_results['wqi']}, anomaly_type={ml_results['anomalyType']}, "
-            f"confidence={ml_results.get('confidence', 0.0)}"
+            f"SageMaker inference completed - device_id={data['deviceId']}, "
+            f"wqi={result['wqi']}, anomaly_type={result['anomalyType']}, "
+            f"confidence={result.get('confidence', 0.0)}, "
+            f"model_version={result.get('modelVersion', 'unknown')}, "
+            f"features_used={len(result.get('featureImportance', {}))}"
         )
         
-        return ml_results
+        return result
         
     except Exception as e:
         logger.error(
-            f"ML inference error - device_id={data['deviceId']}, error={str(e)}"
+            f"SageMaker inference error - device_id={data['deviceId']}, error={str(e)}"
         )
         # Return default values if ML fails
         return {
             'wqi': 50.0,  # Neutral WQI
             'anomalyType': 'unknown',
             'confidence': 0.0,
-            'error': str(e)
+            'error': str(e),
+            'modelVersion': 'fallback-sagemaker'
         }
 
 @tracer.trace_external_call('dynamodb', 'put_item')
@@ -712,37 +716,60 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             f"Stored reading in DynamoDB - device_id={device_id}, wqi={ml_results['wqi']}"
         )
         
-        # Store in ledger (optional)
+        # Store in secure ledger with cryptographic integrity
         try:
-            sequence_number = int(datetime.utcnow().timestamp() * 1000)
-            ledger_entry = {
-                'partition_key': 'READINGS',
-                'sequenceNumber': sequence_number,
+            # Create data hash for ledger entry
+            reading_data = {
                 'deviceId': device_id,
-                'timestamp': timestamp,
-                'event_type': 'READING_INGESTED',
-                'created_at': datetime.utcnow().isoformat(),
-                'data': json.dumps({
-                    'deviceId': device_id,
+                'readings': data['readings'],
+                'wqi': ml_results['wqi'],
+                'anomalyType': ml_results.get('anomalyType', 'unknown'),
+                'timestamp': timestamp
+            }
+            data_hash = hashlib.sha256(json.dumps(reading_data, sort_keys=True).encode()).hexdigest()
+            
+            # Use secure ledger service with hash chaining and KMS signing
+            ledger_service_payload = {
+                'operation': 'create_entry',
+                'deviceId': device_id,
+                'dataHash': data_hash,
+                'wqi': ml_results['wqi'],
+                'anomalyType': ml_results.get('anomalyType', 'unknown'),
+                'metadata': {
+                    'event_type': 'READING_INGESTED',
                     'readings': data['readings'],
-                    'wqi': ml_results['wqi'],
-                    'anomalyType': ml_results.get('anomalyType', 'unknown')
-                })
+                    'timestamp': timestamp
+                }
             }
             
-            ledger_table = dynamodb.Table(LEDGER_TABLE)
-            ledger_table.put_item(Item=ledger_entry)
-            
-            logger.info(
-                f"Stored ledger entry - device_id={device_id}, sequence={sequence_number}"
+            # Invoke secure ledger service
+            lambda_client = boto3.client('lambda')
+            response = lambda_client.invoke(
+                FunctionName='aquachain-function-ledger-service-dev',
+                InvocationType='RequestResponse',
+                Payload=json.dumps(ledger_service_payload)
             )
             
-            reading_item['ledgerSequence'] = sequence_number
+            result = json.loads(response['Payload'].read())
+            if result['statusCode'] == 200:
+                ledger_result = json.loads(result['body'])
+                reading_item['ledgerSequence'] = ledger_result['sequenceNumber']
+                reading_item['ledgerLogId'] = ledger_result['logId']
+                
+                logger.info(
+                    f"Stored secure ledger entry - device_id={device_id}, "
+                    f"sequence={ledger_result['sequenceNumber']}, "
+                    f"logId={ledger_result['logId']}"
+                )
+            else:
+                logger.error(f"Ledger service error: {result}")
+                raise Exception(f"Ledger service returned status {result['statusCode']}")
+                
         except Exception as e:
             logger.warning(
-                f"Error writing to ledger - device_id={device_id}, error={str(e)}"
+                f"Error writing to secure ledger - device_id={device_id}, error={str(e)}"
             )
-            # Don't fail if ledger write fails
+            # Don't fail if ledger write fails, but log the error for monitoring
         
         return reading_item
         

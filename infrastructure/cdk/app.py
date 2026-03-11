@@ -401,12 +401,10 @@ def main():
         app,
         f"AquaChain-SageMaker-{env_name}",
         config=config,
-        data_resources=data_stack.data_resources,
-        security_resources=security_stack.security_resources,
+        alarm_topic=monitoring_stack.alarm_topic if hasattr(monitoring_stack, 'alarm_topic') else None,
         env=aws_env,
         description=f"AquaChain SageMaker ML Infrastructure - {env_name}"
     )
-    sagemaker_stack.add_dependency(data_stack)
     sagemaker_stack.add_dependency(security_stack)
     
     # Synthesize the app
