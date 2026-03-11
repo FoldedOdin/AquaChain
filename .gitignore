@@ -493,6 +493,9 @@ tests/integration/test_*_preservation_README.md
 *.rar
 *.7z
 *.csv
+DOCS/
+!DOCS/deployment/TECHNICIAN_DASHBOARD_DEPLOYMENT_SUMMARY.md
+!DOCS/deployment/TECHNICIAN_DASHBOARD_REAL_DATA_SETUP.md
 # =============================================================================
 # ALLOW SPECIFIC IMPORTANT FILES
 # =============================================================================
