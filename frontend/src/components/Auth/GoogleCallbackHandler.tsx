@@ -93,10 +93,10 @@ const GoogleCallbackHandler: React.FC = () => {
         // Redirect based on user role
         setTimeout(() => {
           const redirectPath = data.user?.role === 'admin' 
-            ? '/admin/dashboard' 
+            ? '/dashboard/admin' 
             : data.user?.role === 'technician'
-            ? '/technician/dashboard'
-            : '/dashboard';
+            ? '/dashboard/technician'
+            : '/dashboard/consumer';
           navigate(redirectPath);
         }, 1500);
 

@@ -401,9 +401,13 @@ def _get_all_users(query_params: Dict):
                     if 'Item' in user_record:
                         item = user_record['Item']
                         last_login = item.get('lastLogin')
-                        first_name = item.get('firstName')
-                        last_name = item.get('lastName')
-                        phone = item.get('phone')
+                        
+                        # Check for nested profile structure first, then fall back to root level
+                        profile = item.get('profile', {})
+                        first_name = profile.get('firstName') or item.get('firstName')
+                        last_name = profile.get('lastName') or item.get('lastName')
+                        phone = profile.get('phone') or item.get('phone')
+                        
                         logger.info(f"Found profile data for {user['Username']}: firstName={first_name}, lastName={last_name}, phone={phone}")
                     else:
                         logger.info(f"No DynamoDB record found for {user['Username']}")

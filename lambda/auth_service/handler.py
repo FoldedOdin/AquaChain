@@ -461,6 +461,24 @@ def lambda_handler(event, context):
             user_id = decoded_token.get('sub')
             user_role = decoded_token.get('cognito:groups', ['consumers'])[0]
             
+            # Update lastLogin timestamp in DynamoDB
+            try:
+                dynamodb = boto3.resource('dynamodb', region_name=region)
+                users_table = dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))
+                from datetime import datetime
+                
+                users_table.update_item(
+                    Key={'userId': user_id},
+                    UpdateExpression='SET lastLogin = :last_login',
+                    ExpressionAttributeValues={
+                        ':last_login': datetime.utcnow().isoformat()
+                    }
+                )
+                logger.info(f"Updated lastLogin for user {user_id}")
+            except Exception as db_error:
+                # Log but don't fail the signin if DynamoDB update fails
+                logger.warning(f"Failed to update lastLogin for user {user_id}: {str(db_error)}")
+            
             # Log successful authentication
             audit_logger.log_event(
                 email=email,

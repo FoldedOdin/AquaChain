@@ -10,7 +10,8 @@ const getDashboardRoute = (role: string): string => {
     case 'technician':
       return '/dashboard/technician';
     case 'admin':
-      return '/dashboard/admin';
+    case 'administrator':
+      return '/dashboard/administrator';
     case 'inventory_manager':
     case 'warehouse_manager':
     case 'supplier_coordinator':
