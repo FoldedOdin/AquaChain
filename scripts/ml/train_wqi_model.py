@@ -288,7 +288,7 @@ def output_fn(prediction, content_type):
     return inference_code
 
 def package_model(model, features):
-    """Package model for SageMaker deployment - simplified approach"""
+    """Package model for SageMaker deployment - XGBoost native format only"""
     print("Packaging model for SageMaker...")
     
     # Create temporary directory
@@ -298,16 +298,13 @@ def package_model(model, features):
     model_path = "temp_model/xgboost-model"
     model.save_model(model_path)
     
-    # Save feature names for reference
-    with open("temp_model/features.json", "w") as f:
-        json.dump(features, f)
-    
-    # Create model tarball (SageMaker expects this structure)
+    # Create model tarball with ONLY the model file (no features.json)
+    # The XGBoost container gets confused if there are extra files
     with tarfile.open("model.tar.gz", "w:gz") as tar:
         tar.add("temp_model/xgboost-model", arcname="xgboost-model")
-        tar.add("temp_model/features.json", arcname="features.json")
     
     print("Model packaged successfully: model.tar.gz")
+    print("Note: Only xgboost-model file included (no features.json)")
     return "model.tar.gz"
 
 def upload_to_s3(model_path):

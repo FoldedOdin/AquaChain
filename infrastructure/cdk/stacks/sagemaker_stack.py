@@ -167,8 +167,8 @@ class AquaChainSageMakerStack(Stack):
         container_image_uri = f"720646828776.dkr.ecr.ap-south-1.amazonaws.com/sagemaker-xgboost:1.7-1"
 
         # Create SageMaker model with explicit short name to avoid length limits
-        # Note: Model data now points to real trained model
-        self.model_name = f"aquachain-wqi-v2-{self.env_name}"
+        # Note: Model data now points to real trained model (without features.json)
+        self.model_name = f"aquachain-wqi-working-{self.env_name}"
         
         self.sagemaker_model = sagemaker.CfnModel(
             self,
@@ -201,9 +201,9 @@ class AquaChainSageMakerStack(Stack):
     def _create_sagemaker_endpoint(self) -> None:
         """Create SageMaker endpoint for real-time inference"""
         
-        # Use explicit short names to avoid length limits - v2 to allow CloudFormation updates
-        self.endpoint_config_name = f"aquachain-wqi-config-v2-{self.env_name}"
-        self.endpoint_name = f"aquachain-wqi-endpoint-v2-{self.env_name}"
+        # Use explicit short names - point to the working endpoint
+        self.endpoint_config_name = f"aquachain-wqi-working-config-{self.env_name}"
+        self.endpoint_name = f"aquachain-wqi-working-{self.env_name}"
         
         # Endpoint configuration
         self.endpoint_config = sagemaker.CfnEndpointConfig(
