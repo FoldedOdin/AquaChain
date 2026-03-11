@@ -288,19 +288,23 @@ export function validatePhone(phone: string): boolean {
  * @returns Sanitized string
  */
 export function sanitizeInput(input: string): string {
-  // For names, just use basic sanitization without DOMPurify
-  // DOMPurify might be too aggressive and strip spaces
-  const trimmed = input.trim();
+  // DON'T trim on every keystroke - only trim at the end
+  // This allows users to type spaces naturally
   
   // Only allow letters, spaces, hyphens, and apostrophes
   const nameRegex = /^[a-zA-Z\s\-']+$/;
   
-  // If it matches the pattern, return as-is
-  // Otherwise, filter out invalid characters
-  if (nameRegex.test(trimmed)) {
-    return trimmed;
+  // If it matches the pattern, return as-is (preserve spaces!)
+  if (nameRegex.test(input)) {
+    return input;
+  }
+  
+  // If empty or only whitespace, return empty
+  if (!input || !input.trim()) {
+    return '';
   }
   
   // Remove any characters that aren't letters, spaces, hyphens, or apostrophes
-  return trimmed.replace(/[^a-zA-Z\s\-']/g, '');
+  // But preserve the spaces that are there
+  return input.replace(/[^a-zA-Z\s\-']/g, '');
 }
