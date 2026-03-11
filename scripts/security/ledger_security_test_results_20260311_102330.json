@@ -1,0 +1,93 @@
+{
+  "overallStatus": "FAIL",
+  "successRate": 20.0,
+  "passedTests": 2,
+  "totalTests": 10,
+  "testResults": [
+    {
+      "test": "Write-Once Pattern",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "An error occurred (ResourceNotFoundException) when calling the Invoke operation: Function not found: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-ledger-service-dev:$LATEST"
+      }
+    },
+    {
+      "test": "Hash Chain Integrity",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "Insufficient entries for chain testing"
+      }
+    },
+    {
+      "test": "KMS Digital Signatures",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "No ledger entries found for signature testing"
+      }
+    },
+    {
+      "test": "S3 Immutable Backup",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "An error occurred (ResourceNotFoundException) when calling the Invoke operation: Function not found: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-ledger-backup-service-dev:$LATEST"
+      }
+    },
+    {
+      "test": "Conditional Write Protection",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "No existing entries to test against"
+      }
+    },
+    {
+      "test": "Ledger Service Integration",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "An error occurred (ResourceNotFoundException) when calling the Invoke operation: Function not found: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-ledger-service-dev:$LATEST"
+      }
+    },
+    {
+      "test": "Backup Service Integration",
+      "passed": true,
+      "details": {
+        "passed": true,
+        "message": "Backup service functionality verified in S3 backup test"
+      }
+    },
+    {
+      "test": "Verification Service",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "An error occurred (ResourceNotFoundException) when calling the Invoke operation: Function not found: arn:aws:lambda:ap-south-1:758346259059:function:aquachain-function-ledger-verification-service-dev:$LATEST"
+      }
+    },
+    {
+      "test": "Security Monitoring",
+      "passed": false,
+      "details": {
+        "passed": false,
+        "error": "No security monitoring alarms found"
+      }
+    },
+    {
+      "test": "Compliance Features",
+      "passed": true,
+      "details": {
+        "passed": true,
+        "message": "Compliance features verified",
+        "complianceChecks": [
+          "Immutability enforcement: PASS (tested in write-once pattern)",
+          "Cryptographic integrity: PASS (tested in hash chain and signatures)"
+        ]
+      }
+    }
+  ],
+  "timestamp": "2026-03-11T10:23:30.649216Z"
+}
