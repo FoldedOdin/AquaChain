@@ -278,8 +278,10 @@ export function validateEmail(email: string): boolean {
 export function validatePhone(phone: string): boolean {
   // Remove all non-digit characters
   const cleaned = phone.replace(/\D/g, '');
-  // Check if it's 10 or 11 digits (with or without country code)
-  return cleaned.length >= 10 && cleaned.length <= 11;
+  // Check if it's 10-15 digits (supports international numbers)
+  // 10 digits: local number
+  // 11-15 digits: with country code
+  return cleaned.length >= 10 && cleaned.length <= 15;
 }
 
 /**
