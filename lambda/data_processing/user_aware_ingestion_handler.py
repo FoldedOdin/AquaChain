@@ -224,15 +224,20 @@ def determine_alert_level(reading: Dict[str, Any]) -> str:
 
 
 def update_device_last_seen(device_id: str, timestamp: str):
-    """Update device last_seen timestamp"""
+    """Update device last_seen timestamp and set status to online"""
     try:
         devices_table.update_item(
-            Key={'device_id': device_id},
-            UpdateExpression='SET last_seen = :ts',
-            ExpressionAttributeValues={':ts': timestamp}
+            Key={'deviceId': device_id},  # Use correct key format
+            UpdateExpression='SET lastSeen = :ts, connectionStatus = :status, statusUpdatedAt = :status_ts',
+            ExpressionAttributeValues={
+                ':ts': timestamp,
+                ':status': 'online',
+                ':status_ts': timestamp
+            }
         )
+        print(f"✅ Updated device {device_id} lastSeen and status to online")
     except Exception as e:
-        print(f"⚠️  Error updating last_seen: {e}")
+        print(f"⚠️  Error updating device status: {e}")
 
 
 def publish_metrics(user_id: str, device_id: str, reading: Dict[str, Any]):

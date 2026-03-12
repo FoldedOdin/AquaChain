@@ -126,8 +126,10 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'location': body.get('location', 'Unknown'),
             'waterSourceType': body.get('waterSourceType') or body.get('water_source_type', 'household'),
             'status': 'active',
+            'connectionStatus': 'unknown',  # Will be updated when device sends data
             'createdAt': timestamp,
             'lastSeen': timestamp,
+            'statusUpdatedAt': timestamp,
             'metadata': {
                 'batteryLevel': 100,
                 'signalStrength': 0,
