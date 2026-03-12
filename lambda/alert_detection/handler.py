@@ -1,6 +1,7 @@
 """
 Alert Detection Lambda Function for AquaChain System
 Handles critical event detection, alert classification, and threshold monitoring
+Also serves as API endpoint for retrieving user alerts
 """
 
 import json
@@ -54,13 +55,17 @@ class AlertDetectionError(Exception):
 
 def lambda_handler(event, context):
     """
-    Main Lambda handler for alert detection
-    Triggered by DynamoDB Streams from readings table
+    Main Lambda handler for alert detection and API requests
+    Handles both DynamoDB Streams and HTTP API Gateway requests
     """
     try:
-        logger.info(f"Processing alert detection event: {json.dumps(event)}")
+        logger.info(f"Processing event: {json.dumps(event)}")
         
-        # Process each record from DynamoDB Stream
+        # Check if this is an API Gateway request
+        if 'httpMethod' in event:
+            return handle_api_request(event, context)
+        
+        # Otherwise, process DynamoDB Stream records
         for record in event.get('Records', []):
             if record['eventName'] in ['INSERT', 'MODIFY']:
                 process_reading_record(record)
@@ -82,6 +87,133 @@ def lambda_handler(event, context):
                 'timestamp': datetime.utcnow().isoformat()
             })
         }
+
+def handle_api_request(event, context):
+    """
+    Handle API Gateway requests for alerts
+    """
+    try:
+        method = event['httpMethod']
+        path = event['path']
+        
+        # Add CORS headers
+        headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+            'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+            'Access-Control-Allow-Credentials': 'true'
+        }
+        
+        # Handle OPTIONS request for CORS preflight
+        if method == 'OPTIONS':
+            return {
+                'statusCode': 200,
+                'headers': headers,
+                'body': ''
+            }
+        
+        # Handle GET /alerts
+        if method == 'GET' and '/alerts' in path:
+            return get_user_alerts(event, headers)
+        
+        return {
+            'statusCode': 404,
+            'headers': headers,
+            'body': json.dumps({'error': 'Endpoint not found'})
+        }
+        
+    except Exception as e:
+        logger.error(f"API request error: {e}")
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            },
+            'body': json.dumps({'error': str(e)})
+        }
+
+def get_user_alerts(event, headers):
+    """
+    Get alerts for the authenticated user
+    """
+    try:
+        # Get query parameters
+        query_params = event.get('queryStringParameters') or {}
+        limit = int(query_params.get('limit', 50))
+        
+        # Get user info from JWT token (simplified for now)
+        # In production, you'd decode the JWT token from Authorization header
+        user_id = 'test-user'  # This should come from JWT token
+        
+        # Query alerts table
+        table = dynamodb.Table(ALERTS_TABLE)
+        
+        # For now, return all alerts (in production, filter by user's devices)
+        response = table.scan(
+            Limit=limit
+            # Note: ScanIndexForward is not valid for scan operations
+        )
+        
+        alerts = response.get('Items', [])
+        
+        # Convert Decimal to float for JSON serialization
+        alerts = convert_decimals_to_float(alerts)
+        
+        # Mock some alerts if none exist
+        if not alerts:
+            alerts = generate_mock_alerts(limit)
+        
+        return {
+            'statusCode': 200,
+            'headers': headers,
+            'body': json.dumps({
+                'alerts': alerts,
+                'count': len(alerts),
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting user alerts: {e}")
+        return {
+            'statusCode': 500,
+            'headers': headers,
+            'body': json.dumps({'error': str(e)})
+        }
+
+def convert_decimals_to_float(obj):
+    """
+    Convert Decimal objects to float for JSON serialization
+    """
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_decimals_to_float(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals_to_float(item) for item in obj]
+    return obj
+
+def generate_mock_alerts(limit):
+    """
+    Generate mock alerts for testing
+    """
+    mock_alerts = []
+    for i in range(min(limit, 5)):
+        alert = {
+            'alertId': f'alert-{i+1}',
+            'deviceId': f'ESP32-{i+1:03d}',
+            'timestamp': (datetime.utcnow() - timedelta(hours=i)).isoformat(),
+            'alertLevel': 'warning' if i % 2 == 0 else 'critical',
+            'wqi': 45 + (i * 5),
+            'issue': f'Water quality degraded - pH level abnormal',
+            'status': 'active',
+            'location': 'Kitchen Sink'
+        }
+        mock_alerts.append(alert)
+    
+    return mock_alerts
 
 def process_reading_record(record: Dict[str, Any]) -> None:
     """

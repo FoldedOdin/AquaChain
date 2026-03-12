@@ -214,26 +214,41 @@ class DuplicateDataError(Exception):
 @trace_lambda_handler('data-processing')
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Main Lambda handler for IoT data processing.
+    Main Lambda handler that routes between IoT data processing and API requests.
     
-    Processes incoming IoT sensor data through validation, ML inference,
-    storage, and alert detection pipeline.
+    Routes based on event source:
+    - API Gateway events → api_handler.lambda_handler
+    - IoT/SNS/SQS events → IoT data processing pipeline
     
     Args:
-        event: Lambda event containing IoT sensor data. Can be from direct
-               invocation, SNS, SQS, or IoT Rule trigger
+        event: Lambda event (API Gateway, IoT, SNS, SQS, etc.)
         context: Lambda context object with runtime information
     
     Returns:
-        Dict containing:
-            - statusCode: HTTP status code (200 for success, 4xx/5xx for errors)
-            - body: JSON string with processing results or error message
-            - headers: Optional response headers
+        Dict containing response appropriate for the event source
+    """
+    try:
+        # Check if this is an API Gateway request
+        if 'httpMethod' in event and 'path' in event:
+            # This is an API Gateway request - route to API handler
+            logger.info("Routing to API handler for HTTP request")
+            from api_handler import lambda_handler as api_lambda_handler
+            return api_lambda_handler(event, context)
+        
+        # This is an IoT/SNS/SQS event - process as IoT data
+        logger.info("Processing as IoT data event")
+        return _process_iot_data(event, context)
     
-    Raises:
-        ValidationError: When input data fails schema validation
-        DuplicateDataError: When duplicate reading is detected
-        DataProcessingError: When processing pipeline fails
+    except Exception as e:
+        logger.error(f"Error in main handler routing: {e}")
+        return create_error_response(500, f"Handler routing error: {str(e)}")
+
+
+def _process_iot_data(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Process IoT sensor data through validation, ML inference, storage, and alert detection.
+    
+    This is the original lambda_handler logic for IoT data processing.
     """
     try:
         request_id = context.request_id if hasattr(context, 'request_id') else None

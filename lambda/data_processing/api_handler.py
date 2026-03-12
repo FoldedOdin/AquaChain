@@ -67,6 +67,10 @@ def lambda_handler(event, context):
             # GET /water-quality/latest - Get latest water quality readings
             return handle_latest_water_quality(user_id, query_params)
         
+        elif http_method == 'GET' and '/readings/' in path:
+            # Handle readings endpoints: /api/v1/readings/{deviceId} or /api/v1/readings/{deviceId}/history
+            return handle_readings_request(user_id, path, query_params)
+        
         else:
             raise ValidationError(f'Endpoint not found: {http_method} {path}')
     
@@ -196,6 +200,82 @@ def handle_latest_water_quality(user_id: str, query_params: Dict) -> Dict:
     except Exception as e:
         logger.error(f"Error fetching latest water quality: {e}", user_id=user_id)
         raise DatabaseError(f"Failed to fetch water quality data: {str(e)}")
+
+
+def handle_readings_request(user_id: str, path: str, query_params: Dict) -> Dict:
+    """
+    Handle readings API requests: /api/v1/readings/{deviceId} and /api/v1/readings/{deviceId}/history
+    """
+    try:
+        # Extract device ID from path
+        # Path format: /api/v1/readings/{deviceId} or /api/v1/readings/{deviceId}/history
+        path_parts = path.strip('/').split('/')
+        
+        if len(path_parts) < 4 or path_parts[2] != 'readings':
+            raise ValidationError('Invalid readings endpoint path')
+        
+        device_id = path_parts[3]
+        is_history = len(path_parts) > 4 and path_parts[4] == 'history'
+        is_latest = len(path_parts) > 4 and path_parts[4] == 'latest'
+        
+        logger.info(f"Readings request for device: {device_id}, history: {is_history}, latest: {is_latest}", user_id=user_id)
+        
+        # Verify user owns this device
+        if not _user_owns_device(user_id, device_id):
+            raise AuthenticationError('Access denied to this device')
+        
+        if is_history:
+            # GET /api/v1/readings/{deviceId}/history - Get historical readings
+            days = int(query_params.get('days', 7))
+            limit = int(query_params.get('limit', 100))
+            
+            readings = _get_device_historical_readings(device_id, days, limit)
+            
+            return success_response({
+                'deviceId': device_id,
+                'readings': readings,
+                'days': days,
+                'count': len(readings),
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        elif is_latest:
+            # GET /api/v1/readings/{deviceId}/latest - Get latest reading (explicit endpoint)
+            latest = _get_latest_reading(device_id)
+            
+            if not latest:
+                return success_response({
+                    'deviceId': device_id,
+                    'reading': None,
+                    'message': 'No readings found for this device'
+                })
+            
+            return success_response({
+                'deviceId': device_id,
+                'reading': latest,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        else:
+            # GET /api/v1/readings/{deviceId} - Get latest reading (default behavior)
+            latest = _get_latest_reading(device_id)
+            
+            if not latest:
+                return success_response({
+                    'deviceId': device_id,
+                    'reading': None,
+                    'message': 'No readings found for this device'
+                })
+            
+            return success_response({
+                'deviceId': device_id,
+                'reading': latest,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        
+    except (AuthenticationError, ValidationError) as e:
+        raise
+    except Exception as e:
+        logger.error(f"Error handling readings request: {e}", user_id=user_id)
+        raise DatabaseError(f"Failed to fetch readings: {str(e)}")
 
 
 # Helper functions
@@ -355,6 +435,28 @@ def _get_device_recent_readings(device_id: str, limit: int = 5) -> List[Dict]:
         return response.get('Items', [])
     except Exception as e:
         logger.error(f"Error getting device recent readings: {e}")
+        return []
+
+
+def _get_device_historical_readings(device_id: str, days: int = 7, limit: int = 100) -> List[Dict]:
+    """Get historical readings for a device within the specified time range"""
+    try:
+        table = dynamodb.Table(READINGS_TABLE)
+        cutoff_time = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        
+        response = table.query(
+            KeyConditionExpression='deviceId = :deviceId AND #ts > :cutoff',
+            ExpressionAttributeNames={'#ts': 'timestamp'},
+            ExpressionAttributeValues={
+                ':deviceId': device_id,
+                ':cutoff': cutoff_time
+            },
+            ScanIndexForward=False,  # Most recent first
+            Limit=limit
+        )
+        return _convert_decimals(response.get('Items', []))
+    except Exception as e:
+        logger.error(f"Error getting device historical readings: {e}")
         return []
 
 

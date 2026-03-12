@@ -165,8 +165,9 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
         
         return create_response(200, {
+            'success': True,
             'message': 'Device registered successfully',
-            'device': response_device
+            'data': response_device
         })
         
     except Exception as e:
@@ -191,7 +192,7 @@ def list_devices(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Use GSI for efficient query
         try:
             response = devices_table.query(
-                IndexName='userId-createdAt-index',
+                IndexName='UserIndex',
                 KeyConditionExpression='userId = :userId',
                 ExpressionAttributeValues={':userId': user_id}
             )
@@ -210,7 +211,8 @@ def list_devices(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info(f"Found {len(devices)} devices for user {user_id}")
         
         return create_response(200, {
-            'devices': devices,
+            'success': True,
+            'data': devices,
             'count': len(devices)
         })
         
