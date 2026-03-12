@@ -5,7 +5,7 @@
 
 import { WaterQualityReading, Alert, DeviceStatus, ServiceRequest, User } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3001/api';
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3001';
 const ENABLE_FALLBACK_MODE = process.env.NODE_ENV === 'development';
 
 interface ApiResponse<T> {
@@ -79,6 +79,21 @@ class DataService {
     return data;
   }
 
+  // Device Readings
+  async getDeviceReadings(deviceId: string, days: number = 7): Promise<any[]> {
+    console.log(`🔍 [dataService] Fetching readings for device ${deviceId}`);
+    const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/history?days=${days}`);
+    console.log('📦 [dataService] Readings received:', data);
+    return data?.readings || []; // Extract readings from response
+  }
+
+  async getLatestDeviceReading(deviceId: string): Promise<any | null> {
+    console.log(`🔍 [dataService] Fetching latest reading for device ${deviceId}`);
+    const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/latest`);
+    console.log('📦 [dataService] Latest reading:', data);
+    return data?.reading || null; // Extract reading from response
+  }
+
   // Device Management
   async getDevices(): Promise<DeviceStatus[]> {
     console.log('🔍 [dataService] Fetching devices from /api/devices');
@@ -106,12 +121,12 @@ class DataService {
 
   // Service Requests
   async getServiceRequests(): Promise<ServiceRequest[]> {
-    const data = await this.makeRequest<ServiceRequest[]>('/service-requests');
+    const data = await this.makeRequest<ServiceRequest[]>('/api/v1/service-requests');
     return data || [];
   }
 
   async createServiceRequest(request: Partial<ServiceRequest>): Promise<ServiceRequest | null> {
-    const data = await this.makeRequest<ServiceRequest>('/service-requests', {
+    const data = await this.makeRequest<ServiceRequest>('/api/v1/service-requests', {
       method: 'POST',
       body: JSON.stringify(request),
     });
@@ -120,12 +135,12 @@ class DataService {
 
   // Users
   async getUsers(): Promise<User[]> {
-    const data = await this.makeRequest<User[]>('/users');
+    const data = await this.makeRequest<User[]>('/api/v1/users');
     return data || [];
   }
 
   async getUserById(userId: string): Promise<User | null> {
-    const data = await this.makeRequest<User>(`/users/${userId}`);
+    const data = await this.makeRequest<User>(`/api/v1/users/${userId}`);
     return data;
   }
 
@@ -192,7 +207,7 @@ class DataService {
   // Health check
   async checkBackendHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${API_BASE_URL}/health`);
+      const response = await fetch(`${API_BASE_URL}/api/health`);
       return response.ok;
     } catch {
       return false;

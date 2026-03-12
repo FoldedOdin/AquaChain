@@ -13,7 +13,8 @@ import {
   ExclamationTriangleIcon,
   CheckCircleIcon,
   ClockIcon,
-  XMarkIcon
+  XMarkIcon,
+  DevicePhoneMobileIcon
 } from '@heroicons/react/24/outline';
 import { 
   Droplet, 
@@ -31,10 +32,13 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
-import { useDashboardData } from '../../hooks/useDashboardData';
+import { useDashboard } from '../../contexts/DashboardContext';
+import { useDevices } from '../../hooks/useDevices';
+import { useAlerts } from '../../hooks/useAlerts';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 import { OrderingProvider, useOrdering } from '../../contexts/OrderingContext';
 import ErrorBoundary from '../ErrorBoundary';
+import { dataService } from '../../services/dataService';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -44,6 +48,7 @@ import DataExportModal from './DataExportModal';
 import MyOrdersPage from './MyOrdersPage';
 import OrderingFlow from './OrderingFlow';
 import DemoDeviceModal from './DemoDeviceModal';
+import PluggableDeviceManager from './PluggableDeviceManager';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -74,6 +79,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [showMyOrders, setShowMyOrders] = useState(false);
   const [showOrderingFlow, setShowOrderingFlow] = useState(false);
   const [showDemoDevice, setShowDemoDevice] = useState(false);
+  const [showPluggableDevices, setShowPluggableDevices] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [selectedTimeRange, setSelectedTimeRange] = useState('7days');
@@ -83,6 +89,8 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [isRemovingDevice, setIsRemovingDevice] = useState(false);
   const [showProfileIncompleteModal, setShowProfileIncompleteModal] = useState(false);
   const [missingProfileFields, setMissingProfileFields] = useState<string[]>([]);
+  const [currentReadingData, setCurrentReadingData] = useState<any>(null);
+  const [isLoadingReading, setIsLoadingReading] = useState(false);
   
   // Report Issue form state
   const [issueType, setIssueType] = useState<'bug' | 'iot'>('bug');
@@ -93,11 +101,28 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [isSubmittingIssue, setIsSubmittingIssue] = useState(false);
   const [issueSubmitted, setIssueSubmitted] = useState(false);
 
-  // ✅ Fetch dashboard data with caching via custom hook
-  const dashboardData = useDashboardData();
-  const isLoading = dashboardData.loading;
-  const error = dashboardData.error;
-  const refetch = () => window.location.reload();
+  // ✅ Fetch real data from API using proper hooks
+  const { data: devices, isLoading: devicesLoading, error: devicesError, refetch: refetchDevices } = useDevices();
+  const { data: alerts, isLoading: alertsLoading, error: alertsError } = useAlerts();
+  
+  // Combine loading states
+  const isLoading = devicesLoading || alertsLoading;
+  const error = devicesError || alertsError;
+  
+  // ✅ Get proper refresh function from DashboardContext
+  const { triggerManualRefresh } = useDashboard();
+  const refetch = () => {
+    triggerManualRefresh();
+    refetchDevices(); // Also trigger device-specific refetch
+  };
+  
+  // Create dashboardData object for backward compatibility
+  const dashboardData = {
+    devices: devices || [],
+    alerts: alerts || [],
+    loading: isLoading,
+    error: error
+  };
   
   // ✅ Real-time updates with WebSocket
   const { latestUpdate, isConnected } = useRealTimeUpdates('consumer-updates', {
@@ -110,7 +135,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   console.log('🔍 Ordering state:', orderingContext?.state);
 
   // ✅ Get devices list from dashboard data
-  const devices = useMemo(() => {
+  const devicesList = useMemo(() => {
     console.log('🔍 [ConsumerDashboard] dashboardData:', dashboardData);
     console.log('🔍 [ConsumerDashboard] has devices key?', dashboardData && 'devices' in dashboardData);
     if (dashboardData && 'devices' in dashboardData) {
@@ -124,19 +149,51 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // ✅ Get current active device data
   const currentDevice = useMemo(() => {
-    return devices.find((d: any) => d.device_id === selectedDeviceId) || devices[0] || null;
-  }, [devices, selectedDeviceId]);
+    return devicesList.find((d: any) => d.device_id === selectedDeviceId) || devicesList[0] || null;
+  }, [devicesList, selectedDeviceId]);
 
   // ✅ Auto-select first device when devices load
   useEffect(() => {
-    console.log('📊 Devices loaded:', devices.length, 'devices');
+    console.log('📊 Devices loaded:', devicesList.length, 'devices');
     
-    if (devices.length > 0 && !selectedDeviceId) {
-      const firstDeviceId = devices[0].deviceId;
+    if (devicesList.length > 0 && !selectedDeviceId) {
+      const firstDeviceId = devicesList[0].device_id || devicesList[0].deviceId;
       console.log('✅ Auto-selecting first device:', firstDeviceId);
       setSelectedDeviceId(firstDeviceId);
     }
-  }, [devices.length]); // Only depend on length, not the entire array
+  }, [devicesList.length]); // Only depend on length, not the entire array
+
+  // ✅ Fetch current reading when selected device changes
+  useEffect(() => {
+    const fetchCurrentReading = async () => {
+      if (!currentDevice) {
+        setCurrentReadingData(null);
+        return;
+      }
+
+      const deviceId = currentDevice.device_id || currentDevice.deviceId;
+      if (!deviceId) {
+        console.warn('⚠️ Current device has no ID:', currentDevice);
+        return;
+      }
+
+      console.log('🔍 Fetching current reading for device:', deviceId);
+      setIsLoadingReading(true);
+
+      try {
+        const reading = await dataService.getLatestDeviceReading(deviceId);
+        console.log('📦 Current reading fetched:', reading);
+        setCurrentReadingData(reading);
+      } catch (error) {
+        console.error('❌ Error fetching current reading:', error);
+        setCurrentReadingData(null);
+      } finally {
+        setIsLoadingReading(false);
+      }
+    };
+
+    fetchCurrentReading();
+  }, [currentDevice]);
 
   // ✅ Memoized logout handler - prevents recreation on every render
   const handleLogout = useCallback(async () => {
@@ -409,15 +466,29 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const handleManualRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await refetch();
+    
+    // Also refresh current reading if we have a selected device
+    if (currentDevice) {
+      const deviceId = currentDevice.device_id || currentDevice.deviceId;
+      if (deviceId) {
+        try {
+          const reading = await dataService.getLatestDeviceReading(deviceId);
+          setCurrentReadingData(reading);
+        } catch (error) {
+          console.error('❌ Error refreshing current reading:', error);
+        }
+      }
+    }
+    
     setLastRefreshTime(new Date());
     setTimeout(() => setIsRefreshing(false), 500);
-  }, [refetch]);
+  }, [refetch, currentDevice]);
 
   // ✅ Memoized current reading - only recalculates when data changes
   const currentReading = useMemo(() => {
-    // dashboardData doesn't have currentReading, return null
-    return null;
-  }, [dashboardData]);
+    // Use the fetched reading data
+    return currentReadingData;
+  }, [currentReadingData]);
 
   // ✅ Memoized alerts - only recalculates when data changes
   const recentAlerts = useMemo(() => {
@@ -427,7 +498,14 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // ✅ Memoized WQI calculation with detailed metrics
   const waterQualityMetrics = useMemo(() => {
-    if (!currentReading) return { wqi: 0, status: 'No Data', color: 'gray', metrics: {} };
+    if (!currentReading || isLoadingReading) {
+      return { 
+        wqi: 0, 
+        status: isLoadingReading ? 'Loading...' : 'No Data', 
+        color: 'gray', 
+        metrics: {} 
+      };
+    }
     
     // Calculate WQI from sensor readings
     const { pH, turbidity, tds, temperature } = currentReading;
@@ -462,7 +540,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
         temperature: { value: temperature, min: 10, max: 30, unit: '°C', icon: Thermometer, status: temperature >= 15 && temperature <= 25 ? 'safe' : 'warning' }
       }
     };
-  }, [currentReading]);
+  }, [currentReading, isLoadingReading]);
 
   // ✅ Helper functions for parameter status
   const getParamColor = (status: string) => {
@@ -509,10 +587,10 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // Update last refresh time when data changes
   useEffect(() => {
-    if (devices.length > 0) {
+    if (devicesList.length > 0) {
       setLastRefreshTime(new Date());
     }
-  }, [devices.length]); // Use devices.length instead of dashboardData
+  }, [devicesList.length]); // Use devicesList.length instead of dashboardData
 
   // Loading state
   if (!user || isLoading) {
@@ -828,24 +906,33 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       </header>
 
       {/* Device Selector Tabs */}
-      {devices.length > 0 && (
+      {devicesList.length > 0 && (
         <div className="bg-white border-b border-gray-200 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                My Devices ({devices.length})
+                My Devices ({devicesList.length})
               </h3>
-              <button
-                onClick={toggleAddDevice}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Add Device
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowPluggableDevices(prev => !prev)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                >
+                  <DevicePhoneMobileIcon className="w-4 h-4" />
+                  {showPluggableDevices ? 'Hide' : 'Connect'} Devices
+                </button>
+                <button
+                  onClick={toggleAddDevice}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Device
+                </button>
+              </div>
             </div>
             
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-              {devices.map((device: any) => {
+              {devicesList.map((device: any) => {
                 const deviceId = device.device_id || device.deviceId;
                 const isSelected = deviceId === selectedDeviceId;
                 const isOnline = device.status === 'active' || device.status === 'online';
@@ -921,6 +1008,24 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                 );
               })}
             </div>
+            
+            {/* Pluggable Device Manager */}
+            {showPluggableDevices && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200"
+              >
+                <PluggableDeviceManager
+                  onDeviceAdded={handleDeviceAdded}
+                  onDeviceRemoved={(deviceId) => {
+                    // Refresh dashboard data when device is removed
+                    refetch();
+                  }}
+                />
+              </motion.div>
+            )}
           </div>
         </div>
       )}
@@ -962,7 +1067,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       )}
 
       {/* Empty State */}
-      {devices.length === 0 && !isLoading && (
+      {devicesList.length === 0 && !isLoading && (
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="text-center max-w-md px-4">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -990,7 +1095,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       )}
 
       {/* Main Content */}
-      {devices.length > 0 && (
+      {devicesList.length > 0 && (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <>
             {/* WQI Hero Section */}
@@ -1176,7 +1281,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
           </div>
           <div className="space-y-3">
             <AnimatePresence>
-              {recentAlerts.map((alert, index) => (
+              {recentAlerts.map((alert: any, index: number) => (
                 <motion.div
                   key={index}
                   initial={{ opacity: 0, x: -20 }}
@@ -1712,7 +1817,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                   <h3 className="text-xl font-semibold text-gray-900 mb-4">Recent Alerts & Notifications</h3>
                   {recentAlerts.length > 0 ? (
                     <div className="space-y-2">
-                      {recentAlerts.map((alert, index) => (
+                      {recentAlerts.map((alert: any, index: number) => (
                         <div key={index} className="bg-amber-50 border-l-4 border-amber-500 rounded-lg p-4">
                           <div className="flex items-start space-x-3">
                             <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
