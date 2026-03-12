@@ -316,6 +316,15 @@ class AquaChainApiStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO
         )
         
+        # GET /api/v1/readings/{deviceId}/latest
+        latest_resource = device_readings_resource.add_resource("latest")
+        latest_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["data_processing"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
         # /api/v1/users
         users_resource = api_v1.add_resource("users")
         users_resource.add_method(
@@ -530,6 +539,93 @@ class AquaChainApiStack(Stack):
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO
         )
+        
+        # /api/alerts - Alerts endpoint (consumer-facing)
+        if "alert_detection" in self.lambda_functions:
+            # Import existing alerts resource or create new one
+            try:
+                # Try to find existing resource first
+                alerts_resource = api_root.node.try_find_child("alerts")
+                if not alerts_resource:
+                    alerts_resource = api_root.add_resource("alerts")
+                
+                alert_integration = apigateway.LambdaIntegration(
+                    self.lambda_functions["alert_detection"],
+                    proxy=True
+                )
+                
+                # Only add method if it doesn't exist
+                try:
+                    alerts_resource.add_method(
+                        "GET",
+                        alert_integration,
+                        authorizer=self.cognito_authorizer,
+                        authorization_type=apigateway.AuthorizationType.COGNITO
+                    )
+                except Exception:
+                    # Method already exists, skip
+                    pass
+            except Exception as e:
+                print(f"[WARNING] Alerts endpoint configuration skipped: {e}")
+                pass
+        
+        # /api/devices - Device management endpoints (consumer-facing)
+        if "device_management" in self.lambda_functions:
+            # Check if devices resource already exists
+            devices_resource = api_root.node.try_find_child("devices")
+            if not devices_resource:
+                devices_resource = api_root.add_resource("devices")
+            
+            device_integration = apigateway.LambdaIntegration(
+                self.lambda_functions["device_management"],
+                proxy=True
+            )
+            
+            # Only add methods if they don't already exist
+            if not devices_resource.node.try_find_child("register"):
+                # POST /api/devices/register - Register new device
+                register_resource = devices_resource.add_resource("register")
+                register_resource.add_method(
+                    "POST",
+                    device_integration,
+                    authorizer=self.cognito_authorizer,
+                    authorization_type=apigateway.AuthorizationType.COGNITO
+                )
+            
+            # Check if GET method exists on devices resource
+            try:
+                # GET /api/devices - List user's devices (only add if not exists)
+                devices_resource.add_method(
+                    "GET",
+                    device_integration,
+                    authorizer=self.cognito_authorizer,
+                    authorization_type=apigateway.AuthorizationType.COGNITO
+                )
+            except Exception:
+                # Method already exists, skip
+                pass
+            
+            # Check if {deviceId} resource exists
+            device_resource = devices_resource.node.try_find_child("{deviceId}")
+            if not device_resource:
+                # /api/devices/{deviceId} - Individual device operations
+                device_resource = devices_resource.add_resource("{deviceId}")
+                
+                # GET /api/devices/{deviceId} - Get device details
+                device_resource.add_method(
+                    "GET",
+                    device_integration,
+                    authorizer=self.cognito_authorizer,
+                    authorization_type=apigateway.AuthorizationType.COGNITO
+                )
+                
+                # DELETE /api/devices/{deviceId} - Unpair device
+                device_resource.add_method(
+                    "DELETE",
+                    device_integration,
+                    authorizer=self.cognito_authorizer,
+                    authorization_type=apigateway.AuthorizationType.COGNITO
+                )
         
         # /api/admin root - Admin endpoints
         api_admin = api_root.add_resource("admin")

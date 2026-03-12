@@ -83,6 +83,40 @@ class AquaChainDataStack(Stack):
             table_name="AquaChain-Devices"
         )
         
+        # Import Pluggable Devices table (or create if it doesn't exist)
+        try:
+            self.pluggable_devices_table = dynamodb.Table.from_table_name(
+                self, "PluggableDevicesTable",
+                table_name="AquaChain-PluggableDevices"
+            )
+        except Exception:
+            # Create the table if it doesn't exist
+            self.pluggable_devices_table = dynamodb.Table(
+                self, "PluggableDevicesTable",
+                table_name="AquaChain-PluggableDevices",
+                partition_key=dynamodb.Attribute(
+                    name="deviceId",
+                    type=dynamodb.AttributeType.STRING
+                ),
+                billing_mode=dynamodb.BillingMode.ON_DEMAND,
+                encryption=dynamodb.TableEncryption.AWS_MANAGED,
+                removal_policy=RemovalPolicy.RETAIN,
+                point_in_time_recovery=True
+            )
+            
+            # Add GSI for querying by user ID
+            self.pluggable_devices_table.add_global_secondary_index(
+                index_name="userId-createdAt-index",
+                partition_key=dynamodb.Attribute(
+                    name="userId",
+                    type=dynamodb.AttributeType.STRING
+                ),
+                sort_key=dynamodb.Attribute(
+                    name="createdAt",
+                    type=dynamodb.AttributeType.STRING
+                )
+            )
+        
         # Import Audit Logs table
         self.audit_logs_table = dynamodb.Table.from_table_name(
             self, "AuditLogsTable",
@@ -102,6 +136,7 @@ class AquaChainDataStack(Stack):
             "users_table": self.users_table,
             "service_requests_table": self.service_requests_table,
             "devices_table": self.devices_table,
+            "pluggable_devices_table": self.pluggable_devices_table,
             "audit_logs_table": self.audit_logs_table,
             "system_config_table": self.system_config_table
         })

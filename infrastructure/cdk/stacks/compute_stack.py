@@ -206,6 +206,12 @@ class AquaChainComputeStack(Stack):
             )
         )
         
+        # Device Management Lambda (import existing)
+        self.device_management_function = lambda_.Function.from_function_name(
+            self, "DeviceManagementFunction",
+            function_name=get_resource_name(self.config, "function", "device-management")
+        )
+        
         # Service Request Management Lambda
         self.service_request_function = lambda_python.PythonFunction(
             self, "ServiceRequestFunction",
@@ -350,6 +356,7 @@ class AquaChainComputeStack(Stack):
             "ml_inference": self.ml_inference_function,
             "alert_detection": self.alert_detection_function,
             "user_management": self.user_management_function,
+            "device_management": self.device_management_function,
             "service_request": self.service_request_function,
             "audit_processor": self.audit_processor_function,
             "websocket": self.websocket_function,
