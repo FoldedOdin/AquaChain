@@ -480,6 +480,9 @@ scripts/testing/test-cors-fix.*
 scripts/testing/check-token-claims.html
 scripts/testing/test-403-error-message.ps1
 
+# Temporary sensor data files
+send_sensor_data.py
+
 # Temporary integration tests for specific bugfixes
 tests/integration/test_*_bugfix.py
 tests/integration/test_*_bugfix_README.md
