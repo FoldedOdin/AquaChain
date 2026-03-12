@@ -121,6 +121,7 @@ obj/
 cdk.out/
 infrastructure/cdk/cdk-out-*/
 infrastructure/cdk/cdk.out.*/
+infrastructure/cdk/cdk-api.out/
 *.d.ts
 cdk.context.json
 
