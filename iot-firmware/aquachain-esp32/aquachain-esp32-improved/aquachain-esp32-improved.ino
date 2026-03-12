@@ -1,6 +1,6 @@
 /*
  AquaChain ESP32 Water Quality Monitor
- Stable version with reconnect debounce
+ Improved version with better telemetry control
 */
 
 #include <WiFi.h>
@@ -32,28 +32,35 @@ const char* password = WIFI_PASSWORD;
 String dataTopic = "aquachain/devices/" + String(deviceId) + "/data";
 String telemetryTopic = "aquachain/devices/" + String(deviceId) + "/telemetry";
 
-unsigned long lastPublish = 0;
-const unsigned long publishInterval = 30000;
+/* Publish intervals */
+unsigned long lastDataPublish = 0;
+unsigned long lastTelemetryPublish = 0;
+
+const unsigned long DATA_INTERVAL = 30000;
+const unsigned long TELEMETRY_INTERVAL = 120000;
 
 /* Calibration */
 float PH_NEUTRAL_VOLTAGE = 2.5;
-float PH_SLOPE = -5.7;
+float TURBIDITY_CLEAR_VOLTAGE = 2.8;
 float TDS_CALIBRATION_FACTOR = 1.0;
 
 /* NTP */
 const char* ntpServer = "pool.ntp.org";
 
+/* Message counter */
+unsigned long messageCounter = 0;
+
 /* ---------- Utility Functions ---------- */
 
 float readVoltage(int pin)
 {
-  const int samples = 25;
+  const int samples = 30;
   float sum = 0;
 
   for (int i = 0; i < samples; i++)
   {
     sum += analogRead(pin);
-    delay(2);
+    delay(3);
   }
 
   float avg = sum / samples;
@@ -111,7 +118,14 @@ void setup()
 
   connectWiFi();
 
-  /* Sync NTP time */
+  while (WiFi.localIP() == INADDR_NONE)
+  {
+    delay(100);
+  }
+
+  Serial.print("WiFi RSSI: ");
+  Serial.println(WiFi.RSSI());
+
   configTime(0, 0, ntpServer);
 
   Serial.print("Syncing time");
@@ -131,13 +145,12 @@ void setup()
   client.setServer(aws_endpoint, 8883);
   client.setKeepAlive(60);
   client.setSocketTimeout(30);
-  client.setBufferSize(1024);  // FIX: allow large JSON payload
+  client.setBufferSize(1024);
 
   connectAWS();
 
   Serial.println("Calibrating pH...");
-  
-  // Keep connection alive during calibration
+
   for (int i = 0; i < 30; i++)
   {
     client.loop();
@@ -145,6 +158,9 @@ void setup()
   }
 
   PH_NEUTRAL_VOLTAGE = readVoltage(PH_PIN);
+
+  Serial.print("Neutral Voltage (pH 7): ");
+  Serial.println(PH_NEUTRAL_VOLTAGE, 3);
 }
 
 /* ---------- Loop ---------- */
@@ -154,8 +170,7 @@ void loop()
   if (!client.connected())
   {
     static unsigned long lastReconnect = 0;
-    
-    // Only reconnect every 5 seconds minimum (debounce)
+
     if (millis() - lastReconnect > 5000)
     {
       connectAWS();
@@ -165,11 +180,16 @@ void loop()
 
   client.loop();
 
-  if (millis() - lastPublish >= publishInterval)
+  if (millis() - lastDataPublish >= DATA_INTERVAL)
   {
     publishSensorData();
+    lastDataPublish = millis();
+  }
+
+  if (millis() - lastTelemetryPublish >= TELEMETRY_INTERVAL)
+  {
     publishTelemetry();
-    lastPublish = millis();
+    lastTelemetryPublish = millis();
   }
 }
 
@@ -199,14 +219,13 @@ void connectAWS()
     if (client.connect(deviceId))
     {
       Serial.println(" connected");
-      
-      // Give connection time to stabilize
+
       for (int i = 0; i < 10; i++)
       {
         client.loop();
         delay(100);
       }
-      
+
       return;
     }
     else
@@ -223,15 +242,22 @@ void connectAWS()
 
 void publishSensorData()
 {
-  // Ensure we're connected before publishing
   if (!client.connected())
   {
     Serial.println("Not connected, skipping publish");
     return;
   }
-  
+
+  messageCounter++;
+
   sensors.requestTemperatures();
   float temperature = sensors.getTempCByIndex(0);
+
+  if (temperature == DEVICE_DISCONNECTED_C || temperature < -50)
+  {
+    Serial.println("Temperature sensor error");
+    temperature = 25.0;
+  }
 
   float ph = readPH();
   float turbidity = readTurbidity();
@@ -240,21 +266,19 @@ void publishSensorData()
   StaticJsonDocument<512> doc;
 
   doc["deviceId"] = deviceId;
+  doc["messageId"] = messageCounter;
   doc["timestamp"] = getISO8601Timestamp();
 
-  /* Location */
   JsonObject location = doc.createNestedObject("location");
   location["latitude"] = 0.0;
   location["longitude"] = 0.0;
 
-  /* Sensor readings */
   JsonObject readings = doc.createNestedObject("readings");
   readings["pH"] = ph;
   readings["turbidity"] = turbidity;
   readings["tds"] = tds;
   readings["temperature"] = temperature;
 
-  /* Diagnostics */
   JsonObject diagnostics = doc.createNestedObject("diagnostics");
   diagnostics["batteryLevel"] = 100.0;
   diagnostics["signalStrength"] = WiFi.RSSI();
@@ -264,19 +288,12 @@ void publishSensorData()
 
   serializeJson(doc, buffer);
 
-  Serial.println(buffer);
-  Serial.print("Publishing to: ");
-  Serial.println(dataTopic);
+  Serial.print("Publish #");
+  Serial.println(messageCounter);
 
-  bool published = client.publish(dataTopic.c_str(), buffer);
-  
-  if (published) {
-    Serial.println("✓ Published successfully!");
-  } else {
-    Serial.println("✗ Publish FAILED!");
-    Serial.print("MQTT State: ");
-    Serial.println(client.state());
-  }
+  Serial.println(buffer);
+
+  client.publish(dataTopic.c_str(), buffer);
 }
 
 void publishTelemetry()
@@ -302,7 +319,7 @@ float readPH()
 {
   float voltage = readVoltage(PH_PIN);
 
-  float ph = 7 + ((PH_NEUTRAL_VOLTAGE - voltage) * PH_SLOPE);
+  float ph = 7 + ((PH_NEUTRAL_VOLTAGE - voltage) / 0.18);
 
   ph = constrain(ph, 0, 14);
 
@@ -313,28 +330,18 @@ float readTurbidity()
 {
   float voltage = readVoltage(TURBIDITY_PIN);
 
-  float ntu = -1120.4 * voltage * voltage +
-               5742.3 * voltage -
-               4352.9;
+  float turbidity = (TURBIDITY_CLEAR_VOLTAGE - voltage) * 200;
 
-  ntu = constrain(ntu, 0, 3000);
+  if (turbidity < 0) turbidity = 0;
 
-  return ntu;
+  return turbidity;
 }
 
 float readTDS(float temperature)
 {
   float voltage = readVoltage(TDS_PIN);
 
-  float compensation = 1.0 + 0.02 * (temperature - 25.0);
-
-  float compensatedVoltage = voltage / compensation;
-
-  float tds = (133.42 * pow(compensatedVoltage, 3)
-              -255.86 * pow(compensatedVoltage, 2)
-              +857.39 * compensatedVoltage) * 0.5;
-
-  tds = tds * TDS_CALIBRATION_FACTOR;
+  float tds = voltage * 500 * TDS_CALIBRATION_FACTOR;
 
   if (tds < 0) tds = 0;
 
