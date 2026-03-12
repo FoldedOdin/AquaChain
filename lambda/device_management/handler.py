@@ -163,7 +163,9 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'location': device_record['location'],
             'waterSourceType': device_record['waterSourceType'],
             'status': device_record['status'],
-            'createdAt': device_record['createdAt']
+            'connectionStatus': device_record['connectionStatus'],
+            'createdAt': device_record['createdAt'],
+            'lastSeen': device_record['lastSeen']
         }
         
         return create_response(200, {
