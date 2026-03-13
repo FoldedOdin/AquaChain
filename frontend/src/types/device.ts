@@ -3,7 +3,7 @@
  * Type definitions for IoT devices in the AquaChain system
  */
 
-import { DeviceStatus } from "./dashboard";
+import { DeviceStatus, ConnectionStatus } from "./dashboard";
 
 /**
  * Geographic Coordinates
@@ -39,7 +39,9 @@ export interface Device {
   deviceId: string; // Format: ESP32-XXXXXX
   location: string;
   status: DeviceStatus;
+  connectionStatus: ConnectionStatus; // New field for online/offline status
   lastData: Date;
+  lastSeen?: Date; // When device last sent data
   battery: number; // 0-100
   coordinates: Coordinates;
   wqi: number; // 0-100

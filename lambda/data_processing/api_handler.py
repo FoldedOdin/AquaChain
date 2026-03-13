@@ -346,7 +346,9 @@ def _count_device_readings(device_id: str, days: int = 30) -> int:
         table = dynamodb.Table(READINGS_TABLE)
         cutoff_time = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
+        # Use the DeviceIndex GSI
         response = table.query(
+            IndexName='DeviceIndex',
             KeyConditionExpression='deviceId = :deviceId AND #ts > :cutoff',
             ExpressionAttributeNames={'#ts': 'timestamp'},
             ExpressionAttributeValues={
@@ -426,7 +428,10 @@ def _get_device_recent_readings(device_id: str, limit: int = 5) -> List[Dict]:
     """Get recent readings for a specific device"""
     try:
         table = dynamodb.Table(READINGS_TABLE)
+        
+        # Use the DeviceIndex GSI which allows querying by deviceId directly
         response = table.query(
+            IndexName='DeviceIndex',
             KeyConditionExpression='deviceId = :deviceId',
             ExpressionAttributeValues={':deviceId': device_id},
             ScanIndexForward=False,  # Most recent first
@@ -444,7 +449,9 @@ def _get_device_historical_readings(device_id: str, days: int = 7, limit: int = 
         table = dynamodb.Table(READINGS_TABLE)
         cutoff_time = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
+        # Use the DeviceIndex GSI which allows querying by deviceId directly
         response = table.query(
+            IndexName='DeviceIndex',
             KeyConditionExpression='deviceId = :deviceId AND #ts > :cutoff',
             ExpressionAttributeNames={'#ts': 'timestamp'},
             ExpressionAttributeValues={
@@ -513,7 +520,9 @@ def _get_average_quality_for_period(device_id: str, days: int, offset_days: int 
         end_time = datetime.utcnow() - timedelta(days=offset_days)
         start_time = end_time - timedelta(days=days)
         
+        # Use the DeviceIndex GSI
         response = table.query(
+            IndexName='DeviceIndex',
             KeyConditionExpression='deviceId = :deviceId AND #ts BETWEEN :start AND :end',
             ExpressionAttributeNames={'#ts': 'timestamp'},
             ExpressionAttributeValues={

@@ -31,6 +31,7 @@ import { Device, DeviceFilters } from "../../types/device";
 import { useDashboard } from "../../contexts/DashboardContext";
 import { MockDataService } from "../../services/mockDataService";
 import StatusBadge from "../common/StatusBadge";
+import ConnectionStatusBadge from "../common/ConnectionStatusBadge";
 import MockDataBadge from "../common/MockDataBadge";
 import LoadingSkeleton from "../common/LoadingSkeleton";
 import BatteryIndicator from "./BatteryIndicator";
@@ -115,6 +116,23 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
             {row.original.location}
           </span>
         ),
+      },
+      {
+        accessorKey: "connectionStatus",
+        header: "Connection",
+        cell: ({ row }) => (
+          <ConnectionStatusBadge 
+            status={row.original.connectionStatus} 
+            size="sm"
+          />
+        ),
+        sortingFn: (rowA, rowB) => {
+          // Numeric sorting: online=3, offline=2, unknown=1
+          const statusValues = { online: 3, offline: 2, unknown: 1 };
+          return (
+            statusValues[rowA.original.connectionStatus] - statusValues[rowB.original.connectionStatus]
+          );
+        },
       },
       {
         accessorKey: "status",

@@ -265,16 +265,17 @@ class AquaChainApiStack(Stack):
             rest_api_name=get_resource_name(self.config, "api", "rest"),
             description="AquaChain REST API",
             default_cors_preflight_options=apigateway.CorsOptions(
-                allow_origins=apigateway.Cors.ALL_ORIGINS,
-                allow_methods=apigateway.Cors.ALL_METHODS,
+                allow_origins=apigateway.Cors.ALL_ORIGINS,  # Allow all origins for development
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                 allow_headers=[
                     "Content-Type",
                     "Authorization",
                     "X-Amz-Date",
                     "X-Api-Key",
-                    "X-Amz-Security-Token"
+                    "X-Amz-Security-Token",
+                    "X-Requested-With"
                 ],
-                allow_credentials=True
+                allow_credentials=False  # Set to false when using ALL_ORIGINS
             ),
             deploy_options=apigateway.StageOptions(
                 stage_name=self.config["environment"],
@@ -304,7 +305,17 @@ class AquaChainApiStack(Stack):
             "GET",
             apigateway.LambdaIntegration(self.lambda_functions["data_processing"]),
             authorizer=self.cognito_authorizer,
-            authorization_type=apigateway.AuthorizationType.COGNITO
+            authorization_type=apigateway.AuthorizationType.COGNITO,
+            method_responses=[
+                apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True
+                    }
+                )
+            ]
         )
         
         # GET /api/v1/readings/{deviceId}/history
@@ -313,7 +324,17 @@ class AquaChainApiStack(Stack):
             "GET",
             apigateway.LambdaIntegration(self.lambda_functions["data_processing"]),
             authorizer=self.cognito_authorizer,
-            authorization_type=apigateway.AuthorizationType.COGNITO
+            authorization_type=apigateway.AuthorizationType.COGNITO,
+            method_responses=[
+                apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True
+                    }
+                )
+            ]
         )
         
         # GET /api/v1/readings/{deviceId}/latest
@@ -322,7 +343,17 @@ class AquaChainApiStack(Stack):
             "GET",
             apigateway.LambdaIntegration(self.lambda_functions["data_processing"]),
             authorizer=self.cognito_authorizer,
-            authorization_type=apigateway.AuthorizationType.COGNITO
+            authorization_type=apigateway.AuthorizationType.COGNITO,
+            method_responses=[
+                apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Methods": True
+                    }
+                )
+            ]
         )
         
         # /api/v1/users
@@ -1307,6 +1338,31 @@ class AquaChainApiStack(Stack):
                 "POST",
                 apigateway.LambdaIntegration(self.lambda_functions["razorpay_webhook"]),
                 authorization_type=apigateway.AuthorizationType.NONE  # Webhook uses signature verification
+            )
+        
+        # /api/issues - Issue reporting endpoint
+        if "issues_service" in self.lambda_functions:
+            issues_resource = api_root.add_resource("issues")
+            
+            issues_integration = apigateway.LambdaIntegration(
+                self.lambda_functions["issues_service"],
+                proxy=True
+            )
+            
+            # POST /api/issues - Submit new issue
+            issues_resource.add_method(
+                "POST",
+                issues_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            
+            # GET /api/issues - Get issues (admin only)
+            issues_resource.add_method(
+                "GET",
+                issues_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
             )
         
         self.api_resources.update({

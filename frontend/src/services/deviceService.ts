@@ -45,7 +45,8 @@ export interface SensorReading {
 
 class DeviceService {
   private getAuthHeaders() {
-    const token = localStorage.getItem('authToken');
+    // Try both token keys for compatibility
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'

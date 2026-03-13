@@ -39,6 +39,7 @@ import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 import { OrderingProvider, useOrdering } from '../../contexts/OrderingContext';
 import ErrorBoundary from '../ErrorBoundary';
 import { dataService } from '../../services/dataService';
+import unifiedDataService from '../../services/dataServiceSelector';
 
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
@@ -49,6 +50,7 @@ import MyOrdersPage from './MyOrdersPage';
 import OrderingFlow from './OrderingFlow';
 import DemoDeviceModal from './DemoDeviceModal';
 import PluggableDeviceManager from './PluggableDeviceManager';
+import DataSourceIndicator from '../common/DataSourceIndicator';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -118,8 +120,8 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   
   // Create dashboardData object for backward compatibility
   const dashboardData = {
-    devices: devices || [],
-    alerts: alerts || [],
+    devices: Array.isArray(devices) ? devices : [],
+    alerts: Array.isArray(alerts) ? alerts : [],
     loading: isLoading,
     error: error
   };
@@ -181,7 +183,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       setIsLoadingReading(true);
 
       try {
-        const reading = await dataService.getLatestDeviceReading(deviceId);
+        const reading = await unifiedDataService.getLatestDeviceReading(deviceId);
         console.log('📦 Current reading fetched:', reading);
         setCurrentReadingData(reading);
       } catch (error) {
@@ -318,10 +320,6 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     });
   }, []);
 
-  const toggleDemoDevice = useCallback(() => {
-    setShowDemoDevice(prev => !prev);
-  }, []);
-
   const handleDemoDeviceAdded = useCallback(() => {
     // Refresh dashboard data after demo device is added
     refetch();
@@ -340,6 +338,10 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       return !prev;
     });
   }, [showEditProfile]);
+
+  const toggleDemoDevice = useCallback(() => {
+    setShowDemoDevice(prev => !prev);
+  }, []);
 
   const handleProfileUpdated = useCallback(async () => {
     // Refresh user data after profile update
@@ -472,7 +474,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       const deviceId = currentDevice.device_id || currentDevice.deviceId;
       if (deviceId) {
         try {
-          const reading = await dataService.getLatestDeviceReading(deviceId);
+          const reading = await unifiedDataService.getLatestDeviceReading(deviceId);
           setCurrentReadingData(reading);
         } catch (error) {
           console.error('❌ Error refreshing current reading:', error);
@@ -492,9 +494,27 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // ✅ Memoized alerts - only recalculates when data changes
   const recentAlerts = useMemo(() => {
-    if (!dashboardData || !('alerts' in dashboardData)) return [];
-    return dashboardData.alerts?.slice(0, 5) || [];
-  }, [dashboardData]);
+    console.log('🔍 [recentAlerts] dashboardData:', dashboardData);
+    console.log('🔍 [recentAlerts] alerts data:', alerts);
+    console.log('🔍 [recentAlerts] alerts type:', typeof alerts);
+    console.log('🔍 [recentAlerts] alerts isArray:', Array.isArray(alerts));
+    
+    if (!dashboardData || !('alerts' in dashboardData)) {
+      console.log('⚠️ [recentAlerts] No dashboardData or alerts key');
+      return [];
+    }
+    
+    const alertsData = dashboardData.alerts;
+    
+    // Ensure alertsData is an array before calling slice
+    if (!Array.isArray(alertsData)) {
+      console.warn('⚠️ [recentAlerts] alerts is not an array:', alertsData);
+      return [];
+    }
+    
+    console.log('✅ [recentAlerts] Processing alerts array:', alertsData.length, 'items');
+    return alertsData.slice(0, 5);
+  }, [dashboardData, alerts]);
 
   // ✅ Memoized WQI calculation with detailed metrics
   const waterQualityMetrics = useMemo(() => {
@@ -1019,7 +1039,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               >
                 <PluggableDeviceManager
                   onDeviceAdded={handleDeviceAdded}
-                  onDeviceRemoved={(deviceId) => {
+                  onDeviceRemoved={(deviceId: string) => {
                     // Refresh dashboard data when device is removed
                     refetch();
                   }}
@@ -1404,16 +1424,6 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               </div>
             </button>
 
-            <button 
-              onClick={toggleDemoDevice}
-              className="flex items-center space-x-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-400 hover:bg-blue-100 transition"
-            >
-              <Activity className="w-6 h-6 text-blue-600" />
-              <div className="flex flex-col items-start">
-                <span className="font-medium text-gray-700">Try Demo</span>
-                <span className="text-xs text-blue-600">Sample device</span>
-              </div>
-            </button>
             <button 
               onClick={toggleReportIssue}
               className="flex items-center space-x-3 p-4 border-2 border-gray-200 rounded-lg hover:border-cyan-500 hover:bg-cyan-50 transition"
@@ -2087,6 +2097,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       )}
 
     </div>
+    
+    {/* Data Source Indicator */}
+    <DataSourceIndicator />
     </React.Fragment>
   );
 });

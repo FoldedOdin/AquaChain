@@ -376,7 +376,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         };
 
         localStorage.setItem('aquachain_user', JSON.stringify(userProfile));
-        localStorage.setItem('aquachain_token', result.session.token || 'dev-token-' + Date.now());
+        
+        // Use the token from authService result, don't create a development token
+        if (result.session && result.session.token) {
+          localStorage.setItem('aquachain_token', result.session.token);
+          console.log('🔑 Real JWT token saved to localStorage');
+        } else {
+          console.error('❌ No token received from backend - authentication incomplete');
+          console.error('❌ Result structure:', result);
+          throw new Error('Authentication failed: No token received from server');
+        }
 
         console.log('💾 User profile saved to localStorage:', userProfile);
         console.log('🔑 Token saved to localStorage');

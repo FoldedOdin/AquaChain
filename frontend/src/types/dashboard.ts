@@ -7,6 +7,8 @@ export type TimeRange = "1h" | "6h" | "24h" | "7d";
 
 export type DeviceStatus = "Online" | "Warning" | "Offline";
 
+export type ConnectionStatus = "online" | "offline" | "unknown";
+
 export type AlertSeverity = "Critical" | "Warning" | "Safe";
 
 export type UserRole = "Admin" | "Technician" | "Consumer";

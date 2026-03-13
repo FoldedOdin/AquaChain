@@ -154,8 +154,10 @@ class AuthService {
           throw new AuthError(result.error || 'Sign in failed', 'SIGNIN_FAILED');
         }
 
+        // Handle the response format from the auth service
         const user = result.user;
-        const session = { isValid: () => true, token: result.token };
+        const token = result.token; // The JWT token from Cognito
+        const session = { isValid: () => true, token: token };
         const userRole: UserRole = user.role || 'consumer';
         const redirectPath = this.getRedirectPath(userRole);
 
@@ -163,11 +165,12 @@ class AuthService {
         this.currentSession = session;
 
         // Store token and user info in localStorage for persistence
-        localStorage.setItem('aquachain_token', result.token);
+        localStorage.setItem('aquachain_token', token);
         localStorage.setItem('aquachain_user', JSON.stringify(user));
         localStorage.setItem('aquachain_role', userRole);
 
         console.log('✅ Custom backend API authentication successful');
+        console.log('🔑 JWT token received and stored');
 
         // Track login event
         await this.trackAuthEvent('login', userRole);

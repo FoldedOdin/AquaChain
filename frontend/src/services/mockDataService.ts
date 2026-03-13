@@ -35,6 +35,7 @@ import {
   TimeSeriesDataPoint,
   MLInsightData,
   DeviceStatus,
+  ConnectionStatus,
   AlertSeverity,
   UserRole,
   UserStatus,
@@ -123,6 +124,21 @@ class MockDataServiceClass {
       const status: DeviceStatus =
         statusRoll < 0.7 ? "Online" : statusRoll < 0.9 ? "Warning" : "Offline";
 
+      // Connection status based on device status and last data timing
+      const connectionStatusRoll = this.rng();
+      let connectionStatus: ConnectionStatus;
+      
+      if (status === "Online") {
+        // Online devices are mostly connected, but some might be temporarily offline
+        connectionStatus = connectionStatusRoll < 0.9 ? "online" : "offline";
+      } else if (status === "Warning") {
+        // Warning devices have mixed connectivity
+        connectionStatus = connectionStatusRoll < 0.6 ? "online" : connectionStatusRoll < 0.9 ? "offline" : "unknown";
+      } else {
+        // Offline devices are mostly disconnected
+        connectionStatus = connectionStatusRoll < 0.8 ? "offline" : "unknown";
+      }
+
       // Battery follows normal distribution (mean=75%, std=15%)
       const battery = Math.max(
         0,
@@ -135,13 +151,19 @@ class MockDataServiceClass {
         Math.min(100, Math.round(this.normalRandom(78, 12)))
       );
 
-      // Last data timestamp based on status
-      const lastDataDelay =
-        status === "Online"
-          ? this.rng() * 120 // 0-120 seconds
-          : status === "Warning"
-          ? 120 + this.rng() * 480 // 120-600 seconds
-          : 600 + this.rng() * 3600; // 600-4200 seconds
+      // Last data timestamp based on connection status
+      const lastDataDelay = connectionStatus === "online"
+        ? this.rng() * 120 // 0-120 seconds for online devices
+        : connectionStatus === "offline"
+        ? 300 + this.rng() * 1800 // 5-35 minutes for offline devices
+        : 1800 + this.rng() * 3600; // 30-90 minutes for unknown status
+
+      // Last seen timestamp (when device was last connected)
+      const lastSeenDelay = connectionStatus === "online"
+        ? lastDataDelay // Same as last data for online devices
+        : connectionStatus === "offline"
+        ? 300 + this.rng() * 1800 // 5-35 minutes ago
+        : 3600 + this.rng() * 7200; // 1-3 hours ago for unknown
 
       const readings = this.generateSensorReadings();
 
@@ -149,7 +171,9 @@ class MockDataServiceClass {
         deviceId: `ESP32-${this.generateAlphanumeric(6)}`,
         location: `${city.name} - Zone ${Math.floor(this.rng() * 10) + 1}`,
         status,
+        connectionStatus,
         lastData: new Date(Date.now() - lastDataDelay * 1000),
+        lastSeen: new Date(Date.now() - lastSeenDelay * 1000),
         battery,
         coordinates: {
           lat: city.lat + (this.rng() - 0.5) * 0.5, // ±0.25 degrees
