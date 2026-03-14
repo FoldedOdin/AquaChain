@@ -130,8 +130,10 @@ class DataService {
         // If response has success field, check it
         if ('success' in result) {
           if (result.success) {
-            console.log(`📦 [makeRequest] Returning result.data:`, result.data);
-            return result.data;
+            console.log(`📦 [makeRequest] Returning result.data or full result:`, result.data || result);
+            // Return result.data if it exists, otherwise return the full result
+            // This handles both formats: {success: true, data: ...} and {success: true, reading: ...}
+            return result.data || result;
           } else {
             const errorMsg = result.error || result.message || 'API request failed';
             console.error(`❌ [makeRequest] API error: ${errorMsg}`);
@@ -181,11 +183,95 @@ class DataService {
     return data?.readings || []; // Extract readings from response
   }
 
+  async getHistoricalTrendData(deviceId: string, days: number = 7): Promise<{ date: string; wqi: number; }[]> {
+    console.log(`📈 [dataService] Fetching trend data for device ${deviceId}, ${days} days`);
+    try {
+      const readings = await this.getDeviceReadings(deviceId, days);
+      
+      if (!readings || readings.length === 0) {
+        console.log('📈 [dataService] No readings available for trend');
+        return [];
+      }
+
+      // Check if we have enough data for the requested period
+      const oldestReading = new Date(readings[readings.length - 1]?.timestamp);
+      const requestedStartDate = new Date();
+      requestedStartDate.setDate(requestedStartDate.getDate() - days);
+      
+      const hasInsufficientData = oldestReading > requestedStartDate;
+      
+      if (hasInsufficientData) {
+        console.log(`📈 [dataService] Insufficient data: oldest reading is ${oldestReading.toISOString()}, requested start is ${requestedStartDate.toISOString()}`);
+        return []; // Return empty array to indicate insufficient data
+      }
+
+      // Group readings by date and calculate daily averages
+      const dailyData = new Map<string, { wqiSum: number; count: number }>();
+      
+      readings.forEach(reading => {
+        if (reading.wqi && reading.wqi > 0) {
+          const date = new Date(reading.timestamp).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric' 
+          });
+          
+          if (!dailyData.has(date)) {
+            dailyData.set(date, { wqiSum: 0, count: 0 });
+          }
+          
+          const dayData = dailyData.get(date)!;
+          dayData.wqiSum += reading.wqi;
+          dayData.count += 1;
+        }
+      });
+
+      // Convert to chart format
+      const trendData = Array.from(dailyData.entries()).map(([date, data]) => ({
+        date,
+        wqi: Math.round(data.wqiSum / data.count)
+      }));
+
+      // Sort by date
+      trendData.sort((a, b) => {
+        const dateA = new Date(a.date + ', 2024');
+        const dateB = new Date(b.date + ', 2024');
+        return dateA.getTime() - dateB.getTime();
+      });
+
+      console.log(`📈 [dataService] Generated ${trendData.length} trend points`);
+      return trendData;
+    } catch (error) {
+      console.error('📈 [dataService] Error fetching trend data:', error);
+      return [];
+    }
+  }
+
   async getLatestDeviceReading(deviceId: string): Promise<any | null> {
     console.log(`🔍 [dataService] Fetching latest reading for device ${deviceId}`);
     const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/latest`);
-    console.log('📦 [dataService] Latest reading:', data);
-    return data?.reading || null; // Extract reading from response
+    console.log('📦 [dataService] Latest reading response:', data);
+    
+    // Handle different response formats
+    if (data && typeof data === 'object') {
+      // If the response has a 'reading' field, extract it
+      if ('reading' in data) {
+        console.log('📊 [dataService] Extracting reading from response');
+        return data.reading;
+      }
+      // If the response has a 'data' field, extract it
+      else if ('data' in data) {
+        console.log('📊 [dataService] Extracting data from response');
+        return data.data;
+      }
+      // Otherwise return the data directly
+      else {
+        console.log('📊 [dataService] Returning data directly');
+        return data;
+      }
+    }
+    
+    console.log('⚠️ [dataService] No valid reading data found');
+    return null;
   }
 
   // Device Management

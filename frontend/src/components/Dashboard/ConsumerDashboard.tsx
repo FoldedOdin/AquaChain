@@ -28,7 +28,8 @@ import {
   AlertTriangle,
   Info,
   Package,
-  User
+  User,
+  BarChart3
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -51,6 +52,7 @@ import OrderingFlow from './OrderingFlow';
 import DemoDeviceModal from './DemoDeviceModal';
 import PluggableDeviceManager from './PluggableDeviceManager';
 import DataSourceIndicator from '../common/DataSourceIndicator';
+import { ReadingHistoryModal } from './ReadingHistoryModal';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -93,6 +95,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [missingProfileFields, setMissingProfileFields] = useState<string[]>([]);
   const [currentReadingData, setCurrentReadingData] = useState<any>(null);
   const [isLoadingReading, setIsLoadingReading] = useState(false);
+  const [historicalTrendData, setHistoricalTrendData] = useState<{ date: string; wqi: number; }[]>([]);
+  const [isLoadingTrend, setIsLoadingTrend] = useState(false);
+  const [trendDataError, setTrendDataError] = useState<string | null>(null);
   
   // Report Issue form state
   const [issueType, setIssueType] = useState<'bug' | 'iot'>('bug');
@@ -102,6 +107,8 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [selectedDevice, setSelectedDevice] = useState('');
   const [isSubmittingIssue, setIsSubmittingIssue] = useState(false);
   const [issueSubmitted, setIssueSubmitted] = useState(false);
+  const [showReadingHistory, setShowReadingHistory] = useState(false);
+  const [showDataExport, setShowDataExport] = useState(false);
 
   // ✅ Fetch real data from API using proper hooks
   const { data: devices, isLoading: devicesLoading, error: devicesError, refetch: refetchDevices } = useDevices();
@@ -543,9 +550,10 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     let color = 'red';
     let bgColor = 'bg-red-100';
     
-    if (wqi >= 201) { status = 'Good'; color = 'green'; bgColor = 'bg-green-100'; }
-    else if (wqi >= 101) { status = 'Fair'; color = 'yellow'; bgColor = 'bg-yellow-100'; }
-    else if (wqi >= 51) { status = 'Moderate'; color = 'orange'; bgColor = 'bg-orange-100'; }
+    if (wqi >= 90) { status = 'Excellent'; color = 'green'; bgColor = 'bg-green-100'; }
+    else if (wqi >= 80) { status = 'Good'; color = 'blue'; bgColor = 'bg-blue-100'; }
+    else if (wqi >= 60) { status = 'Fair'; color = 'yellow'; bgColor = 'bg-yellow-100'; }
+    else if (wqi >= 40) { status = 'Poor'; color = 'orange'; bgColor = 'bg-orange-100'; }
     else { status = 'Poor'; color = 'red'; bgColor = 'bg-red-100'; }
     
     return {
@@ -571,25 +579,14 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // ✅ Memoized historical data for chart
   const historicalData = useMemo(() => {
-    // In real app, this would come from API based on selectedTimeRange
-    // For now, generate sample data or use empty array
-    if (!currentReading) return [];
-    
-    const days = selectedTimeRange === '7days' ? 7 : selectedTimeRange === '30days' ? 30 : 90;
-    const data = [];
-    const today = new Date();
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      data.push({
-        date: i === 0 ? 'Today' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        wqi: waterQualityMetrics.wqi + Math.floor(Math.random() * 10 - 5) // Simulate variation
-      });
+    // Use real trend data if available
+    if (historicalTrendData.length > 0) {
+      return historicalTrendData;
     }
     
-    return data;
-  }, [currentReading, waterQualityMetrics.wqi, selectedTimeRange]);
+    // Return empty array if loading or error
+    return [];
+  }, [historicalTrendData]);
 
   // ✅ Calculate average WQI from historical data
   const averageWQI = useMemo(() => {
@@ -611,6 +608,48 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       setLastRefreshTime(new Date());
     }
   }, [devicesList.length]); // Use devicesList.length instead of dashboardData
+
+  // Fetch historical trend data when device or time range changes
+  useEffect(() => {
+    const fetchTrendData = async () => {
+      if (!selectedDeviceId) return;
+      
+      setIsLoadingTrend(true);
+      setTrendDataError(null);
+      
+      try {
+        const days = selectedTimeRange === '7days' ? 7 : selectedTimeRange === '30days' ? 30 : 90;
+        const trendData = await dataService.getHistoricalTrendData(selectedDeviceId, days);
+        
+        if (trendData.length === 0) {
+          // Check if it's because of insufficient data or no data at all
+          const allReadings = await dataService.getDeviceReadings(selectedDeviceId, 1);
+          if (allReadings.length === 0) {
+            setTrendDataError('No data available');
+          } else {
+            setTrendDataError('Insufficient data for selected time range');
+          }
+        } else {
+          setHistoricalTrendData(trendData);
+        }
+      } catch (error) {
+        console.error('Error fetching trend data:', error);
+        setTrendDataError('Error loading trend data');
+        setHistoricalTrendData([]);
+      } finally {
+        setIsLoadingTrend(false);
+      }
+    };
+
+    fetchTrendData();
+  }, [selectedDeviceId, selectedTimeRange]);
+
+  // Set selected device when devices list changes
+  useEffect(() => {
+    if (devicesList.length > 0 && !selectedDeviceId) {
+      setSelectedDeviceId(devicesList[0].deviceId);
+    }
+  }, [devicesList, selectedDeviceId]);
 
   // Loading state
   if (!user || isLoading) {
@@ -791,9 +830,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               </div>
             </div>
 
-            {/* Quick Actions */}
+            {/* Data Management */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Data Management</h2>
               <div className="grid grid-cols-1 gap-4">
                 <button
                   onClick={toggleSettings}
@@ -805,10 +844,30 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                     <p className="text-sm text-gray-600">Check current water quality metrics</p>
                   </div>
                 </button>
+                <button
+                  onClick={() => setShowReadingHistory(true)}
+                  className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                >
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                  <div className="text-left">
+                    <h3 className="font-medium text-gray-900">Reading History</h3>
+                    <p className="text-sm text-gray-600">View complete water quality data</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setShowDataExport(true)}
+                  className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors duration-200"
+                >
+                  <Download className="w-5 h-5 text-green-600" />
+                  <div className="text-left">
+                    <h3 className="font-medium text-gray-900">Export Data</h3>
+                    <p className="text-sm text-gray-600">Download reports in multiple formats</p>
+                  </div>
+                </button>
               </div>
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-900">
-                  <strong>Need data exports?</strong> Your assigned technician can download and provide water quality data reports for you.
+                  📊 <strong>Complete data access:</strong> View your water quality history and export data in CSV, PDF, or JSON formats.
                 </p>
               </div>
             </div>
@@ -827,6 +886,20 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
             address: user.profile?.address || ''
           }}
           onProfileUpdated={handleProfileUpdated}
+        />
+
+        {/* Reading History Modal */}
+        <ReadingHistoryModal
+          isOpen={showReadingHistory}
+          onClose={() => setShowReadingHistory(false)}
+          deviceId={selectedDeviceId || (devices && devices.length > 0 ? devices[0].device_id : '')}
+        />
+
+        {/* Data Export Modal */}
+        <DataExportModal
+          isOpen={showDataExport}
+          onClose={() => setShowDataExport(false)}
+          userRole="consumer"
         />
       </div>
     );
@@ -871,6 +944,17 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
             >
               <Package className="w-5 h-5" />
               <span className="text-sm font-medium">Order Device</span>
+            </button>
+
+            {/* Reading History Button */}
+            <button
+              onClick={() => setShowReadingHistory(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200"
+              title="View Reading History"
+              type="button"
+            >
+              <BarChart3 className="w-5 h-5" />
+              <span className="text-sm font-medium">History</span>
             </button>
 
             {/* My Orders Button */}
@@ -1210,7 +1294,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
             </div>
             <div className="text-3xl font-bold text-gray-900">{averageWQI}</div>
             <p className="text-sm text-gray-500 mt-2">
-              {averageWQI >= 75 ? 'Above average' : averageWQI >= 50 ? 'Average' : 'Below average'}
+              {averageWQI >= 80 ? 'Above average' : averageWQI >= 60 ? 'Average' : 'Below average'}
             </p>
           </div>
         </div>
@@ -1255,20 +1339,53 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
         </div>
 
         {/* Historical Trend */}
-        {historicalData.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">Historical Trend</h2>
-              <select
-                value={selectedTimeRange}
-                onChange={(e) => setSelectedTimeRange(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              >
-                <option value="7days">Last 7 Days</option>
-                <option value="30days">Last 30 Days</option>
-                <option value="90days">Last 90 Days</option>
-              </select>
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-800">Historical Trend</h2>
+            <select
+              value={selectedTimeRange}
+              onChange={(e) => setSelectedTimeRange(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            >
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+              <option value="90days">Last 90 Days</option>
+            </select>
+          </div>
+          
+          {isLoadingTrend ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="flex items-center gap-3">
+                <ArrowPathIcon className="w-5 h-5 animate-spin text-cyan-600" />
+                <span className="text-gray-600">Loading trend data...</span>
+              </div>
             </div>
+          ) : trendDataError ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <BarChart3 className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  {trendDataError === 'Insufficient data for selected time range' ? 'Not Enough Data' : 'No Data Available'}
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  {trendDataError === 'Insufficient data for selected time range' 
+                    ? `There isn't enough historical data for the selected ${selectedTimeRange.replace('days', ' day')} period. Try selecting a shorter time range.`
+                    : 'No water quality readings are available yet. Connect a device to start monitoring.'
+                  }
+                </p>
+                {trendDataError === 'Insufficient data for selected time range' && (
+                  <button
+                    onClick={() => setSelectedTimeRange('7days')}
+                    className="px-4 py-2 bg-cyan-100 text-cyan-700 rounded-lg hover:bg-cyan-200 transition-colors text-sm"
+                  >
+                    Switch to 7 Days
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : historicalData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={historicalData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -1284,8 +1401,18 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                 />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          ) : (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <BarChart3 className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Trend Data</h3>
+                <p className="text-gray-600">Historical trend will appear here once you have water quality readings.</p>
+              </div>
+            </div>
+          )}
+        </div>
 
       {/* Recent Alerts - Enhanced */}
       {recentAlerts.length > 0 ? (
@@ -1400,27 +1527,31 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
           </div>
         </motion.div>
 
-        {/* Quick Actions */}
+        {/* Data Management */}
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">Data Management</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button 
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                try {
-                  toggleOrderingFlow();
-                } catch (error) {
-                  console.error('Error toggling ordering flow:', error);
-                }
-              }}
+              onClick={() => setShowReadingHistory(true)}
+              className="flex items-center space-x-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-400 hover:bg-blue-100 transition"
+              type="button"
+            >
+              <BarChart3 className="w-6 h-6 text-blue-600" />
+              <div className="flex flex-col items-start">
+                <span className="font-medium text-gray-700">Reading History</span>
+                <span className="text-xs text-blue-600">View complete data</span>
+              </div>
+            </button>
+
+            <button 
+              onClick={() => setShowDataExport(true)}
               className="flex items-center space-x-3 p-4 border-2 border-green-200 bg-green-50 rounded-lg hover:border-green-400 hover:bg-green-100 transition"
               type="button"
             >
-              <Package className="w-6 h-6 text-green-600" />
+              <Download className="w-6 h-6 text-green-600" />
               <div className="flex flex-col items-start">
-                <span className="font-medium text-gray-700">Order Device</span>
-                <span className="text-xs text-green-600">New water monitor</span>
+                <span className="font-medium text-gray-700">Export Data</span>
+                <span className="text-xs text-green-600">Download reports</span>
               </div>
             </button>
 
@@ -1436,7 +1567,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
             </button>
           </div>
           <p className="text-sm text-gray-500 mt-4 text-center">
-            💡 Need to download data? Contact your assigned technician for data exports.
+            📊 Access your complete water quality data history and export in multiple formats
           </p>
         </div>
 
@@ -1799,9 +1930,36 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                 </div>
 
                 {/* Historical Trend */}
-                {historicalData.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-xl font-semibold text-gray-900 mb-4">7-Day Trend Analysis</h3>
+                <div className="mb-6">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                    {selectedTimeRange === '7days' ? '7-Day' : selectedTimeRange === '30days' ? '30-Day' : '90-Day'} Trend Analysis
+                  </h3>
+                  
+                  {isLoadingTrend ? (
+                    <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-center h-64">
+                      <div className="flex items-center gap-3">
+                        <ArrowPathIcon className="w-5 h-5 animate-spin text-cyan-600" />
+                        <span className="text-gray-600">Loading trend data...</span>
+                      </div>
+                    </div>
+                  ) : trendDataError ? (
+                    <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-center h-64">
+                      <div className="text-center">
+                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <BarChart3 className="w-6 h-6 text-gray-400" />
+                        </div>
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">
+                          {trendDataError === 'Insufficient data for selected time range' ? 'Not Enough Data' : 'No Data Available'}
+                        </h4>
+                        <p className="text-gray-600 text-sm">
+                          {trendDataError === 'Insufficient data for selected time range' 
+                            ? `Insufficient data for ${selectedTimeRange.replace('days', ' day')} period.`
+                            : 'No readings available yet.'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                  ) : historicalData.length > 0 ? (
                     <div className="bg-gray-50 rounded-lg p-4">
                       <ResponsiveContainer width="100%" height={250}>
                         <LineChart data={historicalData}>
@@ -1819,8 +1977,18 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-center h-64">
+                      <div className="text-center">
+                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <BarChart3 className="w-6 h-6 text-gray-400" />
+                        </div>
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Trend Data</h4>
+                        <p className="text-gray-600 text-sm">Trend analysis will appear here once you have readings.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Alerts Section */}
                 <div className="mb-6">
@@ -1856,7 +2024,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                   <h3 className="text-xl font-semibold text-gray-900 mb-4">Recommendations</h3>
                   <div className="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4">
                     <ul className="space-y-2 text-sm text-blue-900">
-                      {waterQualityMetrics.wqi >= 75 ? (
+                      {waterQualityMetrics.wqi >= 80 ? (
                         <>
                           <li className="flex items-start space-x-2">
                             <CheckCircleIcon className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
@@ -1867,7 +2035,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                             <span>Maintain current water treatment practices.</span>
                           </li>
                         </>
-                      ) : waterQualityMetrics.wqi >= 50 ? (
+                      ) : waterQualityMetrics.wqi >= 60 ? (
                         <>
                           <li className="flex items-start space-x-2">
                             <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
@@ -1970,6 +2138,26 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
             address: user?.profile?.address || ''
           }}
           onProfileUpdated={handleProfileUpdated}
+        />,
+        document.body
+      )}
+
+      {/* Reading History Modal */}
+      {createPortal(
+        <ReadingHistoryModal
+          isOpen={showReadingHistory}
+          onClose={() => setShowReadingHistory(false)}
+          deviceId={selectedDeviceId || (devices && devices.length > 0 ? devices[0].device_id : '')}
+        />,
+        document.body
+      )}
+
+      {/* Data Export Modal */}
+      {createPortal(
+        <DataExportModal
+          isOpen={showDataExport}
+          onClose={() => setShowDataExport(false)}
+          userRole="consumer"
         />,
         document.body
       )}

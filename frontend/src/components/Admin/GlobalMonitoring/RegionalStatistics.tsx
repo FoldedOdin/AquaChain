@@ -5,14 +5,14 @@ import { mockRegionalStats, getRegionalStatusColor } from '../../../data/mockGlo
 const RegionalStatistics: React.FC = () => {
   const getWQIColor = (wqi: number) => {
     if (wqi >= 90) return 'text-green-600';
-    if (wqi >= 75) return 'text-blue-600';
+    if (wqi >= 80) return 'text-blue-600';
     if (wqi >= 60) return 'text-amber-600';
     return 'text-red-600';
   };
 
   const getWQILabel = (wqi: number) => {
     if (wqi >= 90) return 'Excellent';
-    if (wqi >= 75) return 'Good';
+    if (wqi >= 80) return 'Good';
     if (wqi >= 60) return 'Fair';
     return 'Poor';
   };
@@ -86,7 +86,7 @@ const RegionalStatistics: React.FC = () => {
                   className={`h-full rounded-full transition-all ${
                     region.avgWQI >= 90
                       ? 'bg-green-500'
-                      : region.avgWQI >= 75
+                      : region.avgWQI >= 80
                       ? 'bg-blue-500'
                       : region.avgWQI >= 60
                       ? 'bg-amber-500'

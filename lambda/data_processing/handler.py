@@ -98,6 +98,7 @@ dynamodb = boto3.resource('dynamodb')
 s3_client = boto3.client('s3')
 sagemaker_client = boto3.client('sagemaker-runtime')
 sqs_client = boto3.client('sqs')
+lambda_client = boto3.client('lambda')
 
 # Environment variables
 READINGS_TABLE = os.environ.get('READINGS_TABLE', 'AquaChain-Readings')
@@ -603,13 +604,13 @@ def store_raw_data_s3(data: Dict[str, Any]) -> str:
             details={'device_id': device_id, 'error': str(e)}
         )
 
-@tracer.trace_external_call('sagemaker', 'invoke_endpoint')
+@tracer.trace_external_call('lambda', 'invoke_ml_inference')
 def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Invoke SageMaker endpoint for WQI calculation and anomaly detection.
+    Invoke ML inference for WQI calculation and anomaly detection.
     
-    Uses pre-trained XGBoost models with 14 engineered features for
-    superior accuracy (RMSE ~2.9, 98.6% anomaly detection accuracy).
+    Uses Lambda ML inference function instead of SageMaker for better cost efficiency.
+    Falls back to simple calculation if Lambda fails.
     
     Args:
         data: Validated sensor data containing readings and location
@@ -617,6 +618,7 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary containing ML inference results:
             - wqi: Water Quality Index (0-100)
+            - quality: Quality label (Excellent/Good/Fair/Poor/Very Poor)
             - anomalyType: Type of anomaly detected ('normal', 'contamination', etc.)
             - confidence: Confidence score (0.0-1.0)
             - error: Optional error message if inference failed
@@ -625,53 +627,186 @@ def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
         DataProcessingError: When ML inference fails critically
     """
     try:
-        # Prepare enhanced payload for pre-trained model (14 features)
+        # Check if we should use Lambda ML inference
+        use_lambda_ml = os.environ.get('USE_LAMBDA_ML_INFERENCE', 'false').lower() == 'true'
+        ml_function_name = os.environ.get('ML_INFERENCE_FUNCTION_NAME')
+        
+        if use_lambda_ml and ml_function_name:
+            # Use Lambda ML inference
+            return invoke_lambda_ml_inference(data, ml_function_name)
+        else:
+            # Fallback to SageMaker (original code) or simple calculation
+            try:
+                return invoke_sagemaker_ml_inference(data)
+            except Exception as sagemaker_error:
+                logger.warning(f"SageMaker inference failed, using simple calculation: {sagemaker_error}")
+                return calculate_simple_wqi(data)
+            
+    except Exception as e:
+        logger.error(f"ML inference error - device_id={data['deviceId']}, error={str(e)}")
+        # Return simple calculation as fallback
+        return calculate_simple_wqi(data)
+
+def invoke_lambda_ml_inference(data: Dict[str, Any], function_name: str) -> Dict[str, Any]:
+    """Invoke ML inference Lambda function"""
+    try:
+        # Prepare payload for ML inference Lambda
         payload = {
             'deviceId': data['deviceId'],
             'timestamp': data['timestamp'],
-            'readings': {
-                'pH': data['readings']['pH'],
-                'turbidity': data['readings']['turbidity'],
-                'tds': data['readings']['tds'],
-                'temperature': data['readings']['temperature'],
-                'humidity': data['readings'].get('humidity', 50.0)  # Default if not provided
-            },
+            'readings': data['readings'],
             'location': data.get('location', {'latitude': 0.0, 'longitude': 0.0})
         }
         
-        # Invoke SageMaker endpoint
-        response = sagemaker_client.invoke_endpoint(
-            EndpointName=SAGEMAKER_ENDPOINT_NAME,
-            ContentType='application/json',
-            Accept='application/json',
-            Body=json.dumps(payload)
+        # Invoke ML inference Lambda
+        lambda_client = boto3.client('lambda')
+        response = lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps(payload)
         )
         
         # Parse response
-        result = json.loads(response['Body'].read().decode('utf-8'))
+        result = json.loads(response['Payload'].read())
+        
+        if response['StatusCode'] == 200:
+            body = json.loads(result.get('body', '{}'))
+            
+            # Get WQI from response or calculate simple WQI
+            wqi = body.get('wqi')
+            if wqi is None:
+                logger.warning("ML inference returned no WQI, calculating simple WQI")
+                return calculate_simple_wqi(data)
+            
+            # Map WQI to quality label
+            quality = map_wqi_to_quality(wqi)
+            
+            logger.info(
+                f"Lambda ML inference completed - device_id={data['deviceId']}, "
+                f"wqi={wqi}, quality={quality}, "
+                f"anomaly_type={body.get('anomalyType', 'unknown')}"
+            )
+            
+            return {
+                'wqi': wqi,
+                'quality': quality,
+                'anomalyType': body.get('anomalyType', 'normal'),
+                'confidence': body.get('confidence', 0.0),
+                'modelVersion': body.get('modelVersion', 'lambda-v1.0'),
+                'featureImportance': body.get('featureImportance', {})
+            }
+        else:
+            raise Exception(f"Lambda invocation failed: {result}")
+            
+    except Exception as e:
+        logger.error(f"Lambda ML inference error: {e}")
+        # Fallback to simple calculation
+        return calculate_simple_wqi(data)
+
+def invoke_sagemaker_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Original SageMaker ML inference (fallback)"""
+    # Prepare enhanced payload for pre-trained model (14 features)
+    payload = {
+        'deviceId': data['deviceId'],
+        'timestamp': data['timestamp'],
+        'readings': {
+            'pH': data['readings']['pH'],
+            'turbidity': data['readings']['turbidity'],
+            'tds': data['readings']['tds'],
+            'temperature': data['readings']['temperature'],
+            'humidity': data['readings'].get('humidity', 50.0)  # Default if not provided
+        },
+        'location': data.get('location', {'latitude': 0.0, 'longitude': 0.0})
+    }
+    
+    # Invoke SageMaker endpoint
+    response = sagemaker_client.invoke_endpoint(
+        EndpointName=SAGEMAKER_ENDPOINT_NAME,
+        ContentType='application/json',
+        Accept='application/json',
+        Body=json.dumps(payload)
+    )
+    
+    # Parse response
+    result = json.loads(response['Body'].read().decode('utf-8'))
+    
+    logger.info(
+        f"SageMaker inference completed - device_id={data['deviceId']}, "
+        f"wqi={result['wqi']}, anomaly_type={result['anomalyType']}, "
+        f"confidence={result.get('confidence', 0.0)}, "
+        f"model_version={result.get('modelVersion', 'unknown')}, "
+        f"features_used={len(result.get('featureImportance', {}))}"
+    )
+    
+    return result
+
+def calculate_simple_wqi(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Calculate WQI using simple algorithm as fallback"""
+    try:
+        readings = data['readings']
+        pH = float(readings['pH'])
+        turbidity = float(readings['turbidity'])
+        tds = float(readings['tds'])
+        temperature = float(readings['temperature'])
+        
+        # Simple WQI calculation (0-100 scale)
+        # Ideal values: pH 7.0, turbidity 0, TDS 100, temp 25
+        pH_score = max(0, 100 - abs(pH - 7.0) * 15)
+        turbidity_score = max(0, 100 - turbidity * 10)
+        tds_score = max(0, 100 - abs(tds - 100) / 10)
+        temp_score = max(0, 100 - abs(temperature - 25) * 2)
+        
+        wqi = (pH_score + turbidity_score + tds_score + temp_score) / 4
+        wqi = round(wqi, 1)
+        
+        # Map to quality
+        quality = map_wqi_to_quality(wqi)
+        
+        # Simple anomaly detection
+        anomaly_type = 'normal'
+        if pH < 6.5 or pH > 8.5:
+            anomaly_type = 'pH_anomaly'
+        elif turbidity > 5:
+            anomaly_type = 'turbidity_high'
+        elif tds > 500:
+            anomaly_type = 'tds_high'
         
         logger.info(
-            f"SageMaker inference completed - device_id={data['deviceId']}, "
-            f"wqi={result['wqi']}, anomaly_type={result['anomalyType']}, "
-            f"confidence={result.get('confidence', 0.0)}, "
-            f"model_version={result.get('modelVersion', 'unknown')}, "
-            f"features_used={len(result.get('featureImportance', {}))}"
+            f"Simple WQI calculation - device_id={data['deviceId']}, "
+            f"wqi={wqi}, quality={quality}, anomaly_type={anomaly_type}"
         )
         
-        return result
+        return {
+            'wqi': wqi,
+            'quality': quality,
+            'anomalyType': anomaly_type,
+            'confidence': 0.8,  # Fixed confidence for simple calculation
+            'modelVersion': 'simple-v1.0'
+        }
         
     except Exception as e:
-        logger.error(
-            f"SageMaker inference error - device_id={data['deviceId']}, error={str(e)}"
-        )
-        # Return default values if ML fails
+        logger.error(f"Error in simple WQI calculation: {e}")
         return {
             'wqi': 50.0,  # Neutral WQI
+            'quality': 'Fair',  # Default quality
             'anomalyType': 'unknown',
             'confidence': 0.0,
             'error': str(e),
-            'modelVersion': 'fallback-sagemaker'
+            'modelVersion': 'fallback'
         }
+
+def map_wqi_to_quality(wqi: float) -> str:
+    """Map WQI score to quality label"""
+    if wqi >= 90:
+        return 'Excellent'
+    elif wqi >= 70:
+        return 'Good'
+    elif wqi >= 50:
+        return 'Fair'
+    elif wqi >= 25:
+        return 'Poor'
+    else:
+        return 'Very Poor'
 
 @tracer.trace_external_call('dynamodb', 'put_item')
 def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any], 
@@ -714,8 +849,13 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             'turbidity': Decimal(str(data['readings']['turbidity'])),
             'tds': Decimal(str(data['readings']['tds'])),
             'temperature': Decimal(str(data['readings']['temperature'])),
-            'qualityScore': Decimal(str(ml_results['wqi'])),
+            'wqi': Decimal(str(ml_results['wqi'])),
+            'quality': ml_results.get('quality', 'Fair'),
+            'qualityScore': Decimal(str(ml_results['wqi'])),  # Keep for backward compatibility
             'qualityStatus': ml_results['anomalyType'],
+            'anomalyType': ml_results['anomalyType'],
+            'confidence': Decimal(str(ml_results.get('confidence', 0.0))),
+            'modelVersion': ml_results.get('modelVersion', 'unknown'),
             'metric_type': 'water_quality',
             'createdAt': datetime.utcnow().isoformat()
         }
