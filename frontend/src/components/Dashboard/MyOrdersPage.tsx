@@ -19,10 +19,12 @@ import {
   Loader2,
   HelpCircle,
   Info,
-  X
+  X,
+  User
 } from 'lucide-react';
 import Toast from '../Toast/Toast';
 import ShipmentTracking from './ShipmentTracking';
+import TechnicianModal from './TechnicianModal';
 import OrderProgressButtons from './OrderProgressButtons';
 
 interface Order {
@@ -35,9 +37,13 @@ interface Order {
   preferredSlot?: string;
   quoteAmount?: number;
   provisionedDeviceId?: string;
+  assignedTechnician?: string;
   assignedTechnicianName?: string;
   createdAt: string;
   updatedAt: string;
+  // Additional fields from the actual database
+  deliveryAddress?: string; // JSON string
+  contactInfo?: string; // JSON string
   statusHistory?: Array<{
     status: string;
     timestamp: string;
@@ -60,6 +66,11 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  
+  // Technician modal state
+  const [showTechnicianModal, setShowTechnicianModal] = useState(false);
+  const [selectedTechnician, setSelectedTechnician] = useState<any>(null);
+  const [loadingTechnician, setLoadingTechnician] = useState(false);
   
   // Ref for auto-scrolling to current step
   const currentStepRef = useRef<HTMLDivElement>(null);
@@ -104,6 +115,93 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
       }
       return newSet;
     });
+  };
+
+  // Helper functions to parse JSON data
+  const parseDeliveryAddress = (deliveryAddress?: string | object) => {
+    if (!deliveryAddress) return null;
+    
+    // If it's already an object, return it
+    if (typeof deliveryAddress === 'object') {
+      return deliveryAddress;
+    }
+    
+    // If it's a string, try to parse it
+    if (typeof deliveryAddress === 'string') {
+      try {
+        return JSON.parse(deliveryAddress);
+      } catch (e) {
+        console.warn('Failed to parse delivery address:', e);
+        return null;
+      }
+    }
+    
+    return null;
+  };
+
+  const parseContactInfo = (contactInfo?: string | object) => {
+    if (!contactInfo) return null;
+    
+    // If it's already an object, return it
+    if (typeof contactInfo === 'object') {
+      return contactInfo;
+    }
+    
+    // If it's a string, try to parse it
+    if (typeof contactInfo === 'string') {
+      try {
+        return JSON.parse(contactInfo);
+      } catch (e) {
+        console.warn('Failed to parse contact info:', e);
+        return null;
+      }
+    }
+    
+    return null;
+  };
+
+  const getDisplayAddress = (order: Order) => {
+    // Try deliveryAddress first (JSON string)
+    const deliveryAddr = parseDeliveryAddress(order.deliveryAddress);
+    if (deliveryAddr) {
+      const parts = [
+        deliveryAddr.street,
+        deliveryAddr.city,
+        deliveryAddr.state,
+        deliveryAddr.pincode
+      ].filter(Boolean);
+      return parts.join(', ');
+    }
+    
+    // Fallback to address field
+    if (typeof order.address === 'string' && order.address) {
+      return order.address;
+    }
+    
+    return 'Address not available';
+  };
+
+  const getDisplayPhone = (order: Order) => {
+    // Try contactInfo first (JSON string)
+    const contactInfo = parseContactInfo(order.contactInfo);
+    if (contactInfo && contactInfo.phone) {
+      return contactInfo.phone;
+    }
+    
+    // Fallback to phone field
+    if (order.phone) {
+      return order.phone;
+    }
+    
+    return 'Phone not available';
+  };
+
+  const getContactName = (order: Order) => {
+    const contactInfo = parseContactInfo(order.contactInfo);
+    if (contactInfo && contactInfo.name) {
+      return contactInfo.name;
+    }
+    return 'Customer';
   };
 
   const selectAllCancellableOrders = () => {
@@ -242,8 +340,10 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
       case 'pending':
       case 'ORDER_PLACED':
         return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Order Placed' };
+      case 'DEVICE_READY':
       case 'provisioned':
-        return { icon: Package, color: 'text-purple-600', bg: 'bg-purple-100', label: 'Device Provisioned' };
+        return { icon: Package, color: 'text-purple-600', bg: 'bg-purple-100', label: 'Device Ready' };
+      case 'TECHNICIAN_ASSIGNED':
       case 'assigned':
         return { icon: Wrench, color: 'text-indigo-600', bg: 'bg-indigo-100', label: 'Technician Assigned' };
       case 'shipped':
@@ -255,7 +355,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
         return { icon: Wrench, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Installing' };
       case 'completed':
       case 'DELIVERED':
-        return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Completed' };
+        return { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Delivered & Installed' };
       case 'cancelled':
       case 'CANCELLED':
         return { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Cancelled' };
@@ -282,6 +382,38 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const handleChoosePayment = (order: Order) => {
     setSelectedOrder(order);
     setShowPaymentModal(true);
+  };
+
+  // Handle view technician details
+  const handleViewTechnician = async (order: Order) => {
+    if (!order.assignedTechnicianName && !order.assignedTechnician) {
+      showToast('No technician assigned to this order', 'info');
+      return;
+    }
+
+    setLoadingTechnician(true);
+    try {
+      // For now, create a mock technician object from the order data
+      // In a real implementation, you would fetch full technician details from the API
+      const mockTechnician = {
+        id: order.assignedTechnician || 'tech-001',
+        name: order.assignedTechnicianName || order.assignedTechnician || 'Technician',
+        phone: '+91 98765 43210', // Mock data
+        email: 'technician@aquachain.com', // Mock data
+        address: 'AquaChain Service Center, Mumbai', // Mock data
+        experience: '5+ years', // Mock data
+        rating: 4.8, // Mock data
+        status: 'assigned'
+      };
+
+      setSelectedTechnician(mockTechnician);
+      setShowTechnicianModal(true);
+    } catch (error) {
+      console.error('Error loading technician details:', error);
+      showToast('Failed to load technician details', 'error');
+    } finally {
+      setLoadingTechnician(false);
+    }
   };
 
   // Handle submit payment method
@@ -422,10 +554,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
         completed: true 
       },
       { 
-        status: 'provisioned', 
+        status: 'DEVICE_READY', 
         label: 'Device Ready', 
         description: 'Assembly & calibration (1–2 days)',
-        completed: ['provisioned', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+        completed: ['DEVICE_READY', 'provisioned', 'assigned', 'TECHNICIAN_ASSIGNED', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+      },
+      { 
+        status: 'TECHNICIAN_ASSIGNED', 
+        label: 'Technician Assigned', 
+        description: 'Dedicated technician assigned for installation',
+        completed: order.assignedTechnicianName || order.assignedTechnician || ['TECHNICIAN_ASSIGNED', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status)
       },
       { 
         status: 'SHIPPED', 
@@ -440,15 +578,9 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
         completed: ['OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
       },
       { 
-        status: 'assigned', 
-        label: 'Technician Assigned', 
-        description: 'Dedicated technician assigned for support & maintenance',
-        completed: ['assigned', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
-      },
-      { 
         status: 'DELIVERED', 
-        label: 'Installed', 
-        description: 'Device installed and initial setup completed',
+        label: 'Delivered & Installed', 
+        description: 'Device delivered and installation completed successfully',
         completed: ['completed', 'DELIVERED'].includes(order.status) 
       },
     ];
@@ -460,12 +592,14 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     const statusMap: { [key: string]: number } = {
       'pending': 0,
       'ORDER_PLACED': 0,
+      'DEVICE_READY': 1,
       'provisioned': 1,
-      'shipped': 2,
-      'SHIPPED': 2,
-      'OUT_FOR_DELIVERY': 3,
-      'assigned': 4,
-      'installing': 4,
+      'TECHNICIAN_ASSIGNED': 2,
+      'assigned': 2,
+      'shipped': 3,
+      'SHIPPED': 3,
+      'OUT_FOR_DELIVERY': 4,
+      'installing': 5,
       'completed': 5,
       'DELIVERED': 5,
       'cancelled': -1,
@@ -507,15 +641,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     }
     
     if (order.status === 'completed' || order.status === 'DELIVERED') {
-      return 'Your device has been successfully installed and is now active. Enjoy monitoring your water quality!';
+      return 'Your device has been successfully delivered and installed! It\'s now active and monitoring your water quality.';
     }
     
     const messages: { [key: number]: string } = {
       0: 'Your order is being processed. The device will be provisioned and prepared for shipment. You\'ll receive an email notification once it\'s ready.',
-      1: 'Device is ready! A technician will be assigned for installation. You\'ll be notified via email and SMS with their contact details.',
-      2: 'Technician has been assigned. Your device will be shipped soon. Track your shipment for real-time updates.',
-      3: 'Your device is on the way! The technician will contact you to schedule the installation. Please keep your phone handy.',
-      4: 'Installation is in progress. The technician will calibrate the device and ensure everything works perfectly.'
+      1: 'Device is ready! A technician will be assigned for installation and your device will be shipped.',
+      2: 'Technician has been assigned. Your device will be shipped soon with tracking information.',
+      3: 'Your device is on the way! The technician will contact you to coordinate delivery and installation.',
+      4: 'Device is out for delivery. The technician will arrive soon to deliver and install your device.',
+      5: 'Installation complete! Your device is now active and monitoring your water quality.'
     };
     
     return messages[currentIndex] || 'Your order is being processed. You\'ll receive updates at each step.';
@@ -738,10 +873,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                             <div className="flex items-center gap-2 text-sm text-gray-600">
                               <MapPin className="w-4 h-4" />
                               <span className="truncate">
-                                {typeof order.address === 'string' && order.address 
-                                  ? order.address.split(',')[0] 
-                                  : 'Address not available'
-                                }
+                                {getDisplayAddress(order)}
                               </span>
                             </div>
                             {order.quoteAmount && (
@@ -759,9 +891,14 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                               {statusInfo.label}
                             </span>
                             {order.assignedTechnicianName && (
-                              <span className="text-sm text-gray-600">
-                                Technician: {order.assignedTechnicianName}
-                              </span>
+                              <button
+                                onClick={() => handleViewTechnician(order)}
+                                className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded transition-colors"
+                                disabled={loadingTechnician}
+                              >
+                                <User className="w-4 h-4" />
+                                {loadingTechnician ? 'Loading...' : `Technician: ${order.assignedTechnicianName}`}
+                              </button>
                             )}
                           </div>
                         </div>
@@ -872,15 +1009,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                         <p className="text-gray-900">
-                          {typeof selectedOrder.address === 'string' && selectedOrder.address 
-                            ? selectedOrder.address 
-                            : 'Address not available'
-                          }
+                          {getDisplayAddress(selectedOrder)}
                         </p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Contact Phone</label>
-                        <p className="text-gray-900">{selectedOrder.phone}</p>
+                        <p className="text-gray-900">{getDisplayPhone(selectedOrder)}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
+                        <p className="text-gray-900">{getContactName(selectedOrder)}</p>
                       </div>
                       {selectedOrder.preferredSlot && (
                         <div>
@@ -891,7 +1029,17 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       {selectedOrder.assignedTechnicianName && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Technician</label>
-                          <p className="text-gray-900">{selectedOrder.assignedTechnicianName}</p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-gray-900">{selectedOrder.assignedTechnicianName}</p>
+                            <button
+                              onClick={() => handleViewTechnician(selectedOrder)}
+                              className="inline-flex items-center gap-1 px-3 py-1 text-sm text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition-colors"
+                              disabled={loadingTechnician}
+                            >
+                              <User className="w-4 h-4" />
+                              {loadingTechnician ? 'Loading...' : 'View Details'}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1119,8 +1267,8 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                       <div className="flex items-start gap-3">
                         <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                         <div className="text-sm text-green-900">
-                          <p className="font-semibold mb-1">Installation Complete!</p>
-                          <p>Your device has been successfully installed and is now active in your dashboard.</p>
+                          <p className="font-semibold mb-1">Delivery & Installation Complete!</p>
+                          <p>Your device has been successfully delivered and installed. It's now active and monitoring your water quality!</p>
                         </div>
                       </div>
                     </div>
@@ -1434,6 +1582,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
           </>
         )}
       </AnimatePresence>
+
+      {/* Technician Details Modal */}
+      <TechnicianModal
+        technician={selectedTechnician}
+        isOpen={showTechnicianModal}
+        onClose={() => {
+          setShowTechnicianModal(false);
+          setSelectedTechnician(null);
+        }}
+      />
 
       {/* Toast Notification */}
       <Toast

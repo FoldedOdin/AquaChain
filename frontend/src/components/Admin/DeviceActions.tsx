@@ -28,12 +28,12 @@ const DeviceActions: React.FC<DeviceActionsProps> = ({ device, readOnly }) => {
   const [showCalibrateModal, setShowCalibrateModal] = useState(false);
   const [showDisableModal, setShowDisableModal] = useState(false);
 
-  const handleViewDevice = () => {
+  const handleViewDevice = (): void => {
     // Navigate to device detail page
     window.location.href = `/devices/${device.deviceId}`;
   };
 
-  const handleRestartDevice = () => {
+  const handleRestartDevice = (): void => {
     toast.success(`Device ${device.deviceId} restart initiated`, {
       position: "top-right",
       autoClose: 5000,
@@ -52,7 +52,7 @@ const DeviceActions: React.FC<DeviceActionsProps> = ({ device, readOnly }) => {
     setShowCalibrateModal(false);
   };
 
-  const handleDisableDevice = () => {
+  const handleDisableDevice = (): void => {
     toast.warning(`Device ${device.deviceId} has been disabled`, {
       position: "top-right",
       autoClose: 5000,

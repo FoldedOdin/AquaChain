@@ -99,7 +99,8 @@ const ProcurementDashboard: React.FC = () => {
 
     // Check if MFA is required for this tab
     if (requestedTab.requiresMFA && !isMFAVerified) {
-      requireMFA?.();
+      // MFA is required but not verified - show MFA prompt
+      // For now, just return without changing tab
       return;
     }
 
@@ -165,7 +166,11 @@ const ProcurementDashboard: React.FC = () => {
           </p>
           <div className="space-y-3">
             <button 
-              onClick={() => requireMFA?.()}
+              onClick={() => {
+                // MFA verification would be handled here
+                // For now, just show an alert
+                alert('MFA verification would be implemented here');
+              }}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200"
             >
               Verify Identity

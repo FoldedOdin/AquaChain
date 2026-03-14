@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { DeviceRegistration } from '../../types/admin';
 import { getAllDevices, registerDevice, updateDevice } from '../../services/adminService';
 
-const DeviceManagement = () => {
+const DeviceManagement: React.FC = () => {
   const [devices, setDevices] = useState<DeviceRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive' | 'maintenance'>('all');

@@ -18,7 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { Package, MapPin, User, Calendar } from 'lucide-react';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
-import { OrderStatus, StatusUpdate, OrderStatusTrackerProps } from '../../types/ordering';
+import { OrderStatus, StatusUpdate, OrderStatusTrackerProps, TimelineEntry } from '../../types/ordering';
 import { 
   useErrorNotification, 
   OrderingError, 
@@ -26,6 +26,7 @@ import {
   InlineError
 } from '../ErrorHandling';
 import OrderProgressButtons from './OrderProgressButtons';
+import TechnicianModal from './TechnicianModal';
 import { orderingService } from '../../services/orderingService';
 
 /**
@@ -38,7 +39,8 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   statusHistory,
   estimatedDelivery,
   demoMode = false,
-  progressInterval = 20
+  progressInterval = 20,
+  order
 }) => {
   // Safety check for orderId to prevent WebSocket connection issues
   if (!orderId) {
@@ -67,6 +69,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   const [localCurrentStatus, setLocalCurrentStatus] = useState<OrderStatus | string>(currentStatus);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [connectionError, setConnectionError] = useState<Error | null>(null);
+  const [showTechnicianModal, setShowTechnicianModal] = useState(false);
 
   // Enhanced error notification
   const { showErrorNotification } = useErrorNotification();
@@ -238,8 +241,8 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
       icon: UserIcon,
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-100',
-      label: 'Assigned',
-      description: 'Technician has been assigned'
+      label: 'Technician Assigned',
+      description: 'Dedicated technician assigned for installation'
     },
     'accepted': {
       icon: CheckCircleIcon,
@@ -253,7 +256,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
       color: 'text-blue-600',
       bgColor: 'bg-blue-100',
       label: 'Shipped',
-      description: 'Device is on its way'
+      description: 'Device dispatched • Tracking ID will be shared'
     },
     'installing': {
       icon: WrenchScrewdriverIcon,
@@ -298,26 +301,40 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
       label: 'Order Placed',
       description: 'Your order has been confirmed'
     },
-    [OrderStatus.SHIPPED]: {
+    [OrderStatus.DEVICE_READY]: {
       icon: Package,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-100',
+      label: 'Device Ready',
+      description: 'Assembly & calibration (1–2 days)'
+    },
+    [OrderStatus.TECHNICIAN_ASSIGNED]: {
+      icon: UserIcon,
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-100',
+      label: 'Technician Assigned',
+      description: 'Dedicated technician assigned for installation'
+    },
+    [OrderStatus.SHIPPED]: {
+      icon: TruckIcon,
       color: 'text-blue-600',
       bgColor: 'bg-blue-100',
       label: 'Shipped',
-      description: 'Your order is on its way'
+      description: 'Device dispatched • Tracking ID will be shared'
     },
     [OrderStatus.OUT_FOR_DELIVERY]: {
       icon: TruckIcon,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-100',
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-100',
       label: 'Out for Delivery',
-      description: 'Your order is out for delivery'
+      description: 'Device is on the way to your location'
     },
     [OrderStatus.DELIVERED]: {
       icon: CheckCircleIcon,
       color: 'text-green-700',
       bgColor: 'bg-green-200',
-      label: 'Delivered',
-      description: 'Your order has been delivered'
+      label: 'Delivered & Installed',
+      description: 'Device delivered and installation completed successfully'
     },
     [OrderStatus.CANCELLED]: {
       icon: ExclamationTriangleIcon,
@@ -335,9 +352,50 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     }
   }), []);
 
+  // Helper function to get status configuration, handling both string and enum values
+  const getStatusConfig = useCallback((status: string | OrderStatus) => {
+    const statusStr = String(status);
+    
+    // First try direct lookup
+    if (statusConfig[statusStr]) {
+      return statusConfig[statusStr];
+    }
+    
+    // Try enum-based lookup for string values
+    if (statusStr === 'TECHNICIAN_ASSIGNED' && statusConfig[OrderStatus.TECHNICIAN_ASSIGNED]) {
+      return statusConfig[OrderStatus.TECHNICIAN_ASSIGNED];
+    }
+    if (statusStr === 'SHIPPED' && statusConfig[OrderStatus.SHIPPED]) {
+      return statusConfig[OrderStatus.SHIPPED];
+    }
+    if (statusStr === 'OUT_FOR_DELIVERY' && statusConfig[OrderStatus.OUT_FOR_DELIVERY]) {
+      return statusConfig[OrderStatus.OUT_FOR_DELIVERY];
+    }
+    if (statusStr === 'DELIVERED' && statusConfig[OrderStatus.DELIVERED]) {
+      return statusConfig[OrderStatus.DELIVERED];
+    }
+    if (statusStr === 'ORDER_PLACED' && statusConfig[OrderStatus.ORDER_PLACED]) {
+      return statusConfig[OrderStatus.ORDER_PLACED];
+    }
+    if (statusStr === 'DEVICE_READY' && statusConfig[OrderStatus.DEVICE_READY]) {
+      return statusConfig[OrderStatus.DEVICE_READY];
+    }
+    
+    // Fallback for unknown statuses
+    return {
+      icon: ClockIcon,
+      color: 'text-gray-600',
+      bgColor: 'bg-gray-100',
+      label: statusStr,
+      description: `Status: ${statusStr}`
+    };
+  }, [statusConfig]);
+
   // Get status progression for progress bar
   const statusProgression = useMemo(() => [
     OrderStatus.ORDER_PLACED,
+    OrderStatus.DEVICE_READY,
+    OrderStatus.TECHNICIAN_ASSIGNED,
     OrderStatus.SHIPPED,
     OrderStatus.OUT_FOR_DELIVERY,
     OrderStatus.DELIVERED
@@ -359,7 +417,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
 
     const timer = setTimeout(() => {
       const nextStatus = statusProgression[currentIndex + 1];
-      const config = statusConfig[nextStatus];
+      const config = getStatusConfig(nextStatus);
       
       setLocalCurrentStatus(nextStatus);
       
@@ -375,7 +433,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     }, progressInterval * 1000);
 
     return () => clearTimeout(timer);
-  }, [demoMode, progressInterval, localCurrentStatus, statusProgression, statusConfig]);
+  }, [demoMode, progressInterval, localCurrentStatus, statusProgression, getStatusConfig]);
 
   const getCurrentProgressPercentage = useCallback(() => {
     // Convert to string for comparison to handle both enum and string values
@@ -385,13 +443,52 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
       return 0;
     }
     
-    // Find current status in progression (convert enum values to strings for comparison)
+    // Check if we have timeline data to determine completed steps
+    if (order?.timeline && Array.isArray(order.timeline)) {
+      const timelineStatuses = order.timeline.map((item: any) => String(item.status));
+      
+      // Count how many steps in our progression have been completed based on timeline
+      let completedSteps = 0;
+      
+      // Map timeline statuses to our progression statuses
+      const statusMapping: Record<string, OrderStatus> = {
+        'placed': OrderStatus.ORDER_PLACED,
+        'confirmed': OrderStatus.ORDER_PLACED, // Both placed and confirmed count as ORDER_PLACED
+        'device_ready': OrderStatus.DEVICE_READY,
+        'assigned': OrderStatus.TECHNICIAN_ASSIGNED,
+        'shipped': OrderStatus.SHIPPED,
+        'out_for_delivery': OrderStatus.OUT_FOR_DELIVERY,
+        'delivered': OrderStatus.DELIVERED
+      };
+      
+      // Check which progression steps have been completed
+      statusProgression.forEach((progressStatus) => {
+        const progressStatusStr = String(progressStatus);
+        
+        // Check if this step appears in the timeline
+        const hasTimelineEntry = timelineStatuses.some((timelineStatus: string) => {
+          const mappedStatus = statusMapping[timelineStatus];
+          return mappedStatus && String(mappedStatus) === progressStatusStr;
+        });
+        
+        // Also check if current status matches this step
+        const isCurrentStatus = currentStatusStr === progressStatusStr;
+        
+        if (hasTimelineEntry || isCurrentStatus) {
+          completedSteps++;
+        }
+      });
+      
+      return (completedSteps / statusProgression.length) * 100;
+    }
+    
+    // Fallback to original logic if no timeline data
     const progressionStrings = statusProgression.map(status => String(status));
     const currentIndex = progressionStrings.indexOf(currentStatusStr);
     if (currentIndex === -1) return 0;
     
     return ((currentIndex + 1) / statusProgression.length) * 100;
-  }, [localCurrentStatus, statusProgression]);
+  }, [localCurrentStatus, statusProgression, order]);
 
   // Format timestamp for display
   const formatTimestamp = useCallback((timestamp: Date) => {
@@ -478,7 +575,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     }
   }, [connect, disconnect, orderId, showErrorNotification]);
 
-  const currentConfig = statusConfig[localCurrentStatus as string];
+  const currentConfig = getStatusConfig(localCurrentStatus);
   
   // Add null check to prevent undefined access
   if (!currentConfig) {
@@ -545,7 +642,57 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
             <h4 className={`text-xl font-semibold ${currentConfig.color}`}>
               {currentConfig.label}
             </h4>
-            <p className="text-gray-700">{currentConfig.description}</p>
+            <p className="text-gray-700">
+              {currentConfig.description}
+              {/* Show technician details when assigned */}
+              {(localCurrentStatus === OrderStatus.TECHNICIAN_ASSIGNED || 
+                localCurrentStatus === 'TECHNICIAN_ASSIGNED' ||
+                localCurrentStatus === 'assigned') && 
+                (order?.technician || order?.assignedTechnicianName || order?.assignedTechnician) && (
+                <div className="mt-3 p-3 bg-white rounded-lg border border-indigo-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <UserIcon className="h-5 w-5 text-indigo-600" />
+                      <div>
+                        <p className="font-medium text-indigo-900">
+                          {order.technician?.name || order.assignedTechnicianName || order.assignedTechnician}
+                        </p>
+                        {order.technician?.phone && (
+                          <p className="text-sm text-indigo-700">
+                            📞 {order.technician.phone}
+                          </p>
+                        )}
+                        {order.technician?.rating && order.technician.rating > 0 && (
+                          <div className="flex items-center space-x-1 mt-1">
+                            <span className="text-sm text-indigo-700">⭐ {order.technician.rating.toFixed(1)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {order.technician && (
+                      <button
+                        onClick={() => setShowTechnicianModal(true)}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
+                      >
+                        View Details
+                      </button>
+                    )}
+                  </div>
+                  {order.technicianAssignment?.estimatedArrival && (
+                    <div className="mt-2 text-sm text-indigo-700">
+                      <span className="font-medium">Estimated Arrival:</span>{' '}
+                      {new Intl.DateTimeFormat('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      }).format(new Date(order.technicianAssignment.estimatedArrival))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </p>
           </div>
         </div>
       </motion.div>
@@ -651,10 +798,42 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
           {/* Progress Steps */}
           <div className="flex justify-between mt-3">
             {statusProgression.map((status, index) => {
-              const config = statusConfig[status];
+              const config = getStatusConfig(status);
               const progressionStrings = statusProgression.map(s => String(s));
               const currentStatusStr = String(localCurrentStatus);
-              const isCompleted = progressionStrings.indexOf(currentStatusStr) >= index;
+              
+              // Enhanced completion logic using timeline data
+              let isCompleted = false;
+              
+              if (order?.timeline && Array.isArray(order.timeline)) {
+                const timelineStatuses = order.timeline.map((item: any) => String(item.status));
+                const statusMapping: Record<string, OrderStatus> = {
+                  'placed': OrderStatus.ORDER_PLACED,
+                  'confirmed': OrderStatus.ORDER_PLACED,
+                  'device_ready': OrderStatus.DEVICE_READY,
+                  'assigned': OrderStatus.TECHNICIAN_ASSIGNED,
+                  'shipped': OrderStatus.SHIPPED,
+                  'out_for_delivery': OrderStatus.OUT_FOR_DELIVERY,
+                  'delivered': OrderStatus.DELIVERED
+                };
+                
+                // Check if this step appears in the timeline
+                const hasTimelineEntry = timelineStatuses.some((timelineStatus: string) => {
+                  const mappedStatus = statusMapping[timelineStatus];
+                  return mappedStatus && String(mappedStatus) === String(status);
+                });
+                
+                // Also check if current status matches or is beyond this step
+                const currentIndex = progressionStrings.indexOf(currentStatusStr);
+                const stepIndex = progressionStrings.indexOf(String(status));
+                const isBeyondStep = currentIndex >= stepIndex && currentIndex !== -1;
+                
+                isCompleted = hasTimelineEntry || isBeyondStep;
+              } else {
+                // Fallback to original logic
+                isCompleted = progressionStrings.indexOf(currentStatusStr) >= index;
+              }
+              
               const isCurrent = currentStatusStr === String(status);
               
               return (
@@ -671,6 +850,29 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
                   }`}>
                     {config.label}
                   </span>
+                  {/* Show technician name for TECHNICIAN_ASSIGNED step */}
+                  {String(status) === String(OrderStatus.TECHNICIAN_ASSIGNED) && 
+                   isCompleted && 
+                   (order?.technician?.name || order?.assignedTechnicianName || order?.assignedTechnician) && (
+                    <div className="text-center mt-1">
+                      <span className="text-xs text-indigo-600 font-medium block">
+                        {order.technician?.name || order.assignedTechnicianName || order.assignedTechnician}
+                      </span>
+                      {order.technician?.phone && (
+                        <span className="text-xs text-indigo-500 block">
+                          📞 {order.technician.phone}
+                        </span>
+                      )}
+                      {order.technician && (
+                        <button
+                          onClick={() => setShowTechnicianModal(true)}
+                          className="text-xs text-indigo-600 hover:underline mt-1"
+                        >
+                          View Details
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -712,7 +914,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
         <div className="space-y-3 max-h-64 overflow-y-auto">
           <AnimatePresence>
             {localStatusHistory.map((update, index) => {
-              const config = statusConfig[update.status as string];
+              const config = getStatusConfig(update.status);
               if (!config) {
                 console.warn(`No status configuration found for status: ${update.status}`);
                 return null;
@@ -765,6 +967,14 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
       <div className="mt-6 pt-4 border-t border-gray-200">
         <ConnectionStatus />
       </div>
+
+      {/* Technician Details Modal */}
+      <TechnicianModal
+        technician={order?.technician || null}
+        technicianAssignment={order?.technicianAssignment}
+        isOpen={showTechnicianModal}
+        onClose={() => setShowTechnicianModal(false)}
+      />
     </div>
   );
 };

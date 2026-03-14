@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ComplianceReport } from '../../types/admin';
 import { generateComplianceReport } from '../../services/adminService';
 
-const ComplianceReporting = () => {
+const ComplianceReporting: React.FC = () => {
   const [report, setReport] = useState<ComplianceReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(() => {
@@ -27,21 +27,17 @@ const ComplianceReporting = () => {
     }
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = (): void => {
     if (!report) return;
     
     // In a real implementation, this would generate and download a PDF
-    alert('PDF export functionality would be implemented here');
-    console.log('Exporting report:', report);
-  };
+    alert('PDF export functionality would be implemented here');  };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = (): void => {
     if (!report) return;
     
     // In a real implementation, this would generate and download a CSV
-    alert('CSV export functionality would be implemented here');
-    console.log('Exporting report:', report);
-  };
+    alert('CSV export functionality would be implemented here');  };
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">

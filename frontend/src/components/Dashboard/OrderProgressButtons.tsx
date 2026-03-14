@@ -34,28 +34,30 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
   const { showErrorNotification } = useErrorNotification();
 
   // Map frontend statuses to backend-allowed statuses
-  // Backend only accepts: PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED
+  // Backend now accepts: PENDING_PAYMENT, PENDING_CONFIRMATION, ORDER_PLACED, DEVICE_READY, TECHNICIAN_ASSIGNED, SHIPPED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, FAILED
   const FRONTEND_TO_BACKEND_STATUS: Record<string, string> = {
-    'ORDER_PLACED': 'PENDING',
-    'PENDING_PAYMENT': 'PENDING',
-    'PENDING_CONFIRMATION': 'PENDING',
-    'DEVICE_READY': 'PROCESSING',
-    'PROCESSING': 'PROCESSING',
+    'ORDER_PLACED': 'ORDER_PLACED',
+    'PENDING_PAYMENT': 'PENDING_PAYMENT',
+    'PENDING_CONFIRMATION': 'PENDING_CONFIRMATION',
+    'DEVICE_READY': 'DEVICE_READY',
+    'TECHNICIAN_ASSIGNED': 'TECHNICIAN_ASSIGNED',
+    'PROCESSING': 'ORDER_PLACED',
     'SHIPPED': 'SHIPPED',
-    'OUT_FOR_DELIVERY': 'DELIVERED', // Changed: Map to DELIVERED instead of SHIPPED
-    'TECHNICIAN_ASSIGNED': 'DELIVERED',
+    'OUT_FOR_DELIVERY': 'OUT_FOR_DELIVERY',
     'DELIVERED': 'DELIVERED',
     'CANCELLED': 'CANCELLED',
-    'FAILED': 'CANCELLED'
+    'FAILED': 'FAILED'
   };
 
   // Define status progression map
   const statusProgressionMap: Record<string, OrderStatus | null> = {
     [OrderStatus.PENDING_PAYMENT]: OrderStatus.ORDER_PLACED,
     [OrderStatus.PENDING_CONFIRMATION]: OrderStatus.ORDER_PLACED,
-    [OrderStatus.ORDER_PLACED]: OrderStatus.SHIPPED,
-    [OrderStatus.SHIPPED]: OrderStatus.OUT_FOR_DELIVERY, // Frontend shows OUT_FOR_DELIVERY
-    [OrderStatus.OUT_FOR_DELIVERY]: OrderStatus.DELIVERED, // Then DELIVERED
+    [OrderStatus.ORDER_PLACED]: OrderStatus.DEVICE_READY,
+    [OrderStatus.DEVICE_READY]: OrderStatus.TECHNICIAN_ASSIGNED,
+    [OrderStatus.TECHNICIAN_ASSIGNED]: OrderStatus.SHIPPED,
+    [OrderStatus.SHIPPED]: OrderStatus.OUT_FOR_DELIVERY,
+    [OrderStatus.OUT_FOR_DELIVERY]: OrderStatus.DELIVERED,
     [OrderStatus.DELIVERED]: null, // Terminal state
     [OrderStatus.CANCELLED]: null, // Terminal state
     [OrderStatus.FAILED]: null, // Terminal state
@@ -66,7 +68,9 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
     const labels: Record<string, string> = {
       [OrderStatus.PENDING_PAYMENT]: 'Confirm Payment',
       [OrderStatus.PENDING_CONFIRMATION]: 'Confirm Order',
-      [OrderStatus.ORDER_PLACED]: 'Mark as Shipped',
+      [OrderStatus.ORDER_PLACED]: 'Mark Device Ready',
+      [OrderStatus.DEVICE_READY]: 'Assign Technician',
+      [OrderStatus.TECHNICIAN_ASSIGNED]: 'Mark as Shipped',
       [OrderStatus.SHIPPED]: 'Out for Delivery',
       [OrderStatus.OUT_FOR_DELIVERY]: 'Mark as Delivered',
     };

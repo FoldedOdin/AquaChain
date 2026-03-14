@@ -6,7 +6,14 @@ import json
 import boto3
 import base64
 from datetime import datetime
+from decimal import Decimal
 from botocore.exceptions import ClientError
+
+def decimal_default(obj):
+    """JSON serializer for Decimal objects"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError
 
 dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
 users_table = dynamodb.Table('AquaChain-Users')
@@ -21,7 +28,7 @@ def cors_response(status_code, body):
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type, Authorization'
         },
-        'body': json.dumps(body)
+        'body': json.dumps(body, default=decimal_default)
     }
 
 def extract_email_from_token(auth_header):

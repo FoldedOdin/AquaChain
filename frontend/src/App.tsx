@@ -36,11 +36,7 @@ function App() {
     // Debug current location (development only)
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
-      console.log('=== APP MOUNTED ===');
-      // eslint-disable-next-line no-console
-      console.log('Current location:', window.location.href);
-      // eslint-disable-next-line no-console
-      console.log('Current pathname:', window.location.pathname);
+      console.log('Current location:', location.pathname);
     }
 
     // Cleanup on unmount

@@ -20,7 +20,7 @@ interface ContactFormData {
 }
 
 interface ContactFormProps {
-  onSubmit?: (data: ContactFormData) => Promise<void>;
+  onSubmit?: (_data: ContactFormData) => Promise<void>;
   className?: string;
 }
 
@@ -108,7 +108,7 @@ const ContactForm: React.FC<ContactFormProps> = ({ onSubmit, className = '' }) =
       sanitizedValue = value.trim();
     } else if (field === 'phone') {
       // Phone: numbers, spaces, +, -, (, )
-      sanitizedValue = value.replace(/[^0-9\s\+\-\(\)]/g, '');
+      sanitizedValue = value.replace(/[^0-9\s+\-()]/g, '');
     } else if (field === 'message') {
       // Message: allow most characters for proper communication
       // Only prevent actual XSS attempts, allow spaces and punctuation
@@ -151,9 +151,7 @@ const ContactForm: React.FC<ContactFormProps> = ({ onSubmit, className = '' }) =
         await onSubmit(formData);
       } else {
         // Submit to backend API
-        const response = await submitContactForm(formData);
-        console.log('Contact form submitted:', response.submissionId);
-      }
+        const response = await submitContactForm(formData);      }
 
       setSubmissionState({
         isSubmitting: false,

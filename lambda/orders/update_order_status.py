@@ -90,6 +90,7 @@ def handler(event, context):
         # Validate status - aligned with frontend OrderStatus enum
         valid_statuses = [
             'PENDING_PAYMENT', 'PENDING_CONFIRMATION', 'ORDER_PLACED',
+            'DEVICE_READY', 'TECHNICIAN_ASSIGNED',
             'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'FAILED'
         ]
         if new_status not in valid_statuses:

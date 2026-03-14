@@ -11,7 +11,7 @@ interface CreateShipmentModalProps {
     pincode: string;
   };
   onClose: () => void;
-  onSuccess: (trackingNumber: string) => void;
+  onSuccess: (_trackingNumber: string) => void;
 }
 
 const CreateShipmentModal: React.FC<CreateShipmentModalProps> = ({

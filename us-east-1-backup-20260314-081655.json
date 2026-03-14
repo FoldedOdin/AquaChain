@@ -1,0 +1,51 @@
+{
+  "AquaChain-Readings": {
+    "item_count": 1,
+    "sample_items": [
+      {
+        "tds": "45",
+        "deviceId": "ESP32-001",
+        "qualityStatus": "unknown",
+        "timestamp": "2026-03-08T14:10:00Z",
+        "deviceId_month": "ESP32-001_2026-03",
+        "createdAt": "2026-03-08T15:42:40.799801",
+        "pH": "7",
+        "qualityScore": "50",
+        "metric_type": "water_quality",
+        "turbidity": "300",
+        "temperature": "30"
+      }
+    ],
+    "backup_timestamp": "2026-03-14T08:16:53.431522"
+  },
+  "aquachain-ledger": {
+    "item_count": 0,
+    "sample_items": [],
+    "backup_timestamp": "2026-03-14T08:16:53.723286"
+  },
+  "aquachain-order-simulations": {
+    "item_count": 0,
+    "sample_items": [],
+    "backup_timestamp": "2026-03-14T08:16:53.997556"
+  },
+  "aquachain-orders": {
+    "item_count": 0,
+    "sample_items": [],
+    "backup_timestamp": "2026-03-14T08:16:54.272347"
+  },
+  "aquachain-payments": {
+    "item_count": 0,
+    "sample_items": [],
+    "backup_timestamp": "2026-03-14T08:16:54.546916"
+  },
+  "aquachain-shipments": {
+    "item_count": 0,
+    "sample_items": [],
+    "backup_timestamp": "2026-03-14T08:16:54.823045"
+  },
+  "aquachain-technicians": {
+    "item_count": 0,
+    "sample_items": [],
+    "backup_timestamp": "2026-03-14T08:16:55.096478"
+  }
+}

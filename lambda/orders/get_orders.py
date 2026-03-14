@@ -52,13 +52,13 @@ def handler(event, context):
         # Query orders table for this user
         orders_table = dynamodb.Table(ORDERS_TABLE)
         
-        # Query by consumerId using GSI1 (CONSUMER#{consumerId})
+        # Query by consumerId using userId-createdAt-index
         try:
             response = orders_table.query(
-                IndexName='GSI1',
-                KeyConditionExpression='GSI1PK = :consumer_pk',
+                IndexName='userId-createdAt-index',
+                KeyConditionExpression='userId = :consumer_id',
                 ExpressionAttributeValues={
-                    ':consumer_pk': f'CONSUMER#{consumer_id}'
+                    ':consumer_id': consumer_id
                 },
                 ScanIndexForward=False  # Sort by createdAt descending (most recent first)
             )
@@ -73,14 +73,32 @@ def handler(event, context):
         # Transform orders to match frontend expectations
         transformed_orders = []
         for order in orders:
-            # Get delivery address and contact info (already objects, not JSON strings)
+            # Get delivery address and contact info - handle both string and dict formats
             delivery_address = order.get('deliveryAddress', {})
             contact_info = order.get('contactInfo', {})
             status_history = order.get('statusHistory', [])
             
+            # Handle deliveryAddress - it might be a string or dict
+            if isinstance(delivery_address, str):
+                try:
+                    delivery_address = json.loads(delivery_address)
+                except (json.JSONDecodeError, TypeError):
+                    delivery_address = {}
+            elif not isinstance(delivery_address, dict):
+                delivery_address = {}
+            
+            # Handle contactInfo - it might be a string or dict
+            if isinstance(contact_info, str):
+                try:
+                    contact_info = json.loads(contact_info)
+                except (json.JSONDecodeError, TypeError):
+                    contact_info = {}
+            elif not isinstance(contact_info, dict):
+                contact_info = {}
+            
             # Format address as a string for frontend display
             address_str = ''
-            if delivery_address:
+            if delivery_address and isinstance(delivery_address, dict):
                 address_parts = []
                 if delivery_address.get('street'):
                     address_parts.append(delivery_address['street'])
@@ -93,8 +111,44 @@ def handler(event, context):
                 address_str = ', '.join(address_parts) if address_parts else ''
             
             # Extract phone from contactInfo
-            phone = contact_info.get('phone', '') if contact_info else ''
+            phone = contact_info.get('phone', '') if isinstance(contact_info, dict) else ''
             
+            # Extract technician assignment details
+            technician_assignment = order.get('technicianAssignment', {})
+            assigned_technician = order.get('assignedTechnician')
+            
+            # Build technician object if assignment exists
+            technician = None
+            if technician_assignment or assigned_technician:
+                # Get technician data from the order directly if available
+                existing_technician = order.get('technician', {})
+                
+                # Build comprehensive technician object
+                technician = {
+                    'id': (existing_technician.get('id') or 
+                          technician_assignment.get('technicianId') or 
+                          assigned_technician or ''),
+                    'name': (existing_technician.get('name') or 
+                            technician_assignment.get('technicianName') or ''),
+                    'phone': (existing_technician.get('phone') or 
+                             technician_assignment.get('technicianPhone') or ''),
+                    'email': (existing_technician.get('email') or 
+                             technician_assignment.get('technicianEmail') or ''),
+                    'address': (existing_technician.get('address') or 
+                               technician_assignment.get('technicianAddress') or ''),
+                    'experience': (existing_technician.get('experience') or 
+                                  technician_assignment.get('experience') or ''),
+                    'rating': float(existing_technician.get('rating', 0) or 
+                                   technician_assignment.get('rating', 0) or 0),
+                    'estimatedArrival': technician_assignment.get('estimatedArrival', ''),
+                    'distance': float(technician_assignment.get('distance', 0) or 0),
+                    'status': (existing_technician.get('status') or 
+                              technician_assignment.get('status', 'assigned'))
+                }
+                # Only include technician object if we have meaningful data
+                if not technician['name'] and not technician['phone']:
+                    technician = None
+
             transformed_order = {
                 'orderId': order.get('orderId'),
                 'id': order.get('orderId'),  # Also include id for compatibility
@@ -114,7 +168,12 @@ def handler(event, context):
                 'createdAt': order.get('createdAt'),
                 'updatedAt': order.get('updatedAt'),
                 'statusHistory': status_history,
-                'specialInstructions': order.get('specialInstructions', '')
+                'specialInstructions': order.get('specialInstructions', ''),
+                # Technician assignment details
+                'assignedTechnician': assigned_technician,
+                'assignedTechnicianName': technician_assignment.get('technicianName', ''),
+                'technician': technician,
+                'technicianAssignment': technician_assignment
             }
             transformed_orders.append(transformed_order)
         

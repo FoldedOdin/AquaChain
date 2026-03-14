@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AuditTrailEntry } from '../../types/admin';
 import { getAuditTrail, verifyHashChain } from '../../services/adminService';
 
-const AuditTrailViewer = () => {
+const AuditTrailViewer: React.FC = () => {
   const [entries, setEntries] = useState<AuditTrailEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -52,7 +52,7 @@ const AuditTrailViewer = () => {
     }
   };
 
-  const handleExportData = () => {
+  const handleExportData = (): void => {
     if (entries.length === 0) return;
 
     const csvContent = [

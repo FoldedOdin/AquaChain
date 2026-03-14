@@ -194,7 +194,7 @@ const DeviceFleetTable: React.FC<DeviceFleetTableProps> = ({ readOnly = false })
   }, []);
 
   // Clear all filters
-  const handleClearFilters = () => {
+  const handleClearFilters = (): void => {
     setFilters({ search: "", status: "All", battery: "All" });
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   };

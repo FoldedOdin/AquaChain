@@ -20,7 +20,7 @@ interface ContactSubmission {
   updatedAt: string;
 }
 
-const ContactSubmissions = () => {
+const ContactSubmissions: React.FC = () => {
   const [submissions, setSubmissions] = useState<ContactSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'contacted' | 'resolved'>('all');

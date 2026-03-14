@@ -653,6 +653,7 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
                     statusHistory={state.currentOrder.statusHistory || []}
                     demoMode={false}
                     progressInterval={20}
+                    order={state.currentOrder}
                   />
                   
                   {/* Order Complete Button */}

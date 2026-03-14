@@ -54,6 +54,8 @@ class OrderStatus(Enum):
     PENDING_PAYMENT = 'PENDING_PAYMENT'
     PENDING_CONFIRMATION = 'PENDING_CONFIRMATION'
     ORDER_PLACED = 'ORDER_PLACED'
+    DEVICE_READY = 'DEVICE_READY'
+    TECHNICIAN_ASSIGNED = 'TECHNICIAN_ASSIGNED'
     SHIPPED = 'SHIPPED'
     OUT_FOR_DELIVERY = 'OUT_FOR_DELIVERY'
     DELIVERED = 'DELIVERED'
@@ -80,7 +82,9 @@ class OrderManagementService:
         # Valid state transitions
         self.valid_transitions = {
             OrderStatus.PENDING_PAYMENT: [OrderStatus.ORDER_PLACED, OrderStatus.CANCELLED, OrderStatus.FAILED],
-            OrderStatus.ORDER_PLACED: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
+            OrderStatus.ORDER_PLACED: [OrderStatus.DEVICE_READY, OrderStatus.CANCELLED],
+            OrderStatus.DEVICE_READY: [OrderStatus.TECHNICIAN_ASSIGNED, OrderStatus.CANCELLED],
+            OrderStatus.TECHNICIAN_ASSIGNED: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
             OrderStatus.SHIPPED: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
             OrderStatus.OUT_FOR_DELIVERY: [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
             OrderStatus.DELIVERED: [],  # Terminal state
@@ -342,6 +346,65 @@ class OrderManagementService:
                     correlation_id
                 )
             
+            # Handle technician assignment when status becomes TECHNICIAN_ASSIGNED
+            if new_status == OrderStatus.TECHNICIAN_ASSIGNED:
+                try:
+                    # Import technician assignment service
+                    import sys
+                    import os
+                    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'technician_assignment'))
+                    from technician_assignment_service import TechnicianAssignmentService
+                    
+                    # Create assignment service
+                    assignment_service = TechnicianAssignmentService()
+                    
+                    # Extract service location from order
+                    delivery_address = current_order.get('deliveryAddress', {})
+                    service_location = {
+                        'latitude': delivery_address.get('latitude', 0.0),
+                        'longitude': delivery_address.get('longitude', 0.0),
+                        'address': f"{delivery_address.get('street', '')}, {delivery_address.get('city', '')}, {delivery_address.get('state', '')} {delivery_address.get('pincode', '')}".strip(', '),
+                        'city': delivery_address.get('city', ''),
+                        'state': delivery_address.get('state', ''),
+                        'pincode': delivery_address.get('pincode', '')
+                    }
+                    
+                    # If coordinates are not available, use default location (Mumbai)
+                    if service_location['latitude'] == 0.0 and service_location['longitude'] == 0.0:
+                        service_location['latitude'] = 19.0760
+                        service_location['longitude'] = 72.8777
+                    
+                    # Assign technician
+                    assignment_request = {
+                        'orderId': order_id,
+                        'serviceLocation': service_location
+                    }
+                    
+                    assignment_result = assignment_service.assign_technician(assignment_request, correlation_id)
+                    
+                    if assignment_result['success']:
+                        assignment_data = assignment_result['data']
+                        # Update metadata with technician assignment info
+                        metadata.update({
+                            'technicianId': assignment_data.get('technicianId'),
+                            'technicianName': assignment_data.get('technicianName'),
+                            'estimatedArrival': assignment_data.get('estimatedArrival'),
+                            'distance': assignment_data.get('distance')
+                        })
+                        logger.info(f'Technician assigned to order {order_id}', 
+                                  technician_id=assignment_data.get('technicianId'),
+                                  correlation_id=correlation_id)
+                    else:
+                        logger.warning(f'Failed to assign technician to order {order_id}', 
+                                     error=assignment_result.get('message'),
+                                     correlation_id=correlation_id)
+                        
+                except Exception as e:
+                    logger.error(f'Error during technician assignment for order {order_id}', 
+                               error=str(e), correlation_id=correlation_id)
+                    # Don't fail the status update if technician assignment fails
+                    # Just log the error and continue
+            
             # Prepare update
             timestamp = datetime.now(timezone.utc).isoformat()
             current_version = current_order.get('version', 0)  # Default to 0 if no version exists
@@ -367,30 +430,48 @@ class OrderManagementService:
                 else:
                     condition_expression = 'attribute_exists(orderId)'
                 
+                # Build update expression based on whether technician info is available
+                update_expression = '''
+                    SET #status = :new_status,
+                        #updatedAt = :timestamp,
+                        #version = :new_version,
+                        #statusHistory = :status_history
+                '''
+                
+                expression_attribute_names = {
+                    '#status': 'status',
+                    '#updatedAt': 'updatedAt',
+                    '#version': 'version',
+                    '#statusHistory': 'statusHistory'
+                }
+                
+                expression_attribute_values = {
+                    ':new_status': new_status.value,
+                    ':timestamp': timestamp,
+                    ':new_version': new_version,
+                    ':current_version': current_version,
+                    ':status_history': status_history
+                }
+                
+                # Add technician fields if available in metadata
+                if metadata.get('technicianId'):
+                    update_expression += ', #assignedTechnician = :technician_id'
+                    expression_attribute_names['#assignedTechnician'] = 'assignedTechnician'
+                    expression_attribute_values[':technician_id'] = metadata['technicianId']
+                
+                if metadata.get('technicianName'):
+                    update_expression += ', #assignedTechnicianName = :technician_name'
+                    expression_attribute_names['#assignedTechnicianName'] = 'assignedTechnicianName'
+                    expression_attribute_values[':technician_name'] = metadata['technicianName']
+                
                 response = self.orders_table.update_item(
                     Key={
                         'orderId': order_id
                     },
-                    UpdateExpression='''
-                        SET #status = :new_status,
-                            #updatedAt = :timestamp,
-                            #version = :new_version,
-                            #statusHistory = :status_history
-                    ''',
+                    UpdateExpression=update_expression,
                     ConditionExpression=condition_expression,
-                    ExpressionAttributeNames={
-                        '#status': 'status',
-                        '#updatedAt': 'updatedAt',
-                        '#version': 'version',
-                        '#statusHistory': 'statusHistory'
-                    },
-                    ExpressionAttributeValues={
-                        ':new_status': new_status.value,
-                        ':timestamp': timestamp,
-                        ':new_version': new_version,
-                        ':current_version': current_version,
-                        ':status_history': status_history
-                    },
+                    ExpressionAttributeNames=expression_attribute_names,
+                    ExpressionAttributeValues=expression_attribute_values,
                     ReturnValues='ALL_NEW'
                 )
                 

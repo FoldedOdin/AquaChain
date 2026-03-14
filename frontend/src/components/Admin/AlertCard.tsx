@@ -72,7 +72,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
 }) => {
   const [showAssignModal, setShowAssignModal] = useState(false);
 
-  const handleAcknowledge = () => {
+  const handleAcknowledge = (): void => {
     onAcknowledge(alert.alertId);
   };
 

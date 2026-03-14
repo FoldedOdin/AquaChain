@@ -8,6 +8,8 @@ export enum OrderStatus {
   PENDING_PAYMENT = 'PENDING_PAYMENT',
   PENDING_CONFIRMATION = 'PENDING_CONFIRMATION',
   ORDER_PLACED = 'ORDER_PLACED',
+  DEVICE_READY = 'DEVICE_READY',
+  TECHNICIAN_ASSIGNED = 'TECHNICIAN_ASSIGNED',
   SHIPPED = 'SHIPPED',
   OUT_FOR_DELIVERY = 'OUT_FOR_DELIVERY',
   DELIVERED = 'DELIVERED',
@@ -52,6 +54,13 @@ export interface ContactInfo {
   alternatePhone?: string;
 }
 
+// Timeline entry interface for order progression
+export interface TimelineEntry {
+  status: string;
+  timestamp: string;
+  description: string;
+}
+
 // Status update interface
 export interface StatusUpdate {
   status: OrderStatus | string;
@@ -84,10 +93,14 @@ export interface Order {
   deliveryAddress: Address;
   contactInfo: ContactInfo;
   assignedTechnician?: string;
+  assignedTechnicianName?: string;
+  technician?: Technician; // Full technician details
+  technicianAssignment?: TechnicianAssignment; // Full assignment details
   paymentId?: string;
   createdAt: Date;
   updatedAt: Date;
   statusHistory: StatusUpdate[];
+  timeline?: TimelineEntry[]; // Timeline entries from backend
   specialInstructions?: string;
 }
 
@@ -126,18 +139,32 @@ export interface Technician {
   name: string;
   phone: string;
   email: string;
-  location: Location;
-  available: boolean;
-  skills: string[];
-  rating: number;
+  location?: Location;
+  address?: string;
+  available?: boolean;
+  skills?: string[];
+  rating?: number;
+  experience?: string;
+  estimatedArrival?: string;
+  distance?: number;
+  status?: string;
 }
 
 export interface TechnicianAssignment {
   orderId: string;
   technicianId: string;
+  technicianName: string;
+  technicianPhone: string;
+  technicianEmail?: string;
+  technicianAddress?: string;
   assignedAt: Date;
   estimatedArrival?: Date;
   distance: number; // in kilometers
+  estimatedTravelTime?: number;
+  status: string;
+  serviceLocation?: Location;
+  experience?: string;
+  rating?: number;
 }
 
 // Simulation interfaces
@@ -189,6 +216,7 @@ export interface OrderStatusTrackerProps {
   estimatedDelivery?: Date;
   demoMode?: boolean; // Enable auto-progression for demo purposes
   progressInterval?: number; // Interval in seconds (default: 20)
+  order?: Order; // Full order object with technician details
 }
 
 // Service interfaces for backend integration
