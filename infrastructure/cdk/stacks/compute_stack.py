@@ -70,6 +70,7 @@ class AquaChainComputeStack(Stack):
                 "SEQUENCE_TABLE": get_resource_name(self.config, "table", "sequence"),
                 "USERS_TABLE": get_resource_name(self.config, "table", "users"),
                 "SERVICE_REQUESTS_TABLE": get_resource_name(self.config, "table", "service-requests"),
+                "ORDERS_TABLE": "aquachain-orders",
                 "DATA_LAKE_BUCKET": get_resource_name(self.config, "bucket", f"data-lake-{self.account}"),
                 "AUDIT_BUCKET": get_resource_name(self.config, "bucket", f"audit-trail-{self.account}"),
                 "ML_MODELS_BUCKET": get_resource_name(self.config, "bucket", f"ml-models-{self.account}"),
@@ -239,6 +240,22 @@ class AquaChainComputeStack(Stack):
             )
         )
         
+        # Grant orders table read access for technician order queries
+        self.service_request_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:GetItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-orders",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-orders/index/*"
+                ]
+            )
+        )
+        
         # Audit Trail Processor Lambda
         self.audit_processor_function = lambda_python.PythonFunction(
             self, "AuditProcessorFunction",
@@ -272,16 +289,84 @@ class AquaChainComputeStack(Stack):
             source_arn=f"arn:aws:execute-api:{self.region}:{self.account}:*/*/*"
         )
         
-        # Notification Service Lambda
+        # Notification Service Lambda — dedicated role with SES + SNS permissions
+        notification_role = iam.Role(
+            self, "NotificationRole",
+            role_name=get_resource_name(self.config, "role", "notification"),
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AWSXRayDaemonWriteAccess"),
+            ],
+            description="AquaChain notification service Lambda execution role"
+        )
+
+        # SES — send emails (SES does not support resource-level restrictions on SendEmail)
+        notification_role.add_to_policy(iam.PolicyStatement(
+            sid="SESProduction",
+            effect=iam.Effect.ALLOW,
+            actions=["ses:SendEmail", "ses:SendRawEmail", "ses:GetSendQuota", "ses:GetSendStatistics"],
+            resources=["*"]
+        ))
+
+        # SNS — publish to notification topics + direct SMS
+        notification_role.add_to_policy(iam.PolicyStatement(
+            sid="SNSPublish",
+            effect=iam.Effect.ALLOW,
+            actions=["sns:Publish", "sns:GetTopicAttributes", "sns:ListSubscriptionsByTopic"],
+            resources=[
+                self.security_resources["critical_alerts_topic"].topic_arn,
+                self.security_resources["service_updates_topic"].topic_arn,
+                self.security_resources["system_alerts_topic"].topic_arn,
+            ]
+        ))
+
+        # SNS — direct SMS (phone number target, no topic ARN)
+        notification_role.add_to_policy(iam.PolicyStatement(
+            sid="SNSSMSDirect",
+            effect=iam.Effect.ALLOW,
+            actions=["sns:Publish"],
+            resources=["*"],
+            conditions={"StringEquals": {"sns:Protocol": "sms"}}
+        ))
+
+        # DynamoDB — notification tracking tables
+        notification_role.add_to_policy(iam.PolicyStatement(
+            sid="DynamoDBNotifications",
+            effect=iam.Effect.ALLOW,
+            actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+                     "dynamodb:Query", "dynamodb:Scan"],
+            resources=[
+                f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'users')}",
+                f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'users')}/index/*",
+                f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-notifications",
+                f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-rate-limits",
+                f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'alerts')}",
+            ]
+        ))
+
         self.notification_function = lambda_python.PythonFunction(
             self, "NotificationFunction",
             function_name=get_resource_name(self.config, "function", "notification"),
             entry="../../lambda/notification_service",
             index="handler.py",
             handler="lambda_handler",
-            role=self.security_resources["data_processing_role"],
+            role=notification_role,
             layers=layers,
-            **common_lambda_config
+            environment={
+                **common_lambda_config["environment"],
+                "USERS_TABLE": get_resource_name(self.config, "table", "users"),
+                "NOTIFICATIONS_TABLE": "aquachain-notifications",
+                "RATE_LIMIT_TABLE": "aquachain-rate-limits",
+                "ALERTS_TABLE": get_resource_name(self.config, "table", "alerts"),
+                "SES_FROM_EMAIL": self.config.get("ses_from_email", "alerts@aquachain.io"),
+                "SES_CONFIGURATION_SET": "aquachain-notifications",
+                "APP_URL": self.config.get("app_url", "https://app.aquachain.io"),
+                "CRITICAL_ALERTS_TOPIC_ARN": self.security_resources["critical_alerts_topic"].topic_arn,
+                "SERVICE_UPDATES_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
+                "SYSTEM_ALERTS_TOPIC_ARN": self.security_resources["system_alerts_topic"].topic_arn,
+            },
+            **{k: v for k, v in common_lambda_config.items() if k != "environment"}
         )
         
         # Admin Service Lambda

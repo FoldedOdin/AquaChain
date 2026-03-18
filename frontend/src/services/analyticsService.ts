@@ -128,16 +128,8 @@ class AnalyticsService {
         console.log('Would send to Pinpoint:', event);
       }
 
-      // Example: Send to custom analytics endpoint
-      if (process.env.REACT_APP_API_ENDPOINT) {
-        await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/analytics/events`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(event),
-        });
-      }
+      // Custom analytics endpoint intentionally disabled — no backend route exists.
+      // Use GA4 or Pinpoint integrations above for production analytics.
     } catch (error) {
       console.warn('Failed to send analytics event:', error);
     }

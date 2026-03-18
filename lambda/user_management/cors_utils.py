@@ -4,7 +4,15 @@ Provides consistent CORS headers across all API responses
 """
 
 import json
+from decimal import Decimal
 from typing import Any, Dict, Optional
+
+
+def _json_default(obj):
+    """JSON serializer for types not handled by default encoder"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 # CORS configuration
 CORS_HEADERS = {
@@ -34,7 +42,7 @@ def cors_response(status_code: int, body: Any, additional_headers: Optional[Dict
     
     # Serialize body if it's not already a string
     if not isinstance(body, str):
-        body = json.dumps(body)
+        body = json.dumps(body, default=_json_default)
     
     return {
         'statusCode': status_code,

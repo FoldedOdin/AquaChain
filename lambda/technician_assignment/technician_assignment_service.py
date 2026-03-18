@@ -39,6 +39,7 @@ eventbridge = boto3.client('events')
 # Environment variables
 ORDERS_TABLE = os.environ.get('ENHANCED_ORDERS_TABLE', 'aquachain-orders')
 TECHNICIANS_TABLE = os.environ.get('ENHANCED_TECHNICIANS_TABLE', 'aquachain-technicians')
+SERVICE_REQUESTS_TABLE = os.environ.get('SERVICE_REQUESTS_TABLE', 'aquachain-service-requests')
 SNS_TOPIC_ARN = os.environ.get('TECHNICIAN_EVENTS_TOPIC_ARN')
 EVENTBRIDGE_BUS = os.environ.get('EVENTBRIDGE_BUS', 'default')
 
@@ -54,6 +55,7 @@ class TechnicianAssignmentService:
     def __init__(self):
         self.orders_table = dynamodb.Table(ORDERS_TABLE)
         self.technicians_table = dynamodb.Table(TECHNICIANS_TABLE)
+        self.service_requests_table = dynamodb.Table(SERVICE_REQUESTS_TABLE)
         self.validator = InputValidator()
         self._register_validation_schemas()
         
@@ -155,6 +157,9 @@ class TechnicianAssignmentService:
             
             # Update order with technician assignment
             self._update_order_with_assignment(order_id, assignment, correlation_id)
+            
+            # Create service request so technician dashboard can see the task
+            self._create_service_request_for_assignment(order_id, assignment, service_location, correlation_id)
             
             # Update technician availability
             self._mark_technician_busy(selected_technician['id'], order_id, correlation_id)
@@ -329,32 +334,41 @@ class TechnicianAssignmentService:
     def _get_available_technicians(self) -> List[Dict[str, Any]]:
         """Get all available technicians from DynamoDB"""
         try:
-            response = self.technicians_table.query(
-                IndexName='GSI1',
-                KeyConditionExpression='GSI1PK = :location_key',
-                FilterExpression='available = :available',
-                ExpressionAttributeValues={
-                    ':location_key': 'LOCATION#ALL',  # Assuming all technicians have this GSI1PK
-                    ':available': True
-                }
+            from boto3.dynamodb.conditions import Attr
+
+            # Technicians live in the users table (AquaChain-Users) with role='technician'
+            # and available=True (or availabilityStatus='available')
+            users_table_name = os.environ.get('USERS_TABLE', 'AquaChain-Users')
+            users_table = dynamodb.Table(users_table_name)
+
+            response = users_table.scan(
+                FilterExpression=(
+                    Attr('role').eq('technician') &
+                    (Attr('available').eq(True) | Attr('availabilityStatus').eq('available'))
+                )
             )
-            
+
             technicians = []
             for item in response.get('Items', []):
-                technician = {
-                    'id': item['technicianId'],
-                    'name': item['name'],
-                    'phone': item['phone'],
-                    'email': item['email'],
-                    'location': item['location'],
-                    'available': item['available'],
+                location = item.get('currentLocation') or item.get('location') or {}
+                technicians.append({
+                    'id': item['userId'],
+                    'name': (
+                        item.get('name') or
+                        f"{item.get('profile', {}).get('firstName', '')} {item.get('profile', {}).get('lastName', '')}".strip() or
+                        item.get('email', 'Unknown')
+                    ),
+                    'phone': item.get('profile', {}).get('phone') or item.get('phone', ''),
+                    'email': item.get('email', ''),
+                    'location': location,
+                    'available': True,
                     'skills': item.get('skills', []),
-                    'rating': float(item.get('rating', 0))
-                }
-                technicians.append(technician)
-            
+                    'rating': float(item.get('performanceScore', item.get('rating', 80)))
+                })
+
+            logger.info(f'Found {len(technicians)} available technicians')
             return technicians
-            
+
         except Exception as e:
             logger.error('Error getting available technicians from database', error=str(e))
             return []
@@ -495,6 +509,48 @@ class TechnicianAssignmentService:
         
         return assignment
     
+    def _create_service_request_for_assignment(self, order_id: str, assignment: Dict[str, Any],
+                                               service_location: Dict[str, Any],
+                                               correlation_id: Optional[str] = None):
+        """Create a service request record so the technician dashboard can display the task"""
+        try:
+            timestamp = datetime.now(timezone.utc).isoformat()
+            request_id = f"SR-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{str(uuid.uuid4())[:8]}"
+
+            service_request = {
+                'requestId': request_id,
+                'orderId': order_id,
+                'technicianId': assignment['technicianId'],
+                'technicianName': assignment['technicianName'],
+                'status': 'assigned',
+                'location': service_location,
+                'description': f'Installation/service for order {order_id}',
+                'priority': 'normal',
+                'estimatedArrival': assignment.get('estimatedArrival'),
+                'assignedAt': timestamp,
+                'createdAt': timestamp,
+                'notes': [],
+                'statusHistory': [
+                    {
+                        'status': 'assigned',
+                        'timestamp': timestamp,
+                        'updatedBy': 'system',
+                        'note': f'Auto-assigned technician {assignment["technicianName"]}'
+                    }
+                ]
+            }
+
+            self.service_requests_table.put_item(Item=service_request)
+            logger.info('Created service request for assignment',
+                       request_id=request_id, order_id=order_id,
+                       technician_id=assignment['technicianId'],
+                       correlation_id=correlation_id)
+
+        except ClientError as e:
+            # Log but don't fail the assignment — order is already updated
+            logger.error('Failed to create service request for assignment',
+                        order_id=order_id, error=str(e), correlation_id=correlation_id)
+
     def _update_order_with_assignment(self, order_id: str, assignment: Dict[str, Any], 
                                     correlation_id: Optional[str] = None):
         """Update order record with technician assignment"""
@@ -525,35 +581,35 @@ class TechnicianAssignmentService:
                 correlation_id=correlation_id
             )
     
-    def _mark_technician_busy(self, technician_id: str, order_id: str, 
+    def _mark_technician_busy(self, technician_id: str, order_id: str,
                             correlation_id: Optional[str] = None):
         """Mark technician as busy with current order"""
         try:
             timestamp = datetime.now(timezone.utc).isoformat()
-            
-            self.technicians_table.update_item(
-                Key={
-                    'PK': f'TECHNICIAN#{technician_id}',
-                    'SK': f'TECHNICIAN#{technician_id}'
-                },
+            users_table_name = os.environ.get('USERS_TABLE', 'AquaChain-Users')
+            users_table = dynamodb.Table(users_table_name)
+
+            users_table.update_item(
+                Key={'userId': technician_id},
                 UpdateExpression='''
                     SET available = :available,
+                        availabilityStatus = :status,
                         currentOrderId = :order_id,
                         assignedAt = :timestamp,
-                        updatedAt = :timestamp,
-                        GSI1SK = :gsi1sk
+                        updatedAt = :timestamp
                 ''',
                 ExpressionAttributeValues={
                     ':available': False,
+                    ':status': 'unavailable',
                     ':order_id': order_id,
-                    ':timestamp': timestamp,
-                    ':gsi1sk': f'AVAILABLE#False#{technician_id}'
+                    ':timestamp': timestamp
                 }
             )
+            logger.info('Marked technician as busy',
+                       technician_id=technician_id, order_id=order_id)
         except ClientError as e:
-            logger.error('Failed to mark technician as busy', 
+            logger.error('Failed to mark technician as busy',
                         technician_id=technician_id, error=str(e), correlation_id=correlation_id)
-            # Don't raise error here as assignment was successful
     
     def _handle_no_technicians_available(self, order_id: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:
         """Handle case when no technicians are available"""

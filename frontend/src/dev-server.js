@@ -2080,11 +2080,41 @@ app.get('/api/technician/orders', (req, res) => {
   // Get orders assigned to this technician
   const techId = user.userId || user.email;
   const assignedOrders = deviceOrders.filter(o => o.assignedTechnicianId === techId);
-  
+
+  // Enrich each order with the latest consumer profile data (address, phone, name)
+  // so technicians always see current info, not the stale order-time snapshot
+  const enrichedOrders = assignedOrders.map(order => {
+    const enriched = { ...order };
+    const consumerId = order.userId || order.consumerId;
+    if (consumerId) {
+      // Find consumer by userId or email
+      const consumer = Array.from(devUsers.values()).find(
+        u => u.userId === consumerId || u.email === consumerId
+      );
+      if (consumer) {
+        // Always use latest address from profile
+        if (consumer.address) {
+          enriched.deliveryAddress = consumer.address;
+        }
+        // Phone
+        if (!enriched.consumerPhone && !enriched.phone) {
+          enriched.consumerPhone = consumer.phone || '';
+        }
+        // Name — only override if it looks like an email or is missing
+        const isEmail = v => v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+        if (!enriched.consumerName || isEmail(enriched.consumerName)) {
+          const fullName = `${consumer.firstName || ''} ${consumer.lastName || ''}`.trim();
+          if (fullName) enriched.consumerName = fullName;
+        }
+      }
+    }
+    return enriched;
+  });
+
   res.json({
     success: true,
-    orders: assignedOrders,
-    count: assignedOrders.length
+    orders: enrichedOrders,
+    count: enrichedOrders.length
   });
 });
 

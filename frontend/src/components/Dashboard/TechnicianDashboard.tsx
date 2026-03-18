@@ -22,7 +22,6 @@ import {
   BarChart3 
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useDashboardData } from '../../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 import { technicianService } from '../../services/technicianService';
 import { getShipmentByOrderId } from '../../services/shipmentService';
@@ -41,7 +40,7 @@ interface TechnicianDashboardProps {
 
 const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const navigate = useNavigate();
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout, refreshUser, getAuthToken } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -58,11 +57,83 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [successModal, setSuccessModal] = useState<{ show: boolean; message: string; orderId?: string }>({ show: false, message: '' });
   const [shipmentStatuses, setShipmentStatuses] = useState<Record<string, ShipmentStatusResponse>>({});
 
-  // Fetch dashboard data
-  const dashboardData = useDashboardData();
-  const isLoading = dashboardData.loading;
-  const error = dashboardData.error;
-  const refetch = () => window.location.reload();
+  // Fetch dashboard data (mock data - not used for tasks; tasks now fetched from real API)
+  const [techOrders, setTechOrders] = useState<any[]>([]);
+  const [techOrdersLoading, setTechOrdersLoading] = useState(true);
+  const [techOrdersError, setTechOrdersError] = useState<string | null>(null);
+
+  const fetchTechnicianOrders = useCallback(async () => {
+    try {
+      setTechOrdersLoading(true);
+      // Use getAuthToken() so expired tokens are refreshed automatically
+      let token = await getAuthToken();
+      if (!token) throw new Error('Not authenticated');
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const isLocalDev = apiBase.includes('localhost');
+
+      // Local dev server uses /api/technician/orders
+      // Production uses /api/v1/technician/orders (queries orders table by assignedTechnicianId)
+      const endpoint = isLocalDev ? `${apiBase}/api/technician/orders` : `${apiBase}/api/v1/technician/orders`;
+
+      let response = await fetch(endpoint, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      // If 401, the stored token may be stale — force-refresh once and retry
+      if (response.status === 401) {
+        console.warn('⚠️ Got 401, forcing token refresh and retrying...');
+        const { fetchAuthSession } = await import('aws-amplify/auth');
+        try {
+          const session = await fetchAuthSession({ forceRefresh: true });
+          const freshToken = session.tokens?.idToken?.toString();
+          if (freshToken) {
+            localStorage.setItem('aquachain_token', freshToken);
+            token = freshToken;
+            response = await fetch(endpoint, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          }
+        } catch (refreshErr) {
+          console.error('Token refresh failed, redirecting to login:', refreshErr);
+          // Clear stale session and redirect to login
+          localStorage.removeItem('aquachain_token');
+          localStorage.removeItem('aquachain_user');
+          navigate('/');
+          return;
+        }
+      }
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Still 401 after refresh — session is invalid, force re-login
+          console.error('Still 401 after token refresh — clearing session');
+          localStorage.removeItem('aquachain_token');
+          localStorage.removeItem('aquachain_user');
+          navigate('/');
+          return;
+        }
+        throw new Error(`Failed to fetch orders: ${response.status}`);
+      }
+
+      const data = await response.json();
+      // Dev server returns { orders: [] }, prod returns { tasks: [] }
+      setTechOrders(data.orders || data.tasks || []);
+      setTechOrdersError(null);
+    } catch (err) {
+      console.error('Error fetching technician orders:', err);
+      setTechOrdersError(err instanceof Error ? err.message : 'Failed to load orders');
+    } finally {
+      setTechOrdersLoading(false);
+    }
+  }, [getAuthToken, navigate]);
+
+  useEffect(() => {
+    fetchTechnicianOrders();
+  }, [fetchTechnicianOrders]);
+
+  const isLoading = techOrdersLoading;
+  const error = techOrdersError ? new Error(techOrdersError) : null;
+  const refetch = useCallback(() => { fetchTechnicianOrders(); }, [fetchTechnicianOrders]);
   const { isConnected, latestUpdate } = useRealTimeUpdates('technician-updates', { autoConnect: true });
 
   // Listen for shipment delivery notifications
@@ -74,8 +145,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       const { order_id, destination } = latestUpdate.data;
       
       // Check if this order is assigned to this technician
-      const tasks = (dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : []) as any[];
-      const assignedTask = tasks.find((task: any) => task.orderId === order_id);
+      const assignedTask = techOrders.find((task: any) => task.orderId === order_id);
       
       if (assignedTask) {
         // Show success notification with order ID for "View Details" button
@@ -85,42 +155,51 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
           orderId: order_id
         });
         
-        // Refresh shipment statuses
-        getShipmentByOrderId(order_id).then(shipmentData => {
-          setShipmentStatuses(prev => ({
-            ...prev,
-            [order_id]: shipmentData
-          }));
-        }).catch(err => {
-          console.error('Error refreshing shipment status:', err);
-        });
+        // Refresh shipment statuses (only in local dev — shipments API not deployed to prod)
+        const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+        if (apiBase.includes('localhost')) {
+          getShipmentByOrderId(order_id).then(shipmentData => {
+            setShipmentStatuses(prev => ({
+              ...prev,
+              [order_id]: shipmentData
+            }));
+          }).catch(() => {});
+        }
       }
     }
-  }, [latestUpdate, dashboardData]);
+  }, [latestUpdate, techOrders]);
+
+  // Refresh user profile on mount to ensure firstName/lastName are up to date
+  useEffect(() => {
+    refreshUser();
+  }, []); // eslint-disable-line
 
   // Fetch shipment statuses for all tasks
+  // Only attempt if the shipments API is available (endpoint may not be deployed yet)
   useEffect(() => {
     const fetchShipmentStatuses = async () => {
-      if (!dashboardData || !('tasks' in dashboardData)) return;
-      
-      const tasks = (dashboardData.tasks || []) as any[];
+      if (!techOrders.length) return;
+
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      // Skip shipment fetch if running against production API where shipments aren't deployed
+      // The UI gracefully shows "No Shipment Info" when statuses are empty
+      const isLocalDev = apiBase.includes('localhost');
+      if (!isLocalDev) return;
+
       const statuses: Record<string, ShipmentStatusResponse> = {};
-      
-      for (const task of tasks) {
+      for (const task of techOrders) {
         try {
           const shipmentData = await getShipmentByOrderId(task.orderId);
           statuses[task.orderId] = shipmentData;
-        } catch (error) {
-          // Shipment might not exist yet for this order
-          console.log(`No shipment found for order ${task.orderId}`);
+        } catch {
+          // Shipment not found for this order — expected when not yet created
         }
       }
-      
       setShipmentStatuses(statuses);
     };
-    
+
     fetchShipmentStatuses();
-  }, [dashboardData]);
+  }, [techOrders]);
 
   // Memoized handlers
   const handleLogout = useCallback(async () => {
@@ -608,29 +687,89 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     );
   }
 
-  // Main dashboard view
-  const tasks = ((dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : []) as any[]);
-  const recentActivities = (dashboardData && 'recentActivities' in dashboardData ? dashboardData.recentActivities : []) as any[];
+  // Main dashboard view - use real technician orders from API
+  const tasks = techOrders;
+  const recentActivities: any[] = [];
   
   // Map order statuses to task statuses for display
   const tasksWithMappedStatus = tasks.map((task: any) => {
     let mappedStatus = task.status;
     // Map order statuses to task workflow statuses
     if (task.status === 'shipped') mappedStatus = 'assigned'; // Newly assigned
+    if (task.status === 'TECHNICIAN_ASSIGNED' || task.status === 'assigned') mappedStatus = 'assigned';
     if (task.status === 'installing') mappedStatus = 'in_progress'; // Work in progress
     if (task.status === 'completed' || task.status === 'INSTALLED') mappedStatus = 'completed';
-    
+
+    // Resolve consumer name from multiple possible fields (do NOT fall back to email)
+    const isEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+    const consumerName = 
+      (task.consumerName && !isEmail(task.consumerName) ? task.consumerName : null) ||
+      task.customerName ||
+      task.name ||
+      (task.contactInfo && typeof task.contactInfo === 'object' ? task.contactInfo.name : null) ||
+      (task.contactInfo && typeof task.contactInfo === 'string' ? (() => { try { return JSON.parse(task.contactInfo).name; } catch { return null; } })() : null) ||
+      'Customer';
+
+    // Parse deliveryAddress — may be an object or a JSON string
+    let deliveryAddr = task.deliveryAddress;
+    if (typeof deliveryAddr === 'string') {
+      try { deliveryAddr = JSON.parse(deliveryAddr); } catch { deliveryAddr = null; }
+    }
+
+    // Build a human-readable address string
+    const formatAddress = (addr: any): string => {
+      if (!addr || typeof addr !== 'object') return '';
+      const parts = [
+        addr.flatHouse || addr.flat,
+        addr.street || addr.areaStreet,  // existing orders use 'street', new ones use 'areaStreet'
+        addr.landmark,
+        addr.city,
+        addr.state,
+        addr.pincode || addr.zip,
+        addr.country !== 'India' ? addr.country : undefined,
+      ].filter((p): p is string => Boolean(p && typeof p === 'string' && p.trim()));
+      return parts.join(', ');
+    };
+
+    const address = task.address || formatAddress(deliveryAddr) || '';
+
+    // Build a navigation-safe address (no landmark — landmarks confuse geocoders)
+    const formatNavAddress = (addr: any): string => {
+      if (!addr || typeof addr !== 'object') return '';
+      const parts = [
+        addr.flatHouse || addr.flat,
+        addr.street || addr.areaStreet,  // existing orders use 'street', new ones use 'areaStreet'
+        addr.city,
+        addr.state,
+        addr.pincode || addr.zip,
+        'India',
+      ].filter((p): p is string => Boolean(p && typeof p === 'string' && p.trim()));
+      return parts.join(', ');
+    };
+    const navAddress = formatNavAddress(deliveryAddr) || address;
+
+    // Extract phone from contactInfo (may be object or JSON string)
+    let contactInfo = task.contactInfo;
+    if (typeof contactInfo === 'string') {
+      try { contactInfo = JSON.parse(contactInfo); } catch { contactInfo = null; }
+    }
+    const phone = task.phone || task.consumerPhone || (contactInfo && contactInfo.phone) || '';
+
     return {
       ...task,
-      taskId: task.orderId, // Map orderId to taskId for compatibility
-      title: `Install ${task.deviceSKU || 'Device'}`,
-      description: `Install device for ${task.consumerName}`,
-      location: task.address,
-      consumer: task.consumerName,
+      taskId: task.orderId,
+      title: `Install ${task.deviceSKU || task.deviceType || 'Device'}`,
+      description: `Install device for ${consumerName}`,
+      location: address,
+      address,
+      navAddress,
+      phone,
+      consumer: consumerName,
+      consumerName,
       deviceId: task.provisionedDeviceId || task.deviceId,
       dueDate: task.preferredSlot ? new Date(task.preferredSlot).toLocaleDateString() : null,
       priority: 'medium',
-      mappedStatus // Store original status
+      mappedStatus
     };
   });
 
@@ -656,16 +795,22 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
 
   // Navigate to task location using Google Maps (regular function, not a hook)
   const handleNavigateToTask = () => {
-    // Get the first active task (assigned or in_progress)
-    const activeTask = tasks.find((t: any) => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'accepted' || t.status === 'installing');
-    
-    if (activeTask && activeTask.location) {
-      const address = typeof activeTask.location === 'object' 
-        ? activeTask.location.address 
-        : activeTask.location;
-      
-      if (address) {
-        const encodedAddress = encodeURIComponent(address);
+    const activeTask = tasksWithMappedStatus.find((t: any) =>
+      t.status === 'shipped' ||
+      t.status === 'TECHNICIAN_ASSIGNED' ||
+      t.status === 'assigned' ||
+      t.status === 'accepted' ||
+      t.status === 'installing' ||
+      t.status === 'in_progress'
+    );
+
+    if (activeTask) {
+      // Prefer navAddress (landmark-free) for accurate geocoding, fall back to location string
+      const destination = activeTask.navAddress || activeTask.address || activeTask.location;
+      const addr = typeof destination === 'object' ? destination?.address : destination;
+
+      if (addr) {
+        const encodedAddress = encodeURIComponent(addr);
         window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`, '_blank');
       } else {
         alert('No address available for navigation');
@@ -836,17 +981,15 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                               <div className="flex items-center justify-between col-span-2">
                                 <div className="flex items-center space-x-2 text-gray-600">
                                   <MapPin className="w-4 h-4" />
-                                  <span>{typeof task.location === 'object' ? task.location.address || 'Location' : task.location}</span>
+                                  <span>{task.address || (typeof task.location === 'object' ? task.location.address || 'Location' : task.location)}</span>
                                 </div>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const address = typeof task.location === 'object' 
-                                      ? task.location.address 
-                                      : task.location;
-                                    if (address) {
-                                      const encodedAddress = encodeURIComponent(address);
-                                      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`, '_blank');
+                                    // Use navAddress (landmark-free) for accurate geocoding
+                                    const dest = task.navAddress || task.address || (typeof task.location === 'object' ? task.location.address : task.location);
+                                    if (dest) {
+                                      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`, '_blank');
                                     }
                                   }}
                                   className="flex items-center gap-1 px-2 py-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition"
@@ -1125,11 +1268,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Device Model</label>
-                      <p className="text-gray-900">{selectedTask.deviceSKU}</p>
+                      <p className="text-gray-900">{selectedTask.deviceSKU || selectedTask.deviceType || selectedTask.productName || 'Not specified'}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Device ID</label>
-                      <p className="text-gray-900">{selectedTask.deviceId || selectedTask.provisionedDeviceId || 'Not assigned'}</p>
+                      <p className="text-gray-900">{selectedTask.deviceId || selectedTask.provisionedDeviceId || selectedTask.iotDeviceId || 'Not assigned'}</p>
                     </div>
                   </div>
                 </div>
@@ -1148,11 +1291,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                      <p className="text-gray-900">{selectedTask.phone}</p>
+                      <p className="text-gray-900">{selectedTask.phone || 'Not provided'}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Installation Address</label>
-                      <p className="text-gray-900">{selectedTask.address}</p>
+                      <p className="text-gray-900">{selectedTask.address || selectedTask.location || 'Not provided'}</p>
                     </div>
                   </div>
                 </div>
@@ -1382,7 +1525,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                   {successModal.orderId && (
                     <button
                       onClick={() => {
-                        const tasks = ((dashboardData && 'tasks' in dashboardData ? dashboardData.tasks : []) as any[]);
+                        const tasks = techOrders;
                         const task = tasks.find((t: any) => t.orderId === successModal.orderId);
                         if (task) {
                           const mappedTask = {

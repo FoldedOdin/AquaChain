@@ -92,7 +92,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         clearTimeout(tokenRefreshTimer);
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   /**
    * Schedule automatic token refresh before expiration
@@ -780,7 +780,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               ...userData,
               email: result.profile.email || userData.email, // Update email from API response
               profile: {
-                firstName: result.profile.profile?.firstName || result.profile.firstName || userData.profile?.firstName || 'User',
+                firstName: result.profile.profile?.firstName || result.profile.firstName || userData.profile?.firstName || '',
                 lastName: result.profile.profile?.lastName || result.profile.lastName || userData.profile?.lastName || '',
                 phone: result.profile.profile?.phone || result.profile.phone || userData.profile?.phone || '',
                 address: result.profile.profile?.address || result.profile.address || userData.profile?.address || null

@@ -76,24 +76,51 @@ const TaskMap = ({
     }
   };
 
+  /**
+   * Normalize an address string for Google Maps:
+   * - Remove hyphens from unit numbers (D-08 → D08)
+   * - Append ", India" if missing
+   * - Collapse extra whitespace
+   */
+  const normalizeAddress = (addr: string): string => {
+    return addr
+      .replace(/\b([A-Z])-(\d+)\b/g, '$1$2')  // D-08 → D08, A-12 → A12
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .replace(/, India$/i, '')               // avoid double "India"
+      + ', India';
+  };
+
   const handleGetDirections = async (task: TechnicianTask) => {
     if (!currentLocation) return;
-    
+
+    const destLat = task.location.latitude;
+    const destLng = task.location.longitude;
+
     setIsLoadingRoute(true);
     try {
-      // Mock route calculation - in production this would use Google Maps Directions API
-      const distance = Math.sqrt(
-        Math.pow(task.location.latitude - currentLocation.lat, 2) +
-        Math.pow(task.location.longitude - currentLocation.lng, 2)
-      ) * 111; // Rough km conversion
-      
-      setRouteInfo({
-        distance: `${distance.toFixed(1)} km`,
-        duration: `${Math.round(distance * 2)} min` // Mock duration
-      });
-      
-      // In production, this would open Google Maps or similar
-      const mapsUrl = `https://www.google.com/maps/dir/${currentLocation.lat},${currentLocation.lng}/${task.location.latitude},${task.location.longitude}`;
+      let mapsUrl: string;
+
+      if (destLat && destLng) {
+        // Preferred: use exact coordinates — zero ambiguity
+        const distance = Math.sqrt(
+          Math.pow(destLat - currentLocation.lat, 2) +
+          Math.pow(destLng - currentLocation.lng, 2)
+        ) * 111;
+
+        setRouteInfo({
+          distance: `${distance.toFixed(1)} km`,
+          duration: `${Math.round(distance * 2)} min`
+        });
+
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${currentLocation.lat},${currentLocation.lng}&destination=${destLat},${destLng}`;
+      } else {
+        // Fallback: use cleaned address with navigation URL (not search)
+        // dir/?api=1&destination= is stricter than search/?query= — less fuzzy matching
+        const cleaned = normalizeAddress(task.location.address);
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cleaned)}`;
+      }
+
       window.open(mapsUrl, '_blank');
       
     } catch (error) {

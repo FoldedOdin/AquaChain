@@ -5,15 +5,15 @@ import { mockRegionalStats, getRegionalStatusColor } from '../../../data/mockGlo
 const RegionalStatistics: React.FC = () => {
   const getWQIColor = (wqi: number) => {
     if (wqi >= 90) return 'text-green-600';
-    if (wqi >= 80) return 'text-blue-600';
-    if (wqi >= 60) return 'text-amber-600';
+    if (wqi >= 70) return 'text-blue-600';
+    if (wqi >= 50) return 'text-amber-600';
     return 'text-red-600';
   };
 
   const getWQILabel = (wqi: number) => {
     if (wqi >= 90) return 'Excellent';
-    if (wqi >= 80) return 'Good';
-    if (wqi >= 60) return 'Fair';
+    if (wqi >= 70) return 'Good';
+    if (wqi >= 50) return 'Fair';
     return 'Poor';
   };
 

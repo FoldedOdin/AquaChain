@@ -496,14 +496,63 @@ def handle_errors(func):
     Decorator to handle errors in Lambda functions
     Wraps the function and catches exceptions, returning proper error responses
     """
+    # Import errors.py classes here to avoid circular imports at module level
+    import importlib, sys, os
+    _errors_mod = None
+    try:
+        _errors_path = os.path.join(os.path.dirname(__file__))
+        if _errors_path not in sys.path:
+            sys.path.insert(0, _errors_path)
+        import errors as _errors_mod
+    except ImportError:
+        pass
+
+    # Map errors.py error_code strings to HTTP status codes
+    _STATUS_MAP = {
+        'VALIDATION_ERROR': 400,
+        'AUTHENTICATION_ERROR': 401,
+        'AUTHORIZATION_ERROR': 403,
+        'RESOURCE_NOT_FOUND': 404,
+        'DATABASE_ERROR': 500,
+        'CACHE_ERROR': 500,
+        'RATE_LIMIT_EXCEEDED': 429,
+        'DEVICE_ERROR': 400,
+        'GDPR_REQUEST_FAILED': 500,
+        'AUDIT_SERVICE_ERROR': 500,
+    }
+
     def wrapper(event, context):
         try:
             return func(event, context)
         except AquaChainError as e:
-            # Handle known AquaChain errors
+            # Handle error_handler.py AquaChain errors (have .code enum + .status_code)
             return default_error_handler.handle_error(e)
         except Exception as e:
-            # Handle unknown errors
+            # Check if this is an errors.py AquaChainError (has .error_code string, no .code enum)
+            if _errors_mod and isinstance(e, _errors_mod.AquaChainError):
+                status_code = _STATUS_MAP.get(getattr(e, 'error_code', ''), 500)
+                correlation_id = str(uuid.uuid4())
+                response_body = {
+                    'error': True,
+                    'code': getattr(e, 'error_code', 'INTERNAL_ERROR'),
+                    'message': getattr(e, 'message', str(e)),
+                    'correlation_id': correlation_id,
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
+                details = getattr(e, 'details', None)
+                if details:
+                    response_body['details'] = details
+                return {
+                    'statusCode': status_code,
+                    'headers': {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD',
+                    },
+                    'body': json.dumps(response_body)
+                }
+            # Handle truly unknown errors
             return default_error_handler.handle_error(e)
-    
+
     return wrapper

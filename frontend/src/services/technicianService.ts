@@ -24,21 +24,17 @@ class TechnicianService {
     });
 
     if (!response.ok) {
-      throw new Error(`API call failed: ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`API call failed: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`);
     }
 
     return response.json();
   }
 
   async getAssignedTasks(): Promise<TechnicianTask[]> {
-    try {
-      const response = await this.apiCall<{ tasks: TechnicianTask[], recentActivities: any[] }>('/api/v1/technician/tasks');
-      return response.tasks || [];
-    } catch (error) {
-      console.error('Error fetching assigned tasks:', error);
-      // Return empty array on error instead of throwing
-      return [];
-    }
+    const response = await this.apiCall<{ tasks?: TechnicianTask[], data?: TechnicianTask[], recentActivities?: any[], success?: boolean }>('/api/v1/technician/tasks');
+    // API returns either response.tasks or response.data
+    return response.tasks || response.data || [];
   }
 
   async acceptTask(taskId: string): Promise<void> {

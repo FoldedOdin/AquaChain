@@ -171,14 +171,14 @@ const SummaryStats: React.FC<SummaryStatsProps> = ({ data, selectedMetrics }) =>
                 {metric === 'wqi' && (
                   <div className="flex items-center space-x-2">
                     <div className={`w-3 h-3 rounded-full ${
-                      stats.avg >= 80 ? 'bg-green-500' :
-                      stats.avg >= 60 ? 'bg-blue-500' :
-                      stats.avg >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                      stats.avg >= 90 ? 'bg-green-500' :
+                      stats.avg >= 70 ? 'bg-blue-500' :
+                      stats.avg >= 50 ? 'bg-yellow-500' : 'bg-red-500'
                     }`}></div>
                     <span className="text-xs text-gray-600">
-                      {stats.avg >= 80 ? 'Excellent' :
-                       stats.avg >= 60 ? 'Good' :
-                       stats.avg >= 40 ? 'Fair' : 'Poor'}
+                      {stats.avg >= 90 ? 'Excellent' :
+                       stats.avg >= 70 ? 'Good' :
+                       stats.avg >= 50 ? 'Fair' : 'Poor'}
                     </span>
                   </div>
                 )}

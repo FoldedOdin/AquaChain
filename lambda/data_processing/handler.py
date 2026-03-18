@@ -285,7 +285,10 @@ def _process_iot_data(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Store processed data in DynamoDB
         stored_reading = store_reading_dynamodb(validated_data, ml_results, s3_reference)
-        
+
+        # Update device connectionStatus to 'online' so the dashboard reflects live status
+        _update_device_connection_status(validated_data['deviceId'], validated_data['timestamp'])
+
         # Alert detection will be handled by DynamoDB Streams trigger
         # No need to manually trigger alerts here as the alert detection Lambda
         # will be triggered automatically when data is written to DynamoDB
@@ -808,8 +811,28 @@ def map_wqi_to_quality(wqi: float) -> str:
     else:
         return 'Very Poor'
 
+
+def _update_device_connection_status(device_id: str, timestamp: str) -> None:
+    """Update device connectionStatus to 'online' and refresh lastSeen timestamp."""
+    devices_table_name = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
+    try:
+        table = dynamodb.Table(devices_table_name)
+        table.update_item(
+            Key={'deviceId': device_id},
+            UpdateExpression='SET lastSeen = :ts, connectionStatus = :cs, statusUpdatedAt = :ts',
+            ExpressionAttributeValues={
+                ':ts': timestamp,
+                ':cs': 'online',
+            }
+        )
+        logger.info(f"Updated connectionStatus=online for device {device_id}")
+    except Exception as e:
+        # Non-fatal — log and continue
+        logger.warning(f"Could not update device connectionStatus for {device_id}: {e}")
+
+
 @tracer.trace_external_call('dynamodb', 'put_item')
-def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any], 
+def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
                           s3_reference: Optional[str]) -> Dict[str, Any]:
     """
     Store processed reading in DynamoDB with ledger entry.

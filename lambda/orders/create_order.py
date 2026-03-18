@@ -72,7 +72,12 @@ def handler(event, context):
         try:
             consumer_id = event['requestContext']['authorizer']['claims']['sub']
             consumer_email = event['requestContext']['authorizer']['claims']['email']
-            consumer_name = event['requestContext']['authorizer']['claims'].get('name', consumer_email)
+            claims = event['requestContext']['authorizer']['claims']
+            # Try name, then given_name + family_name, then contactInfo, then empty (not email)
+            given = claims.get('given_name', '')
+            family = claims.get('family_name', '')
+            full_from_parts = f"{given} {family}".strip() if (given or family) else ''
+            consumer_name = claims.get('name') or full_from_parts or body.get('contactInfo', {}).get('name', '')
         except (KeyError, TypeError):
             # Fallback to body data if authorizer not present
             consumer_id = body.get('consumerId', 'unknown')

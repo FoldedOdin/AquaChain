@@ -237,8 +237,8 @@ const WaterQualityChart: React.FC<WaterQualityChartProps> = ({
       <div className="mt-4 pt-4 border-t border-gray-200">
         <div className="text-xs text-gray-500 space-y-1">
           <div>• Green dashed lines: Safe pH range (6.5-8.5)</div>
-          <div>• Yellow dashed line: WQI warning threshold (60)</div>
-          <div>• Green dashed line: WQI good threshold (80)</div>
+          <div>• Yellow dashed line: WQI fair threshold (50)</div>
+          <div>• Green dashed line: WQI good threshold (70)</div>
         </div>
       </div>
     </div>

@@ -239,33 +239,10 @@ class OfflineQueueService {
   }
 
   private async processQueuedAnalytics(): Promise<void> {
+    // No backend analytics endpoint — discard queued events to prevent CORS errors.
     const events = await this.getAllQueuedAnalytics();
-    
     for (const event of events) {
-      try {
-        // Send to analytics service
-        const response = await fetch('/api/analytics/events', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            eventType: event.eventType,
-            eventData: event.eventData,
-            timestamp: event.timestamp,
-            userId: event.userId,
-            sessionId: event.sessionId,
-            offline: true
-          })
-        });
-
-        if (response.ok) {
-          await this.removeQueuedAnalytics(event.id);
-          console.log('Successfully synced analytics event:', event.eventType);
-        }
-      } catch (error) {
-        console.error('Failed to sync analytics event:', error);
-      }
+      await this.removeQueuedAnalytics(event.id);
     }
   }
 

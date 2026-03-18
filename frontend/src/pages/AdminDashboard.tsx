@@ -50,7 +50,10 @@ const AdminDashboard = () => {
     apiUptime: 99.9,
     notificationUptime: 99.8,
     errorRate: 0.05,
-    activeDevices: dashboardData.devices?.filter((d: any) => d.status === 'online').length || 0,
+    activeDevices: dashboardData.devices?.filter((d: any) => {
+      const ms = d.lastSeen ? new Date(d.lastSeen).getTime() : 0;
+      return ms > 0 && (Date.now() - ms) < 2 * 60 * 1000;
+    }).length || 0,
     totalDevices: dashboardData.devices?.length || 0,
     activeAlerts: 0,
     pendingServiceRequests: 0
@@ -74,7 +77,10 @@ const AdminDashboard = () => {
 
   // Memoize computed values
   const activeDeviceCount = useMemo(
-    () => deviceFleet.filter((d: any) => d.status === 'online').length,
+    () => deviceFleet.filter((d: any) => {
+      const ms = d.lastSeen ? new Date(d.lastSeen).getTime() : 0;
+      return ms > 0 && (Date.now() - ms) < 2 * 60 * 1000;
+    }).length,
     [deviceFleet]
   );
 
@@ -311,7 +317,7 @@ const AdminDashboard = () => {
         {activeTab === 'fleet' && (
           <DeviceFleetOverview devices={deviceFleet.map((d: any) => ({
             deviceId: d.deviceId,
-            status: d.status.toLowerCase() as 'online' | 'offline' | 'warning' | 'error',
+            status: (() => { const ms = d.lastSeen ? new Date(d.lastSeen).getTime() : 0; return (ms > 0 && (Date.now() - ms) < 2 * 60 * 1000) ? 'online' : 'offline'; })() as 'online' | 'offline' | 'warning' | 'error',
             lastSeen: d.lastData?.toISOString() || new Date().toISOString(),
             uptime: 99,
             location: {

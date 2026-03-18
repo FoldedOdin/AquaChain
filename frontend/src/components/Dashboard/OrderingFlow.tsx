@@ -163,13 +163,18 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
       } else if (userAddress && typeof userAddress === 'object') {
         // If address is an object, map it to Address format
         const addr = userAddress as any;
+        // Combine flatHouse + areaStreet so neither is lost
+        const streetParts = [addr.flatHouse, addr.areaStreet || addr.street]
+          .filter((p: any) => p && typeof p === 'string' && p.trim());
         deliveryAddress = {
-          street: addr.street || addr.flatHouse || addr.areaStreet || '',
+          street: streetParts.join(', ') || '',
           city: addr.city || '',
           state: addr.state || '',
           pincode: addr.pincode || addr.zipCode || '',
           country: addr.country || 'India',
           landmark: addr.landmark,
+          latitude: addr.latitude ?? addr.lat ?? undefined,
+          longitude: addr.longitude ?? addr.lng ?? undefined,
         };
       } else {
         // Fallback if no address
@@ -286,13 +291,18 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
       } else if (userAddress && typeof userAddress === 'object') {
         // If address is an object, map it to Address format
         const addr = userAddress as any;
+        // Combine flatHouse + areaStreet so neither is lost
+        const streetParts = [addr.flatHouse, addr.areaStreet || addr.street]
+          .filter((p: any) => p && typeof p === 'string' && p.trim());
         deliveryAddress = {
-          street: addr.street || addr.flatHouse || addr.areaStreet || '',
+          street: streetParts.join(', ') || '',
           city: addr.city || '',
           state: addr.state || '',
           pincode: addr.pincode || addr.zipCode || '',
           country: addr.country || 'India',
           landmark: addr.landmark,
+          latitude: addr.latitude ?? addr.lat ?? undefined,
+          longitude: addr.longitude ?? addr.lng ?? undefined,
         };
       } else {
         // Fallback if no address

@@ -45,6 +45,8 @@ export interface Address {
   pincode: string;
   country: string;
   landmark?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface ContactInfo {

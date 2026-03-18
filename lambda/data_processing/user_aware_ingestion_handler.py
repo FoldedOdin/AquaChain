@@ -80,21 +80,23 @@ def lookup_device_owner(device_id: str) -> Dict[str, Any]:
     
     # Query DynamoDB
     try:
-        response = devices_table.get_item(Key={'device_id': device_id})
+        response = devices_table.get_item(Key={'deviceId': device_id})
         
         if 'Item' not in response:
-            raise ValueError(f"Unknown device_id: {device_id}")
+            raise ValueError(f"Unknown deviceId: {device_id}")
         
         device = response['Item']
         
-        # Validate device is active
-        if device.get('status') != 'active':
+        # Validate device is active (status field uses 'active' not 'online')
+        if device.get('status') not in ('active', 'online'):
             raise ValueError(f"Device {device_id} is not active (status: {device.get('status')})")
         
         # Cache the result
         DeviceOwnershipCache.set(device_id, device)
         
-        print(f"✅ Device owner lookup: {device_id} → {device['user_id']}")
+        # Support both camelCase (userId) and snake_case (user_id) field names
+        owner_id = device.get('userId') or device.get('user_id')
+        print(f"✅ Device owner lookup: {device_id} → {owner_id}")
         return device
         
     except ClientError as e:
@@ -313,7 +315,7 @@ def lambda_handler(event, context):
         
         # 1️⃣ CRITICAL: Lookup device owner
         device_info = lookup_device_owner(device_id)
-        user_id = device_info['user_id']
+        user_id = device_info.get('userId') or device_info.get('user_id')
         
         print(f"👤 Processing reading for user: {user_id}")
         

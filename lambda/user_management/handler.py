@@ -237,20 +237,29 @@ class UserManagementService:
             # Check if user has nested profile structure or flat structure
             has_nested_profile = 'profile' in current_profile
             
-            # Check if user has nested profile structure or flat structure
-            has_nested_profile = 'profile' in current_profile
-            
             # Handle profile updates
             if 'profile' in updates:
                 profile_updates = updates['profile']
                 for key, value in profile_updates.items():
                     if key in ['firstName', 'lastName', 'phone', 'address']:
-                        # Use nested path if profile exists, otherwise update at root level
                         if has_nested_profile:
+                            # Nested map exists — update individual keys
                             update_expression += f", profile.{key} = :{key}"
                         else:
+                            # No profile map yet — create it as a whole map to avoid
+                            # DynamoDB "document path does not exist" error on nested paths
+                            # We'll handle this by building the full profile map below
                             update_expression += f", {key} = :{key}"
                         expression_values[f':{key}'] = value
+                        has_updates = True
+                
+                # If no nested profile map exists, also write the full profile map
+                if not has_nested_profile and profile_updates:
+                    profile_map = {k: v for k, v in profile_updates.items()
+                                   if k in ['firstName', 'lastName', 'phone', 'address']}
+                    if profile_map:
+                        update_expression += ", profile = :profile_map"
+                        expression_values[':profile_map'] = profile_map
                         has_updates = True
             
             # Handle preferences updates
@@ -888,10 +897,9 @@ def lambda_handler(event, context):
     client_id = os.environ.get('COGNITO_CLIENT_ID')
     region = os.environ.get('AWS_REGION', 'ap-south-1')
     
-    if not user_pool_id or not client_id:
-        raise ValidationError('Missing Cognito configuration')
-    
-    user_service = UserManagementService(user_pool_id, client_id, region)
+    # Note: Cognito config is only required for registration and Cognito attribute updates.
+    # Profile GET/PUT routes work without it — defer the check to where it's actually needed.
+    user_service = UserManagementService(user_pool_id or '', client_id or '', region)
     
     # DEBUG: Log before calling _get_request_context
     logger.info(f"About to call _get_request_context")
@@ -913,6 +921,9 @@ def lambda_handler(event, context):
     path_params = event.get('pathParameters') or {}  # Handle None from API Gateway
         
     if http_method == 'POST' and path.endswith('/register'):
+        # User registration requires Cognito
+        if not user_pool_id or not client_id:
+            raise ValidationError('Missing Cognito configuration')
         # User registration
         result = user_service.register_user(
             email=body.get('email'),
@@ -951,13 +962,16 @@ def lambda_handler(event, context):
             raise ResourceNotFoundError('User not found', details={'user_id': user_id})
         
         # Log data access
-        audit_logger.log_data_access(
-            user_id=event.get('userContext', {}).get('userId', user_id),
-            resource_type='USER',
-            resource_id=user_id,
-            operation='GET',
-            request_context=request_context
-        )
+        try:
+            audit_logger.log_data_access(
+                user_id=event.get('userContext', {}).get('userId', user_id),
+                resource_type='USER',
+                resource_id=user_id,
+                operation='GET',
+                request_context=request_context
+            )
+        except AttributeError:
+            pass  # log_data_access not implemented on AuditLogger
         
         return success_response(profile)
     
@@ -1017,26 +1031,36 @@ def lambda_handler(event, context):
     
     elif http_method == 'GET' and path == '/api/profile/update':
         # Get current user's profile
-        # Extract userId from JWT token (use 'sub' claim which doesn't change)
-        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-        user_id = claims.get('sub')  # Cognito 'sub' is the userId
+        # Extract userId from JWT token - handle both REST and HTTP API authorizer formats
+        request_ctx = event.get('requestContext', {})
+        authorizer = request_ctx.get('authorizer', {})
         
-        # If no claims (authorizer not configured), try to decode JWT token
+        # REST API authorizer: claims are directly under authorizer
+        # HTTP API JWT authorizer: claims are under authorizer.jwt.claims
+        claims = (
+            authorizer.get('claims') or
+            authorizer.get('jwt', {}).get('claims') or
+            {}
+        )
+        
+        user_id = claims.get('sub')
+        user_email = claims.get('email')
+        
+        # Fallback: decode JWT manually if authorizer didn't populate claims
         if not user_id:
-            auth_header = event.get('headers', {}).get('Authorization') or event.get('headers', {}).get('authorization')
+            auth_header = (event.get('headers') or {}).get('Authorization') or (event.get('headers') or {}).get('authorization')
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
                 try:
                     import base64
-                    # Decode JWT payload (middle part)
                     parts = token.split('.')
                     if len(parts) == 3:
-                        # Add padding if needed
                         payload = parts[1]
                         payload += '=' * (4 - len(payload) % 4)
                         decoded = base64.b64decode(payload)
                         token_data = json.loads(decoded)
-                        user_id = token_data.get('sub')  # Use 'sub' instead of 'email'
+                        user_id = token_data.get('sub')
+                        user_email = token_data.get('email')
                         logger.info(f"Extracted userId from JWT for profile GET: {user_id}")
                 except Exception as e:
                     logger.error(f"Error decoding JWT: {e}")
@@ -1044,14 +1068,21 @@ def lambda_handler(event, context):
         if not user_id:
             raise ValidationError('User ID not found in token')
         
-        # Get user by userId (not email, since email can change)
+        # Try lookup by userId (sub) first
         user = user_service.get_user_profile(user_id)
+        
+        # Fallback: lookup by email if userId not found in DynamoDB
+        # This handles cases where the DynamoDB record uses a different key
+        if not user and user_email:
+            logger.warning(f"User not found by userId {user_id}, trying email lookup: {user_email}")
+            user = user_service.get_user_by_email(user_email)
+        
         if not user:
+            logger.error(f"User not found in DynamoDB. userId={user_id}, email={user_email}")
             raise ResourceNotFoundError('User not found', details={'user_id': user_id})
         
         logger.info(f"Retrieved profile for user: {user_id}")
         
-        # Return the profile in the expected format
         return success_response({
             'success': True,
             'profile': user
@@ -1059,43 +1090,50 @@ def lambda_handler(event, context):
     
     elif http_method == 'PUT' and path == '/api/profile/update':
         # Direct profile update (for non-sensitive changes)
-        # NOTE: Use exact match to avoid conflicting with /api/profile/verify-and-update
-        # Get user email from Cognito claims or JWT token
-        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+        # Handle both REST and HTTP API JWT authorizer formats
+        request_ctx = event.get('requestContext', {})
+        authorizer = request_ctx.get('authorizer', {})
+        claims = (
+            authorizer.get('claims') or
+            authorizer.get('jwt', {}).get('claims') or
+            {}
+        )
+        
+        user_id = claims.get('sub')
         email = claims.get('email')
         
-        # If no claims (authorizer not configured), try to decode JWT token
-        if not email:
-            auth_header = event.get('headers', {}).get('Authorization') or event.get('headers', {}).get('authorization')
+        # Fallback: decode JWT manually
+        if not email and not user_id:
+            auth_header = (event.get('headers') or {}).get('Authorization') or (event.get('headers') or {}).get('authorization')
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
                 try:
                     import base64
-                    # Decode JWT payload (middle part)
                     parts = token.split('.')
                     if len(parts) == 3:
-                        # Add padding if needed
                         payload = parts[1]
                         payload += '=' * (4 - len(payload) % 4)
                         decoded = base64.b64decode(payload)
                         token_data = json.loads(decoded)
                         email = token_data.get('email')
-                        logger.info(f"Extracted email from JWT: {email}")
+                        user_id = token_data.get('sub')
+                        logger.info(f"Extracted email/userId from JWT: {email} / {user_id}")
                 except Exception as e:
                     logger.error(f"Error decoding JWT: {e}")
         
-        if not email:
-            raise ValidationError('Email not found in token')
+        if not email and not user_id:
+            raise ValidationError('User identity not found in token')
         
-        # Get user by email (this already returns the full profile)
-        user = user_service.get_user_by_email(email)
+        # Prefer userId (sub) lookup, fall back to email scan
+        user = None
+        if user_id:
+            user = user_service.get_user_profile(user_id)
+        if not user and email:
+            user = user_service.get_user_by_email(email)
         if not user:
-            raise ResourceNotFoundError('User not found', details={'email': email})
+            raise ResourceNotFoundError('User not found', details={'email': email, 'user_id': user_id})
         
         user_id = user.get('userId')
-        
-        # Use the user object as current profile (it already has all the data)
-        current_profile = user
         
         # Transform flat structure from frontend to nested structure for service
         # Frontend sends: {firstName, lastName, email, phone, address}

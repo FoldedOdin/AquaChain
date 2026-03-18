@@ -17,6 +17,8 @@ interface AddressObject {
   city?: string;
   state?: string;
   formatted?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface EditProfileModalProps {
@@ -60,6 +62,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [countryCode, setCountryCode] = useState('+91'); // Default to India
+
+  // Coordinates captured via Places Autocomplete
+  const [addressLat, setAddressLat] = useState<number | undefined>(undefined);
+  const [addressLng, setAddressLng] = useState<number | undefined>(undefined);
+
+  // Google Places Autocomplete
+  const autocompleteInputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   // OTP state
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -166,6 +176,81 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     }
   }, [resendTimer]);
 
+  // Load Google Maps script dynamically and initialize Places Autocomplete
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const initAutocomplete = () => {
+      if (!autocompleteInputRef.current || autocompleteRef.current) return;
+      if (typeof google === 'undefined' || !google.maps?.places) return;
+
+      const ac = new google.maps.places.Autocomplete(autocompleteInputRef.current, {
+        componentRestrictions: { country: 'in' },
+        fields: ['address_components', 'geometry'],
+        types: ['geocode'],
+      });
+
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        if (!place.geometry?.location) return;
+
+        setAddressLat(place.geometry.location.lat());
+        setAddressLng(place.geometry.location.lng());
+
+        const get = (type: string) =>
+          place.address_components?.find((c: google.maps.GeocoderAddressComponent) => c.types.includes(type))?.long_name || '';
+
+        const streetNumber = get('street_number');
+        const route = get('route');
+        const sublocality = get('sublocality_level_1') || get('sublocality') || get('neighborhood');
+        const locality = get('locality');
+        const adminArea = get('administrative_area_level_1');
+        const postal = get('postal_code');
+
+        if (streetNumber || route) setFlatHouse([streetNumber, route].filter(Boolean).join(', '));
+        if (sublocality) setAreaStreet(sublocality);
+        if (locality) setCity(locality);
+        if (adminArea) setState(adminArea);
+        if (postal) setPincode(postal);
+      });
+
+      autocompleteRef.current = ac;
+    };
+
+    const waitAndInit = () => {
+      if (typeof google !== 'undefined' && google.maps?.places) {
+        initAutocomplete();
+        return;
+      }
+      const interval = setInterval(() => {
+        if (typeof google !== 'undefined' && google.maps?.places) {
+          clearInterval(interval);
+          initAutocomplete();
+        }
+      }, 300);
+      // Clean up interval if component unmounts before Maps loads
+      return () => clearInterval(interval);
+    };
+
+    // Inject the Maps script if not already present
+    const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+    const scriptId = 'google-maps-places';
+    if (!document.getElementById(scriptId) && apiKey) {
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+      script.async = true;
+      script.onload = () => initAutocomplete();
+      document.head.appendChild(script);
+    } else {
+      waitAndInit();
+    }
+
+    return () => {
+      autocompleteRef.current = null;
+    };
+  }, [isOpen]);
+
   // Check if sensitive fields changed
   const hasSensitiveChanges = () => {
     return email !== stableProfile.email || 
@@ -191,6 +276,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     try {
       // Build structured address object
+      const addressStr = [flatHouse, areaStreet, landmark, city, state, pincode, country]
+        .map(p => p ? p.trim() : '')
+        .filter(p => p && p !== 'undefined')
+        .join(', ');
+
       const addressObj = {
         country,
         pincode: pincode.trim(),
@@ -199,11 +289,9 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         landmark: landmark.trim(),
         city: city.trim(),
         state: state.trim(),
-        // Also create formatted string for backward compatibility
-        formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
-          .map(p => p ? p.trim() : '')
-          .filter(p => p && p !== 'undefined')
-          .join(', ')
+        formatted: addressStr,
+        ...(addressLat !== undefined && { latitude: addressLat }),
+        ...(addressLng !== undefined && { longitude: addressLng }),
       };
 
       // Format phone with country code (E.164 format)
@@ -843,6 +931,27 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <p className="text-xs text-gray-500 mt-1">
                       Enter number without country code. Used for OTP verification and delivery updates.
                     </p>
+                  </div>
+
+                  {/* Google Places Autocomplete — captures exact coordinates */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      Search Address
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        ref={autocompleteInputRef}
+                        type="text"
+                        placeholder="Start typing your address..."
+                        className="w-full pl-9 pr-4 py-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50"
+                      />
+                    </div>
+                    {addressLat && addressLng ? (
+                      <p className="text-xs text-green-600 mt-1">✓ Exact location captured — navigation will be precise</p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">Select a suggestion to capture exact coordinates for accurate technician navigation</p>
+                    )}
                   </div>
 
                   {/* Pincode */}

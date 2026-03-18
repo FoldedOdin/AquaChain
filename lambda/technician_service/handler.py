@@ -43,6 +43,8 @@ ADMIN_TOPIC_ARN = os.environ.get('ADMIN_TOPIC_ARN')
 NOTIFICATION_TOPIC_ARN = os.environ.get('NOTIFICATION_TOPIC_ARN')
 WEBSOCKET_API_ENDPOINT = os.environ.get('WEBSOCKET_API_ENDPOINT')
 
+ORDERS_TABLE = os.environ.get('ORDERS_TABLE', 'aquachain-orders')
+
 # Initialize service components
 location_service = LocationService(LOCATION_MAP_NAME, LOCATION_ROUTE_CALCULATOR, LOCATION_PLACE_INDEX)
 availability_manager = TechnicianAvailabilityManager(USERS_TABLE, SERVICE_REQUESTS_TABLE)
@@ -79,6 +81,8 @@ def lambda_handler(event, context):
             return update_service_request_status(path_parameters['requestId'], body, user_info)
         elif resource == '/api/v1/technician/tasks' and http_method == 'GET':
             return get_technician_tasks(query_parameters, user_info)
+        elif resource == '/api/v1/technician/orders' and http_method == 'GET':
+            return get_technician_orders(query_parameters, user_info)
         elif resource == '/api/v1/technician/tasks/{taskId}/accept' and http_method == 'POST':
             return accept_technician_task(path_parameters['taskId'], user_info)
         elif resource == '/api/v1/technician/tasks/{taskId}/status' and http_method == 'PUT':
@@ -434,6 +438,16 @@ def get_technician_tasks(query_params: dict, user_info: dict):
         # Transform service requests to task format
         tasks = []
         for sr in result['service_requests']:
+            # Normalize location: handle both flat {latitude, longitude} and
+            # nested {coordinates: {latitude, longitude}} structures
+            raw_location = sr.get('location', {})
+            coords = raw_location.get('coordinates', {})
+            normalized_location = {
+                'address': raw_location.get('address', ''),
+                'latitude': float(raw_location.get('latitude') or coords.get('latitude') or 0),
+                'longitude': float(raw_location.get('longitude') or coords.get('longitude') or 0),
+            }
+
             task = {
                 'taskId': sr['requestId'],
                 'serviceRequestId': sr['requestId'],
@@ -441,7 +455,7 @@ def get_technician_tasks(query_params: dict, user_info: dict):
                 'consumerId': sr.get('consumerId'),
                 'priority': sr.get('priority', 'normal'),
                 'status': sr.get('status'),
-                'location': sr.get('location'),
+                'location': normalized_location,
                 'estimatedArrival': sr.get('estimatedArrival'),
                 'description': sr.get('description'),
                 'assignedAt': sr.get('createdAt'),
@@ -481,6 +495,103 @@ def get_technician_tasks(query_params: dict, user_info: dict):
     except Exception as e:
         logger.error(f"Error getting technician tasks: {str(e)}")
         return create_response(500, {'error': 'Failed to get tasks'})
+
+
+def get_technician_orders(query_params: dict, user_info: dict):
+    """Get orders assigned to the current technician from the orders table.
+
+    Orders may store the technician reference in several ways:
+      - assignedTechnicianId: full Cognito sub (ideal, but often missing)
+      - assignedTechnician: short ID like 'tech_XXXXXXXX' where XXXXXXXX is
+        the first 8 hex chars of the Cognito sub
+      - technicianAssignment.technicianId: same short ID format
+
+    We match on all three to be resilient to whichever format was written.
+    """
+    try:
+        if user_info['role'] != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+
+        technician_id = user_info['userId']  # Full Cognito sub, e.g. '31333d7a-7031-...'
+        orders_table = dynamodb.Table(ORDERS_TABLE)
+
+        # Derive the short tech ID used by the assignment algorithm
+        # Format: 'tech_' + first 8 chars of UUID (strip hyphens first)
+        short_id = 'tech_' + technician_id.replace('-', '')[:8]
+
+        logger.info(f"Searching orders for technician_id={technician_id}, short_id={short_id}")
+
+        # Scan with OR filter across all three possible fields
+        from boto3.dynamodb.conditions import Attr
+        filter_expr = (
+            Attr('assignedTechnicianId').eq(technician_id) |
+            Attr('assignedTechnician').eq(short_id) |
+            Attr('assignedTechnician').eq(technician_id) |
+            Attr('technicianAssignment.technicianId').eq(short_id) |
+            Attr('technicianAssignment.technicianId').eq(technician_id)
+        )
+
+        response = orders_table.scan(FilterExpression=filter_expr)
+        orders = response.get('Items', [])
+
+        # Handle DynamoDB pagination
+        while 'LastEvaluatedKey' in response:
+            response = orders_table.scan(
+                FilterExpression=filter_expr,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            orders.extend(response.get('Items', []))
+
+        logger.info(f"Found {len(orders)} orders for technician {technician_id}")
+
+        # Enrich orders with consumer phone from users table
+        consumer_ids = list({o.get('userId') for o in orders if o.get('userId')})
+        consumer_profiles: dict = {}
+        if consumer_ids:
+            try:
+                keys = [{'userId': cid} for cid in consumer_ids]
+                batch_resp = dynamodb.batch_get_item(
+                    RequestItems={USERS_TABLE: {'Keys': keys}}
+                )
+                for user in batch_resp.get('Responses', {}).get(USERS_TABLE, []):
+                    uid = user.get('userId')
+                    if uid:
+                        consumer_profiles[uid] = user
+            except Exception as enrich_err:
+                logger.warning(f"Could not enrich consumer profiles: {enrich_err}")
+
+        for order in orders:
+            uid = order.get('userId')
+            if uid and uid in consumer_profiles:
+                profile = consumer_profiles[uid].get('profile', {})
+                # Phone
+                if not order.get('consumerPhone') and not order.get('phone'):
+                    order['consumerPhone'] = profile.get('phone', '')
+                # Name
+                if not order.get('consumerName') or order.get('consumerName') == order.get('consumerEmail'):
+                    first = profile.get('firstName', '')
+                    last = profile.get('lastName', '')
+                    full_name = f"{first} {last}".strip()
+                    if full_name:
+                        order['consumerName'] = full_name
+                # Always use the latest address from the consumer profile
+                # so technicians see the current address, not the stale order-time snapshot
+                profile_address = profile.get('address')
+                if profile_address:
+                    order['deliveryAddress'] = profile_address
+
+        # Sort by createdAt descending
+        orders.sort(key=lambda x: x.get('createdAt', ''), reverse=True)
+
+        return create_response(200, {
+            'orders': orders,
+            'tasks': orders,
+            'count': len(orders)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting technician orders: {str(e)}")
+        return create_response(500, {'error': 'Failed to get orders'})
 
 
 def _format_relative_time(iso_timestamp: str) -> str:
@@ -892,11 +1003,20 @@ def get_task_route(task_id: str, user_info: dict):
         if service_request.get('technicianId') != user_info['userId']:
             return create_response(403, {'error': 'Access denied'})
         
-        # Get task location
-        task_location = service_request.get('location')
-        if not task_location:
+        # Get task location and normalize coordinates structure
+        raw_location = service_request.get('location')
+        if not raw_location:
             return create_response(400, {'error': 'Task location not available'})
-        
+
+        coords = raw_location.get('coordinates', {})
+        lat = float(raw_location.get('latitude') or coords.get('latitude') or 0)
+        lng = float(raw_location.get('longitude') or coords.get('longitude') or 0)
+        task_location = {
+            'address': raw_location.get('address', ''),
+            'latitude': lat,
+            'longitude': lng,
+        }
+
         # In production, this would use AWS Location Service to calculate route
         # For now, return mock route data
         route_data = {
@@ -904,7 +1024,7 @@ def get_task_route(task_id: str, user_info: dict):
             'destination': task_location,
             'estimatedDuration': 1800,  # 30 minutes in seconds
             'estimatedDistance': 15000,  # 15 km in meters
-            'routeUrl': f"https://maps.google.com/?q={task_location.get('latitude')},{task_location.get('longitude')}"
+            'routeUrl': f"https://maps.google.com/?q={lat},{lng}"
         }
         
         return create_response(200, route_data)

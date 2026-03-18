@@ -461,7 +461,8 @@ def lambda_handler(event, context):
             user_id = decoded_token.get('sub')
             user_role = decoded_token.get('cognito:groups', ['consumers'])[0]
             
-            # Update lastLogin timestamp in DynamoDB
+            # Update lastLogin timestamp in DynamoDB and fetch full profile
+            db_profile = {}
             try:
                 dynamodb = boto3.resource('dynamodb', region_name=region)
                 users_table = dynamodb.Table(os.environ.get('USERS_TABLE', 'AquaChain-Users'))
@@ -475,9 +476,20 @@ def lambda_handler(event, context):
                     }
                 )
                 logger.info(f"Updated lastLogin for user {user_id}")
+                
+                # Fetch full profile to include firstName/lastName in response
+                profile_response = users_table.get_item(Key={'userId': user_id})
+                db_profile = profile_response.get('Item', {})
             except Exception as db_error:
                 # Log but don't fail the signin if DynamoDB update fails
                 logger.warning(f"Failed to update lastLogin for user {user_id}: {str(db_error)}")
+            
+            # Extract profile fields - DynamoDB stores them nested under 'profile'
+            nested_profile = db_profile.get('profile', {})
+            first_name = nested_profile.get('firstName') or decoded_token.get('given_name', '')
+            last_name = nested_profile.get('lastName') or decoded_token.get('family_name', '')
+            phone = nested_profile.get('phone', '')
+            address = nested_profile.get('address', None)
             
             # Log successful authentication
             audit_logger.log_event(
@@ -503,10 +515,19 @@ def lambda_handler(event, context):
                     'refreshToken': refresh_token,
                     'user': {
                         'id': user_id,
+                        'userId': user_id,
                         'email': decoded_token.get('email'),
                         'name': decoded_token.get('name', decoded_token.get('email')),
+                        'firstName': first_name,
+                        'lastName': last_name,
+                        'phone': phone,
+                        'address': address,
                         'role': user_role,
-                        'emailVerified': decoded_token.get('email_verified', False)
+                        'emailVerified': decoded_token.get('email_verified', False),
+                        'deviceIds': db_profile.get('deviceIds', []),
+                        'createdAt': db_profile.get('createdAt', ''),
+                        'lastLogin': db_profile.get('lastLogin', ''),
+                        'preferences': db_profile.get('preferences', None)
                     }
                 })
             }

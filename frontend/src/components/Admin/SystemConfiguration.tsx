@@ -311,7 +311,7 @@ const SystemConfiguration = () => {
       'turbidity': 'WHO guideline: <5 NTU for drinking water. Higher values indicate suspended particles that may harbor pathogens.',
       'tds': 'WHO guideline: <500 ppm for acceptable taste. Higher values may indicate dissolved minerals or contaminants.',
       'temperature': 'Typical range: 10-35°C. Extreme temperatures may affect water quality and indicate system issues.',
-      'wqi': 'Water Quality Index: 0-25 (Excellent), 26-50 (Good), 51-75 (Poor), 76-100 (Very Poor), >100 (Unsuitable)',
+      'wqi': 'Water Quality Index (0–100): 90–100 (Excellent), 70–89 (Good), 50–69 (Fair), 0–49 (Poor). Higher scores indicate better water quality.',
       'dataRetention': 'Minimum 30 days required for trend analysis and compliance. Longer retention enables better historical analysis.',
       'auditRetention': 'Minimum 1 year required for GDPR compliance. Longer retention recommended for regulatory audits.'
     };

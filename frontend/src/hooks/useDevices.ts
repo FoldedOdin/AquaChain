@@ -41,14 +41,14 @@ export function useDevices() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 120000); // Refetch every 2 minutes
+    const interval = setInterval(fetchData, 30000); // Refetch every 30s to detect offline devices promptly
     setIntervalId(interval);
 
     return () => {
       clearInterval(interval);
       setIntervalId(null);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, []); // Only run once on mount
 
   return { data, isLoading, error, refetch: fetchData };
@@ -79,7 +79,7 @@ export function useDevice(deviceId: string) {
 
   useEffect(() => {
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, [deviceId]); // Only refetch when deviceId changes
 
   return { data, isLoading, error, refetch: fetchData };

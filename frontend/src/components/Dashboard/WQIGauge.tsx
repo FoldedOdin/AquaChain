@@ -7,11 +7,10 @@ interface WQIGaugeProps {
 
 const WQIGauge: React.FC<WQIGaugeProps> = ({ wqi, size = 'medium' }) => {
   const getWQIStatus = (value: number) => {
-    if (value >= 80) return { label: 'Excellent', color: '#10b981', bgColor: 'bg-green-50' };
-    if (value >= 60) return { label: 'Good', color: '#3b82f6', bgColor: 'bg-blue-50' };
-    if (value >= 40) return { label: 'Fair', color: '#f59e0b', bgColor: 'bg-yellow-50' };
-    if (value >= 20) return { label: 'Poor', color: '#ef4444', bgColor: 'bg-red-50' };
-    return { label: 'Very Poor', color: '#dc2626', bgColor: 'bg-red-100' };
+    if (value >= 90) return { label: 'Excellent', color: '#10b981', bgColor: 'bg-green-50' };
+    if (value >= 70) return { label: 'Good', color: '#3b82f6', bgColor: 'bg-blue-50' };
+    if (value >= 50) return { label: 'Fair', color: '#f59e0b', bgColor: 'bg-yellow-50' };
+    return { label: 'Poor', color: '#ef4444', bgColor: 'bg-red-50' };
   };
 
   const getSizeConfig = () => {
@@ -125,27 +124,22 @@ const WQIGauge: React.FC<WQIGaugeProps> = ({ wqi, size = 'medium' }) => {
         <div className="flex justify-between text-xs text-gray-500">
           <div className="text-center">
             <div className="w-2 h-2 bg-red-500 rounded-full mx-auto mb-1"></div>
-            <div>0-20</div>
+            <div>0-49</div>
             <div>Poor</div>
           </div>
           <div className="text-center">
             <div className="w-2 h-2 bg-yellow-500 rounded-full mx-auto mb-1"></div>
-            <div>20-40</div>
+            <div>50-69</div>
             <div>Fair</div>
           </div>
           <div className="text-center">
             <div className="w-2 h-2 bg-blue-500 rounded-full mx-auto mb-1"></div>
-            <div>40-60</div>
+            <div>70-89</div>
             <div>Good</div>
           </div>
           <div className="text-center">
             <div className="w-2 h-2 bg-green-500 rounded-full mx-auto mb-1"></div>
-            <div>60-80</div>
-            <div>V.Good</div>
-          </div>
-          <div className="text-center">
-            <div className="w-2 h-2 bg-green-600 rounded-full mx-auto mb-1"></div>
-            <div>80-100</div>
+            <div>90-100</div>
             <div>Excellent</div>
           </div>
         </div>

@@ -115,27 +115,21 @@ export const getShipmentById = async (shipmentId: string): Promise<ShipmentStatu
  * Get shipment details by order ID
  */
 export const getShipmentByOrderId = async (orderId: string): Promise<ShipmentStatusResponse> => {
-  try {
-    const token = getAuthToken();
-    
-    const response = await fetch(`${API_BASE_URL}/api/shipments?orderId=${orderId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+  const token = getAuthToken();
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch shipment details');
-    }
+  const response = await fetch(`${API_BASE_URL}/api/shipments?orderId=${orderId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
 
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching shipment details:', error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`Shipment not found for order ${orderId}`);
   }
+
+  return response.json();
 };
 
 /**

@@ -72,6 +72,11 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [showReportIssue, setShowReportIssue] = useState(false);
   const [showAddDevice, setShowAddDevice] = useState(false);
 
+  // Refresh user profile on mount to ensure firstName/lastName are up to date
+  useEffect(() => {
+    refreshUser();
+  }, []); // eslint-disable-line
+
   // Debug: Track showAddDevice state changes
   useEffect(() => {
     console.log('🔍 showAddDevice state changed to:', showAddDevice);
@@ -142,6 +147,12 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const orderingContext = useOrdering();
   console.log('🔍 Ordering context available:', !!orderingContext);
   console.log('🔍 Ordering state:', orderingContext?.state);
+
+  // Derive online status from lastSeen — device sends every 60s, so >2 min stale = offline
+  const isDeviceOnline = (device: any): boolean => {
+    const ms = device?.lastSeen ? new Date(device.lastSeen).getTime() : 0;
+    return ms > 0 && (Date.now() - ms) < 2 * 60 * 1000;
+  };
 
   // ✅ Get devices list from dashboard data
   const devicesList = useMemo(() => {
@@ -534,27 +545,30 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       };
     }
     
-    // Calculate WQI from sensor readings
     const { pH, turbidity, tds, temperature } = currentReading;
+
+    // Use WQI stored by Lambda (calculated server-side with consistent formula).
+    // Fall back to a simple local calculation only if the API didn't return one.
+    let wqi: number;
+    if (currentReading.wqi != null && currentReading.wqi > 0) {
+      wqi = Math.round(Number(currentReading.wqi));
+    } else {
+      // Fallback: mirror Lambda's calculate_simple_wqi formula exactly
+      const pHScore = Math.max(0, 100 - Math.abs(pH - 7.0) * 15);
+      const turbidityScore = Math.max(0, 100 - turbidity * 10);
+      const tdsScore = Math.max(0, 100 - Math.abs(tds - 100) / 10);
+      const tempScore = Math.max(0, 100 - Math.abs(temperature - 25) * 2);
+      wqi = Math.round((pHScore + turbidityScore + tdsScore + tempScore) / 4);
+    }
     
-    // Individual parameter scores (0-100 scale)
-    const pHScore = pH >= 6.5 && pH <= 8.5 ? 100 : Math.max(0, 100 - Math.abs(7.0 - pH) * 20);
-    const turbidityScore = Math.max(0, 100 - (turbidity * 20));
-    const tdsScore = Math.max(0, 100 - (tds / 5));
-    const tempScore = temperature >= 15 && temperature <= 25 ? 100 : Math.max(0, 100 - Math.abs(20 - temperature) * 5);
-    
-    const wqi = Math.round((pHScore + turbidityScore + tdsScore + tempScore) / 4);
-    
-    // Determine status and color based on WQI scale (0-300)
+    // Determine status and color based on WQI scale (0-100)
     let status = 'Poor';
     let color = 'red';
     let bgColor = 'bg-red-100';
     
     if (wqi >= 90) { status = 'Excellent'; color = 'green'; bgColor = 'bg-green-100'; }
-    else if (wqi >= 80) { status = 'Good'; color = 'blue'; bgColor = 'bg-blue-100'; }
-    else if (wqi >= 60) { status = 'Fair'; color = 'yellow'; bgColor = 'bg-yellow-100'; }
-    else if (wqi >= 40) { status = 'Poor'; color = 'orange'; bgColor = 'bg-orange-100'; }
-    else { status = 'Poor'; color = 'red'; bgColor = 'bg-red-100'; }
+    else if (wqi >= 70) { status = 'Good'; color = 'blue'; bgColor = 'bg-blue-100'; }
+    else if (wqi >= 50) { status = 'Fair'; color = 'yellow'; bgColor = 'bg-yellow-100'; }
     
     return {
       wqi,
@@ -1039,8 +1053,8 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               {devicesList.map((device: any) => {
                 const deviceId = device.device_id || device.deviceId;
                 const isSelected = deviceId === selectedDeviceId;
-                const isOnline = device.status === 'active' || device.status === 'online';
-                
+                // Derive online status from lastSeen — if no data for >2 min, treat as offline
+                const isOnline = isDeviceOnline(device);                
                 // Debug logging
                 console.log('🔍 Device Render:', {
                   deviceId: deviceId,
@@ -1149,17 +1163,15 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               <div className="text-right">
                 <div className={`
                   inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium
-                  ${currentDevice.status === 'Online'
+                  ${isDeviceOnline(currentDevice)
                     ? 'bg-green-500 bg-opacity-20 border border-green-300'
                     : 'bg-gray-500 bg-opacity-20 border border-gray-300'
                   }
                 `}>
                   <span className={`w-2 h-2 rounded-full ${
-                    currentDevice.status === 'Online'
-                      ? 'bg-green-300'
-                      : 'bg-gray-300'
+                    isDeviceOnline(currentDevice) ? 'bg-green-300' : 'bg-gray-300'
                   }`} />
-                  {currentDevice.status === 'Online' ? 'Online' : 'Offline'}
+                  {isDeviceOnline(currentDevice) ? 'Online' : 'Offline'}
                 </div>
                 <p className="text-xs text-cyan-200 mt-2">
                   Last updated: {new Date().toLocaleTimeString()}
@@ -1220,25 +1232,25 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               <div className="text-center">
                 <div className="flex items-center space-x-1">
                   <div className="w-3 h-3 bg-red-500 rounded"></div>
-                  <span>Poor (0-50)</span>
-                </div>
-              </div>
-              <div className="text-center">
-                <div className="flex items-center space-x-1">
-                  <div className="w-3 h-3 bg-orange-500 rounded"></div>
-                  <span>Moderate (51-100)</span>
+                  <span>Poor (0–49)</span>
                 </div>
               </div>
               <div className="text-center">
                 <div className="flex items-center space-x-1">
                   <div className="w-3 h-3 bg-yellow-500 rounded"></div>
-                  <span>Fair (101-200)</span>
+                  <span>Fair (50–69)</span>
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="flex items-center space-x-1">
+                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                  <span>Good (70–89)</span>
                 </div>
               </div>
               <div className="text-center">
                 <div className="flex items-center space-x-1">
                   <div className="w-3 h-3 bg-green-500 rounded"></div>
-                  <span>Good (201-300)</span>
+                  <span>Excellent (90–100)</span>
                 </div>
               </div>
             </div>

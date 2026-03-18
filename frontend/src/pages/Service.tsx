@@ -20,7 +20,7 @@ const Service = () => {
   // Load service requests on component mount
   useEffect(() => {
     loadServiceRequests();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   // Set up real-time updates for active requests
   useEffect(() => {

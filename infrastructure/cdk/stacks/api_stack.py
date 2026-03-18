@@ -525,6 +525,15 @@ class AquaChainApiStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO
         )
         
+        # /api/v1/technician/orders - Get orders assigned to this technician
+        technician_orders_resource = technician_resource.add_resource("orders")
+        technician_orders_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO
+        )
+        
         # /api/v1/technician/inventory
         technician_inventory_resource = technician_resource.add_resource("inventory")
         technician_inventory_resource.add_method(

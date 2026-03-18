@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import logging
+from decimal import Decimal
 from botocore.exceptions import ClientError
 
 # Add shared utilities to path
@@ -30,12 +31,19 @@ ses_client = boto3.client('ses')
 dynamodb = boto3.resource('dynamodb')
 ssm_client = boto3.client('ssm')
 
-# Environment variables
-USERS_TABLE = 'aquachain-users'
-NOTIFICATIONS_TABLE = 'aquachain-notifications'
-RATE_LIMIT_TABLE = 'aquachain-rate-limits'
-SES_FROM_EMAIL = 'alerts@aquachain.io'
-SES_CONFIGURATION_SET = 'aquachain-notifications'
+# Environment variables — all injected at deploy time, no hardcoded values
+USERS_TABLE = os.environ.get('USERS_TABLE', 'aquachain-users')
+NOTIFICATIONS_TABLE = os.environ.get('NOTIFICATIONS_TABLE', 'aquachain-notifications')
+RATE_LIMIT_TABLE = os.environ.get('RATE_LIMIT_TABLE', 'aquachain-rate-limits')
+ALERTS_TABLE = os.environ.get('ALERTS_TABLE', 'aquachain-alerts')
+SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'alerts@aquachain.io')
+SES_CONFIGURATION_SET = os.environ.get('SES_CONFIGURATION_SET', 'aquachain-notifications')
+APP_URL = os.environ.get('APP_URL', 'https://app.aquachain.io')
+
+# SNS topic ARNs for direct publishing (used when Lambda is invoked directly, not via SNS trigger)
+CRITICAL_ALERTS_TOPIC_ARN = os.environ.get('CRITICAL_ALERTS_TOPIC_ARN', '')
+SERVICE_UPDATES_TOPIC_ARN = os.environ.get('SERVICE_UPDATES_TOPIC_ARN', '')
+SYSTEM_ALERTS_TOPIC_ARN = os.environ.get('SYSTEM_ALERTS_TOPIC_ARN', '')
 
 # Rate limiting settings
 SMS_RATE_LIMIT = {
@@ -87,26 +95,44 @@ def lambda_handler(event, context):
 
 def handle_alert_notification(alert: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Handle water quality alert notifications
+    Handle water quality alert notifications.
+    Sends multi-channel notifications (email, SMS, push) to device owners
+    and also publishes to the appropriate SNS topic for fan-out.
     """
     try:
         device_id = alert['deviceId']
         alert_level = alert['alertLevel']
-        
+
+        # Publish to SNS topic for fan-out (other subscribers, CloudWatch, etc.)
+        topic_arn = CRITICAL_ALERTS_TOPIC_ARN if alert_level == 'critical' else SERVICE_UPDATES_TOPIC_ARN
+        if topic_arn:
+            try:
+                sns_client.publish(
+                    TopicArn=topic_arn,
+                    Subject=f"AquaChain {alert_level.title()} Alert — Device {device_id}",
+                    Message=json.dumps(alert),
+                    MessageAttributes={
+                        'alertLevel': {'DataType': 'String', 'StringValue': alert_level},
+                        'deviceId': {'DataType': 'String', 'StringValue': device_id},
+                    }
+                )
+                logger.info(f"Published alert to SNS topic: {topic_arn}")
+            except Exception as e:
+                logger.warning(f"Failed to publish to SNS topic: {e}")
+
         # Get users associated with the device
         users = get_device_users(device_id)
-        
+
         if not users:
             logger.warning(f"No users found for device {device_id}")
             return create_success_response("No users to notify")
-        
+
         notification_results = []
-        
+
         for user in users:
             user_id = user['userId']
             preferences = user.get('preferences', {}).get('notifications', {})
-            
-            # Create notification record
+
             notification = create_notification_record(
                 user_id=user_id,
                 notification_type='water_quality_alert',
@@ -114,13 +140,12 @@ def handle_alert_notification(alert: Dict[str, Any]) -> Dict[str, Any]:
                 content=alert,
                 channels=get_enabled_channels(preferences, alert_level)
             )
-            
-            # Send notifications through enabled channels
+
             channel_results = send_multi_channel_notification(user, notification)
             notification_results.extend(channel_results)
-        
+
         return create_success_response(f"Alert notifications sent", notification_results)
-        
+
     except Exception as e:
         logger.error(f"Error handling alert notification: {e}")
         raise NotificationError(f"Alert notification failed: {e}")
@@ -282,6 +307,16 @@ def get_enabled_channels(preferences: Dict[str, Any], alert_level: str) -> List[
     
     return channels
 
+def _floats_to_decimal(obj: Any) -> Any:
+    """Recursively convert floats to Decimal for DynamoDB compatibility."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _floats_to_decimal(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_floats_to_decimal(i) for i in obj]
+    return obj
+
 def create_notification_record(user_id: str, notification_type: str, alert_level: str,
                              content: Dict[str, Any], channels: List[str]) -> Dict[str, Any]:
     """
@@ -294,7 +329,7 @@ def create_notification_record(user_id: str, notification_type: str, alert_level
         'userId': user_id,
         'notificationType': notification_type,
         'alertLevel': alert_level,
-        'content': content,
+        'content': _floats_to_decimal(content),
         'channels': channels,
         'status': 'pending',
         'createdAt': datetime.utcnow().isoformat(),
@@ -458,7 +493,7 @@ def send_email_notification(user: Dict[str, Any], notification: Dict[str, Any]) 
         email_content = create_email_content(content, notification_type)
         
         # Send email via SES
-        response = ses_client.send_email(
+        ses_kwargs = dict(
             Source=SES_FROM_EMAIL,
             Destination={'ToAddresses': [email]},
             Message={
@@ -468,13 +503,17 @@ def send_email_notification(user: Dict[str, Any], notification: Dict[str, Any]) 
                     'Text': {'Data': email_content['text_body'], 'Charset': 'UTF-8'}
                 }
             },
-            ConfigurationSetName=SES_CONFIGURATION_SET,
             Tags=[
                 {'Name': 'NotificationType', 'Value': notification_type},
                 {'Name': 'AlertLevel', 'Value': notification['alertLevel']},
                 {'Name': 'UserId', 'Value': user['userId']}
             ]
         )
+        # Only attach configuration set if one is configured
+        if SES_CONFIGURATION_SET:
+            ses_kwargs['ConfigurationSetName'] = SES_CONFIGURATION_SET
+
+        response = ses_client.send_email(**ses_kwargs)
         
         return {
             'status': 'success',
@@ -578,59 +617,98 @@ def create_email_content(content: Dict[str, Any], notification_type: str) -> Dic
         device_id = content['deviceId']
         wqi = content['wqi']
         alert_reasons = content.get('alertReasons', [])
-        
-        subject = f"{'🚨 CRITICAL' if alert_level == 'critical' else '⚠️ WARNING'} Water Quality Alert - Device {device_id}"
-        
-        html_body = f"""
-        <html>
-        <body>
-            <h2 style="color: {'#dc3545' if alert_level == 'critical' else '#ffc107'};">
-                {alert_level.title()} Water Quality Alert
-            </h2>
-            <p><strong>Device:</strong> {device_id}</p>
-            <p><strong>Water Quality Index:</strong> {wqi:.1f}</p>
-            <p><strong>Alert Time:</strong> {content['timestamp']}</p>
-            
-            <h3>Alert Reasons:</h3>
-            <ul>
-                {''.join(f'<li>{reason}</li>' for reason in alert_reasons)}
-            </ul>
-            
-            <p style="color: {'#dc3545' if alert_level == 'critical' else '#856404'};">
-                {'Please take immediate action to ensure water safety.' if alert_level == 'critical' 
-                 else 'Please monitor your water quality closely.'}
-            </p>
-            
-        </body>
-        </html>
-        """
-        
-        text_body = f"""
-        {alert_level.title()} Water Quality Alert
-        
-        Device: {device_id}
-        Water Quality Index: {wqi:.1f}
-        Alert Time: {content['timestamp']}
-        
-        Alert Reasons:
-        {chr(10).join(f'- {reason}' for reason in alert_reasons)}
-        
-        {'Please take immediate action to ensure water safety.' if alert_level == 'critical' 
-         else 'Please monitor your water quality closely.'}
-        
-        View your dashboard: https://app.aquachain.io/dashboard
-        """
-    
+        timestamp = content.get('timestamp', datetime.utcnow().isoformat())
+
+        is_critical = alert_level == 'critical'
+        header_color = '#dc3545' if is_critical else '#f59e0b'
+        label = 'CRITICAL' if is_critical else 'WARNING'
+        cta = 'Take immediate action to ensure water safety.' if is_critical else 'Please monitor your water quality closely.'
+
+        subject = f"[AquaChain {label}] Water Quality Alert — Device {device_id}"
+
+        reasons_html = ''.join(f'<li style="margin:4px 0">{r}</li>' for r in alert_reasons)
+        reasons_text = '\n'.join(f'  - {r}' for r in alert_reasons)
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
+  <div style="background:{header_color};color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0">{'🚨' if is_critical else '⚠️'} {label}: Water Quality Alert</h2>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+      <tr><td style="padding:6px 0;color:#6b7280;width:140px">Device</td><td style="font-weight:600">{device_id}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Water Quality Index</td><td style="font-weight:600;color:{header_color}">{wqi:.1f} / 100</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280">Alert Time</td><td>{timestamp}</td></tr>
+    </table>
+    <h3 style="margin:0 0 8px;font-size:14px;color:#374151">Alert Reasons</h3>
+    <ul style="margin:0 0 16px;padding-left:20px">{reasons_html}</ul>
+    <p style="color:{header_color};font-weight:600;margin:0 0 20px">{cta}</p>
+    <a href="{APP_URL}/dashboard" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
+      View Dashboard →
+    </a>
+    <p style="margin-top:24px;font-size:12px;color:#9ca3af">
+      AquaChain Water Quality Monitoring · <a href="{APP_URL}/settings/notifications" style="color:#9ca3af">Manage notifications</a>
+    </p>
+  </div>
+</body>
+</html>"""
+
+        text_body = f"""{label}: Water Quality Alert
+
+Device: {device_id}
+Water Quality Index: {wqi:.1f} / 100
+Alert Time: {timestamp}
+
+Alert Reasons:
+{reasons_text}
+
+{cta}
+
+View your dashboard: {APP_URL}/dashboard
+Manage notifications: {APP_URL}/settings/notifications
+"""
+
+    elif notification_type in ('service_update', 'service_assignment'):
+        update_type = content.get('updateType', 'updated')
+        request_id = content.get('requestId', '')
+
+        subject = f"[AquaChain] Service Request {update_type.replace('_', ' ').title()}"
+
+        html_body = f"""<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333">
+  <div style="background:#2563eb;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+    <h2 style="margin:0">🔧 Service Request Update</h2>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px">
+    <p>Your service request <strong>{request_id}</strong> has been updated.</p>
+    <p><strong>Status:</strong> {update_type.replace('_', ' ').title()}</p>
+    <a href="{APP_URL}/service" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
+      View Service Request →
+    </a>
+  </div>
+</body>
+</html>"""
+
+        text_body = f"""Service Request Update
+
+Request ID: {request_id}
+Status: {update_type.replace('_', ' ').title()}
+
+View details: {APP_URL}/service
+"""
+
     else:
         subject = "AquaChain Notification"
-        html_body = "<html><body><p>You have a new notification from AquaChain.</p></body></html>"
-        text_body = "You have a new notification from AquaChain."
-    
-    return {
-        'subject': subject,
-        'html_body': html_body,
-        'text_body': text_body
-    }
+        html_body = f"""<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;padding:20px">
+  <p>You have a new notification from AquaChain.</p>
+  <a href="{APP_URL}/dashboard">View Dashboard →</a>
+</body></html>"""
+        text_body = f"You have a new notification from AquaChain.\n\nView dashboard: {APP_URL}/dashboard"
+
+    return {'subject': subject, 'html_body': html_body, 'text_body': text_body}
 
 def create_sms_message(content: Dict[str, Any], notification_type: str) -> str:
     """
