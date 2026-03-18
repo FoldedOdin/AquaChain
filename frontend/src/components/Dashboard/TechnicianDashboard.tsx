@@ -49,7 +49,10 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [showTaskDetails, setShowTaskDetails] = useState(false);
   const [showDeclineModal, setShowDeclineModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterPriority, setFilterPriority] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const TASKS_PER_PAGE = 10;
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState('');
@@ -129,6 +132,14 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
 
   useEffect(() => {
     fetchTechnicianOrders();
+  }, [fetchTechnicianOrders]);
+
+  // Auto-refresh every 30 seconds as fallback alongside WebSocket
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchTechnicianOrders();
+    }, 30000);
+    return () => clearInterval(interval);
   }, [fetchTechnicianOrders]);
 
   const isLoading = techOrdersLoading;
@@ -773,25 +784,44 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     };
   });
 
-  // Calculate stats using mapped statuses
+  // Calculate stats using mapped statuses (mappedStatus is the normalized field)
+  const todayStr = new Date().toDateString();
   const stats = {
     total: tasksWithMappedStatus.length,
-    completed: tasksWithMappedStatus.filter((t: any) => t.status === 'completed' || t.status === 'INSTALLED').length,
-    pending: tasksWithMappedStatus.filter((t: any) => t.status === 'shipped').length,
-    inProgress: tasksWithMappedStatus.filter((t: any) => t.status === 'installing').length,
-    accepted: tasksWithMappedStatus.filter((t: any) => t.status === 'accepted').length
+    completed: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'completed').length,
+    pending: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'assigned').length,
+    inProgress: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'in_progress').length,
+    accepted: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'accepted').length,
+    completedToday: tasksWithMappedStatus.filter((t: any) =>
+      t.mappedStatus === 'completed' && t.completedAt && new Date(t.completedAt).toDateString() === todayStr
+    ).length,
   };
+
+  // Completion rate and SLA (tasks completed within due date)
+  const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
+  const slaCompliant = tasksWithMappedStatus.filter((t: any) =>
+    t.mappedStatus === 'completed' && t.dueDate && t.completedAt &&
+    new Date(t.completedAt) <= new Date(t.dueDate)
+  ).length;
+  const slaRate = stats.completed > 0 ? Math.round((slaCompliant / stats.completed) * 100) : 100;
 
   // Filter tasks using mapped tasks
   const filteredTasks = tasksWithMappedStatus.filter((task: any) => {
-    const matchesFilter = filterStatus === 'all' || task.status === filterStatus;
+    const matchesStatus = filterStatus === 'all' || task.mappedStatus === filterStatus;
+    const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
     const locationStr = typeof task.location === 'object' ? task.location?.address || '' : task.location || '';
-    const matchesSearch = searchTerm === '' || 
+    const matchesSearch = searchTerm === '' ||
       task.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       task.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      locationStr.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
+      locationStr.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.deviceId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.consumerName?.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesStatus && matchesPriority && matchesSearch;
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredTasks.length / TASKS_PER_PAGE);
+  const paginatedTasks = filteredTasks.slice((currentPage - 1) * TASKS_PER_PAGE, currentPage * TASKS_PER_PAGE);
 
   // Navigate to task location using Google Maps (regular function, not a hook)
   const handleNavigateToTask = () => {
@@ -870,83 +900,94 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
         )}
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Total Tasks</h3>
               <ClipboardList className="w-5 h-5 text-blue-600" />
             </div>
             <div className="text-3xl font-bold text-gray-900">{stats.total}</div>
-            <p className="text-xs text-gray-500 mt-1">All assigned tasks</p>
+            <p className="text-xs text-gray-500 mt-1">All assigned</p>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Completed</h3>
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
-            <div className="text-3xl font-bold text-gray-900">{stats.completed}</div>
-            <p className="text-xs text-gray-500 mt-1">This week</p>
+            <div className="text-3xl font-bold text-green-700">{stats.completed}</div>
+            <p className="text-xs text-gray-500 mt-1">{stats.completedToday} today</p>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Pending</h3>
               <Clock className="w-5 h-5 text-orange-600" />
             </div>
-            <div className="text-3xl font-bold text-gray-900">{stats.pending}</div>
+            <div className="text-3xl font-bold text-orange-700">{stats.pending}</div>
             <p className="text-xs text-gray-500 mt-1">Awaiting action</p>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">In Progress</h3>
               <TrendingUp className="w-5 h-5 text-yellow-600" />
             </div>
-            <div className="text-3xl font-bold text-gray-900">{stats.inProgress}</div>
+            <div className="text-3xl font-bold text-yellow-700">{stats.inProgress}</div>
             <p className="text-xs text-gray-500 mt-1">Active work</p>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Accepted</h3>
-              <Settings className="w-5 h-5 text-green-600" />
+              <Settings className="w-5 h-5 text-blue-600" />
             </div>
-            <div className="text-3xl font-bold text-gray-900">{stats.accepted}</div>
+            <div className="text-3xl font-bold text-blue-700">{stats.accepted}</div>
             <p className="text-xs text-gray-500 mt-1">Ready to start</p>
           </div>
         </div>
 
         {/* Search and Filter Bar */}
         <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div className="flex-1 max-w-md">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search tasks, locations, devices..."
+                  placeholder="Search by name, device, location..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Filter className="w-5 h-5 text-gray-600" />
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-500" />
                 <select
                   value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); }}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="all">All Tasks</option>
+                  <option value="all">All Status</option>
                   <option value="assigned">Assigned</option>
                   <option value="accepted">Accepted</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
                 </select>
               </div>
+              <select
+                value={filterPriority}
+                onChange={(e) => { setFilterPriority(e.target.value); setCurrentPage(1); }}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">All Priority</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <span className="text-sm text-gray-500">{filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}</span>
             </div>
           </div>
         </div>
@@ -955,135 +996,151 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
           {/* Tasks List */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Assigned Tasks</h2>
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">
+                Assigned Tasks
+                {isConnected && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-green-600">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                    Live
+                  </span>
+                )}
+              </h2>
               <div className="space-y-4">
-                {filteredTasks.length > 0 ? (
-                  filteredTasks.map((task: any, index: number) => (
+                {paginatedTasks.length > 0 ? (
+                  paginatedTasks.map((task: any, index: number) => (
                     <div key={task.id || index} className="border-2 border-gray-200 rounded-lg p-5 hover:border-blue-300 transition">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900">{task.title || `Task ${index + 1}`}</h3>
+                          <div className="flex items-center flex-wrap gap-2 mb-2">
+                            <h3 className="text-base font-semibold text-gray-900">{task.title || `Task ${index + 1}`}</h3>
                             {task.priority && (
-                              <div className={`flex items-center space-x-1 px-2 py-1 rounded border ${getPriorityColor(task.priority)}`}>
+                              <div className={`flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${getPriorityColor(task.priority)}`}>
                                 {getPriorityIcon(task.priority)}
-                                <span className="text-xs font-medium capitalize">{task.priority}</span>
+                                <span className="capitalize">{task.priority}</span>
                               </div>
                             )}
                           </div>
-                          {/* Delivery Status Badge */}
-                          <div className="mb-3">
+
+                          {/* Device + Status row */}
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {task.deviceId && (
+                              <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                                <Settings className="w-3 h-3" />
+                                {task.deviceId}
+                              </span>
+                            )}
+                            {/* Delivery Status Badge */}
                             {getDeliveryStatusBadge(task.orderId)}
                           </div>
+
                           <p className="text-sm text-gray-600 mb-3">{task.description || 'No description'}</p>
-                          <div className="grid grid-cols-2 gap-3 text-sm">
+
+                          <div className="grid grid-cols-1 gap-2 text-sm">
                             {task.location && (
-                              <div className="flex items-center justify-between col-span-2">
-                                <div className="flex items-center space-x-2 text-gray-600">
-                                  <MapPin className="w-4 h-4" />
-                                  <span>{task.address || (typeof task.location === 'object' ? task.location.address || 'Location' : task.location)}</span>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-gray-600">
+                                  <MapPin className="w-4 h-4 flex-shrink-0" />
+                                  <span className="truncate">{task.address || (typeof task.location === 'object' ? task.location.address || 'Location' : task.location)}</span>
                                 </div>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    // Use navAddress (landmark-free) for accurate geocoding
                                     const dest = task.navAddress || task.address || (typeof task.location === 'object' ? task.location.address : task.location);
-                                    if (dest) {
-                                      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`, '_blank');
-                                    }
+                                    if (dest) window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`, '_blank');
                                   }}
-                                  className="flex items-center gap-1 px-2 py-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition"
-                                  title="Navigate to location"
+                                  className="flex items-center gap-1 px-2 py-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition flex-shrink-0"
                                 >
                                   <Navigation className="w-3 h-3" />
                                   Navigate
                                 </button>
                               </div>
                             )}
-                            {task.dueDate && (
-                              <div className="flex items-center space-x-2 text-gray-600">
-                                <Calendar className="w-4 h-4" />
-                                <span>Due: {task.dueDate}</span>
-                              </div>
-                            )}
-                            {task.deviceId && (
-                              <div className="flex items-center space-x-2 text-gray-600">
-                                <Settings className="w-4 h-4" />
-                                <span>Device: {task.deviceId}</span>
-                              </div>
-                            )}
-                            {task.consumer && (
-                              <div className="flex items-center space-x-2 text-gray-600">
-                                <User className="w-4 h-4" />
-                                <span>{typeof task.consumer === 'object' ? task.consumer.name || 'Consumer' : task.consumer}</span>
-                              </div>
-                            )}
+                            <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                              {task.consumer && (
+                                <div className="flex items-center gap-1">
+                                  <User className="w-3 h-3" />
+                                  <span>{typeof task.consumer === 'object' ? task.consumer.name || 'Consumer' : task.consumer}</span>
+                                </div>
+                              )}
+                              {task.phone && (
+                                <div className="flex items-center gap-1">
+                                  <span>📞</span>
+                                  <span>{task.phone}</span>
+                                </div>
+                              )}
+                              {task.dueDate && (
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="w-3 h-3" />
+                                  <span>Due: {task.dueDate}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap ${getStatusColor(task.status || 'pending')}`}>
-                          {(task.status || 'pending').replace('_', ' ')}
+                        <span className={`ml-3 px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap ${getStatusColor(task.mappedStatus || task.status || 'pending')}`}>
+                          {(task.mappedStatus || task.status || 'pending').replace(/_/g, ' ')}
                         </span>
                       </div>
-                      <div className="flex items-center space-x-3 mt-4 pt-4 border-t border-gray-200">
-                        {task.status === 'shipped' && (
+                      <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 flex-wrap">
+                        {task.mappedStatus === 'assigned' && (
                           <>
                             <div className="flex-1 relative group">
-                              <button 
+                              <button
                                 onClick={() => handleAcceptTask(task.taskId)}
                                 disabled={isProcessing === task.taskId || !isDeliveryConfirmed(task.orderId)}
-                                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                                 title={!isDeliveryConfirmed(task.orderId) ? 'Device must be delivered before accepting task' : ''}
                               >
-                                {isProcessing === task.taskId ? 'Processing...' : 'Accept Task'}
+                                {isProcessing === task.taskId ? 'Processing...' : '✅ Accept Task'}
                               </button>
                               {!isDeliveryConfirmed(task.orderId) && (
                                 <div className="hidden group-hover:block absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-10">
-                                  Device must be delivered before accepting task
+                                  Device must be delivered before accepting
                                   <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
                                     <div className="border-4 border-transparent border-t-gray-900"></div>
                                   </div>
                                 </div>
                               )}
                             </div>
-                            <button 
+                            <button
                               onClick={() => handleDeclineTask(task)}
                               disabled={isProcessing === task.taskId}
-                              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium disabled:opacity-50 text-sm"
                             >
-                              Decline
+                              ❌ Decline
                             </button>
                           </>
                         )}
-                        {task.status === 'accepted' && (
-                          <button 
+                        {task.mappedStatus === 'accepted' && (
+                          <button
                             onClick={() => handleStartTask(task.taskId)}
                             disabled={isProcessing === task.taskId}
-                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 text-sm"
                           >
-                            {isProcessing === task.taskId ? 'Processing...' : 'Start Work'}
+                            {isProcessing === task.taskId ? 'Processing...' : '▶️ Start Work'}
                           </button>
                         )}
-                        {task.status === 'installing' && (
+                        {task.mappedStatus === 'in_progress' && (
                           <>
-                            <button 
+                            <button
                               onClick={() => handleCompleteTask(task.taskId, task)}
                               disabled={isProcessing === task.taskId}
-                              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 text-sm"
                             >
-                              {isProcessing === task.taskId ? 'Processing...' : 'Complete Installation'}
+                              {isProcessing === task.taskId ? 'Processing...' : '✔️ Complete'}
                             </button>
-                            <button 
+                            <button
                               onClick={() => handleUpdateTask(task.taskId)}
                               disabled={isProcessing === task.taskId}
-                              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium disabled:opacity-50 text-sm"
                             >
                               Update
                             </button>
                           </>
                         )}
-                        <button 
+                        <button
                           onClick={() => handleViewDetails(task)}
-                          className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition font-medium"
+                          className="px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition font-medium text-sm"
                         >
                           View Details
                         </button>
@@ -1094,6 +1151,31 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                   <p className="text-gray-600 text-center py-8">No tasks found</p>
                 )}
               </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+                  <span className="text-sm text-gray-600">
+                    Page {currentPage} of {totalPages} ({filteredTasks.length} tasks)
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-40 hover:bg-gray-50"
+                    >
+                      ← Prev
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-40 hover:bg-gray-50"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1127,31 +1209,31 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Performance</h2>
               <div className="space-y-4">
                 <div>
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-1">
                     <span className="text-sm text-gray-600">Completion Rate</span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0}%
-                    </span>
+                    <span className="text-sm font-semibold text-gray-900">{completionRate}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full" 
-                      style={{ width: `${stats.total > 0 ? (stats.completed / stats.total) * 100 : 0}%` }}
-                    ></div>
+                    <div className="bg-green-600 h-2 rounded-full transition-all" style={{ width: `${completionRate}%` }}></div>
                   </div>
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-gray-600">Tasks In Progress</span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {stats.total > 0 ? Math.round((stats.inProgress / stats.total) * 100) : 0}%
-                    </span>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-gray-600">SLA Compliance</span>
+                    <span className="text-sm font-semibold text-gray-900">{slaRate}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full" 
-                      style={{ width: `${stats.total > 0 ? (stats.inProgress / stats.total) * 100 : 0}%` }}
-                    ></div>
+                    <div className={`h-2 rounded-full transition-all ${slaRate >= 90 ? 'bg-green-600' : slaRate >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${slaRate}%` }}></div>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-gray-100 grid grid-cols-2 gap-3">
+                  <div className="text-center bg-green-50 rounded-lg p-3">
+                    <div className="text-2xl font-bold text-green-700">{stats.completedToday}</div>
+                    <div className="text-xs text-gray-500 mt-1">Completed Today</div>
+                  </div>
+                  <div className="text-center bg-blue-50 rounded-lg p-3">
+                    <div className="text-2xl font-bold text-blue-700">{stats.completed}</div>
+                    <div className="text-xs text-gray-500 mt-1">Total Done</div>
                   </div>
                 </div>
               </div>
