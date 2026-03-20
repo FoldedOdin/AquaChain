@@ -567,3 +567,5 @@ lambda/orders/test_payload.json
 lambda/orders/response.json
 
 config.h
+*.h
+iot-firmware/aquachain-esp32/aquachain-esp32-improved/config.h
