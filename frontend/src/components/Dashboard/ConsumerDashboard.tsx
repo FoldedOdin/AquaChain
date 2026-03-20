@@ -138,9 +138,23 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     error: error
   };
   
-  // ✅ Real-time updates with WebSocket
+  // ✅ Real-time updates with WebSocket — only connect once access token is available
+  const [hasAccessToken, setHasAccessToken] = useState(!!localStorage.getItem('aquachain_access_token'));
+  useEffect(() => {
+    if (hasAccessToken) return;
+    // Poll until the access token is stored (AuthContext fetches it asynchronously on load)
+    const interval = setInterval(() => {
+      if (localStorage.getItem('aquachain_access_token')) {
+        setHasAccessToken(true);
+        clearInterval(interval);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [hasAccessToken]);
+
   const { latestUpdate, isConnected } = useRealTimeUpdates('consumer-updates', {
-    autoConnect: true
+    autoConnect: true,
+    enabled: hasAccessToken
   });
 
   // Test ordering context
@@ -183,7 +197,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     }
   }, [devicesList.length]); // Only depend on length, not the entire array
 
-  // ✅ Fetch current reading when selected device changes
+  // ✅ Fetch current reading when selected device changes (initial load only)
   useEffect(() => {
     const fetchCurrentReading = async () => {
       if (!currentDevice) {
@@ -214,6 +228,19 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
     fetchCurrentReading();
   }, [currentDevice]);
+
+  // ✅ Update reading from WebSocket real-time push (no polling needed)
+  useEffect(() => {
+    if (latestUpdate?.type === 'water_quality' && latestUpdate.data) {
+      const incoming = latestUpdate.data;
+      // Only apply if it belongs to the currently selected device
+      const currentDeviceId = currentDevice?.device_id || currentDevice?.deviceId;
+      if (!currentDeviceId || !incoming.deviceId || incoming.deviceId === currentDeviceId) {
+        console.log('📡 Real-time reading update applied:', incoming);
+        setCurrentReadingData(incoming);
+      }
+    }
+  }, [latestUpdate, currentDevice]);
 
   // ✅ Memoized logout handler - prevents recreation on every render
   const handleLogout = useCallback(async () => {
@@ -980,16 +1007,6 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               <Package className="w-5 h-5" />
               <span className="text-sm font-medium">My Orders</span>
             </button>
-
-            {/* Connection Status */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
-              isConnected 
-                ? 'bg-green-100 text-green-700' 
-                : 'bg-gray-100 text-gray-600'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-              <span>{isConnected ? 'Live' : 'Offline'}</span>
-            </div>
 
             {/* Manual Refresh */}
             <button

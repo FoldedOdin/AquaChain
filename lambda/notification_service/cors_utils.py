@@ -4,6 +4,7 @@ Provides consistent CORS headers across all API responses
 """
 
 import json
+from decimal import Decimal
 from typing import Any, Dict, Optional
 
 # CORS configuration
@@ -14,6 +15,14 @@ CORS_HEADERS = {
     'Access-Control-Allow-Credentials': 'false',
     'Content-Type': 'application/json'
 }
+
+
+class DecimalEncoder(json.JSONEncoder):
+    """JSON encoder that converts DynamoDB Decimal types to float/int."""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
 
 def cors_response(status_code: int, body: Any, additional_headers: Optional[Dict[str, str]] = None) -> Dict:
     """
@@ -34,7 +43,7 @@ def cors_response(status_code: int, body: Any, additional_headers: Optional[Dict
     
     # Serialize body if it's not already a string
     if not isinstance(body, str):
-        body = json.dumps(body)
+        body = json.dumps(body, cls=DecimalEncoder)
     
     return {
         'statusCode': status_code,

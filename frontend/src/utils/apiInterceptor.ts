@@ -9,6 +9,7 @@ export const handleApiError = async (response: Response, logout?: () => Promise<
     
     // Clear local storage
     localStorage.removeItem('aquachain_token');
+    localStorage.removeItem('aquachain_access_token');
     localStorage.removeItem('aquachain_user');
     
     // Call logout if provided

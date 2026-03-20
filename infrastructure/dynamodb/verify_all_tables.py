@@ -78,7 +78,7 @@ def verify_all_tables():
         },
         {
             'name': 'aquachain-notifications',
-            'gsis': ['UserNotifications']
+            'gsis': ['userId-createdAt-index']
         },
         {
             'name': 'aquachain-rate-limits',

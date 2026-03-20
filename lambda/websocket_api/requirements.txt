@@ -1,7 +1,4 @@
-# Dependencies moved to common layer:
-# - boto3
-# - botocore
-# - PyJWT
-
-# Function-specific dependencies
+# Dependencies for websocket Lambda
+# PyJWT is bundled here since the common layer is not attached to this function
+PyJWT==2.8.0
 cryptography>=42.0.0,<44

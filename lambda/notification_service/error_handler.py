@@ -239,11 +239,14 @@ class ErrorHandler:
         }
         
         if severity in [ErrorSeverity.HIGH, ErrorSeverity.CRITICAL]:
-            logger.error("High severity error occurred", extra=log_data)
+            logger.error("High severity error: code=%s service=%s correlation=%s",
+                        error.code.value, self.service_name, correlation_id)
         elif severity == ErrorSeverity.MEDIUM:
-            logger.warning("Medium severity error occurred", extra=log_data)
+            logger.warning("Medium severity error: code=%s service=%s correlation=%s",
+                          error.code.value, self.service_name, correlation_id)
         else:
-            logger.info("Low severity error occurred", extra=log_data)
+            logger.info("Low severity error: code=%s service=%s correlation=%s",
+                       error.code.value, self.service_name, correlation_id)
         
         # Security audit logging for security-related errors
         if error.code in [ErrorCode.SECURITY_VIOLATION, ErrorCode.SUSPICIOUS_ACTIVITY, 
@@ -287,13 +290,11 @@ class ErrorHandler:
         
         # Log full error details for debugging
         logger.error(
-            "Unexpected error occurred",
-            service=self.service_name,
-            error_type=type(error).__name__,
-            error_message=str(error),
-            correlation_id=correlation_id,
-            user_id=user_id,
-            stack_trace=traceback.format_exc() if self.enable_debug else None
+            "Unexpected error occurred: service=%s type=%s correlation=%s msg=%s",
+            self.service_name,
+            type(error).__name__,
+            correlation_id,
+            str(error)
         )
         
         # Create generic response (don't expose internal details)

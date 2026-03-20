@@ -14,11 +14,13 @@ import uuid
 # AWS Clients
 dynamodb = boto3.resource('dynamodb')
 ses_client = boto3.client('ses', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+lambda_client = boto3.client('lambda', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
 
 # Environment variables
 CONTACT_TABLE_NAME = os.environ.get('CONTACT_TABLE_NAME', 'aquachain-contact-submissions')
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@aquachain.io')
 FROM_EMAIL = os.environ.get('FROM_EMAIL', 'noreply@aquachain.io')
+NOTIFICATION_FUNCTION_NAME = os.environ.get('NOTIFICATION_FUNCTION_NAME', 'aquachain-function-notification-dev')
 
 # CORS headers
 CORS_HEADERS = {
@@ -141,7 +143,7 @@ def store_submission(submission: Dict[str, Any]) -> None:
 
 def send_email_notifications(submission: Dict[str, Any]) -> None:
     """
-    Send email notifications to admin and user
+    Send email notifications to admin and user, and create in-app admin notification
     """
     try:
         # Send confirmation email to user
@@ -149,12 +151,45 @@ def send_email_notifications(submission: Dict[str, Any]) -> None:
         
         # Send notification email to admin
         send_admin_notification_email(submission)
+
+        # Create in-app notification for admin dashboard
+        notify_admin_in_app(submission)
         
         print(f"Sent email notifications for submission: {submission['submissionId']}")
         
     except Exception as e:
         print(f"Error sending email notifications: {str(e)}")
         # Don't fail the request if email fails
+
+
+def notify_admin_in_app(submission: Dict[str, Any]) -> None:
+    """
+    Invoke the notification service to create an in-app notification
+    for all admin users about the new contact form submission.
+    """
+    try:
+        inquiry_label = submission['inquiryType'].replace('_', ' ').title()
+        payload = {
+            'source': 'contact_form',
+            'notificationType': 'contact_form_submission',
+            'targetRole': 'admin',
+            'title': f"New Contact: {inquiry_label}",
+            'message': f"{submission['name']} ({submission['email']}) submitted a {inquiry_label} inquiry.",
+            'submissionId': submission['submissionId'],
+            'inquiryType': submission['inquiryType'],
+            'createdAt': submission['createdAt'],
+        }
+
+        lambda_client.invoke(
+            FunctionName=NOTIFICATION_FUNCTION_NAME,
+            InvocationType='Event',  # async — don't block the response
+            Payload=json.dumps({'action': 'send_system_notification', 'systemNotification': payload}),
+        )
+        print(f"Triggered in-app admin notification for submission: {submission['submissionId']}")
+
+    except Exception as e:
+        # Non-fatal: log and continue so the form submission still succeeds
+        print(f"Warning: failed to send in-app admin notification: {str(e)})")
 
 
 def send_user_confirmation_email(submission: Dict[str, Any]) -> None:

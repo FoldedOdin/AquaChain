@@ -607,7 +607,7 @@ class DynamoDBTableManager:
             ],
             'GlobalSecondaryIndexes': [
                 {
-                    'IndexName': 'UserNotifications',
+                    'IndexName': 'userId-createdAt-index',
                     'KeySchema': [
                         {
                             'AttributeName': 'userId',

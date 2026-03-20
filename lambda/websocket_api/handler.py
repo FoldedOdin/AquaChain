@@ -33,6 +33,10 @@ ssm_client = boto3.client('ssm')
 CONNECTIONS_TABLE = 'aquachain-websocket-connections'
 USERS_TABLE = 'aquachain-users'
 WEBSOCKET_ENDPOINT = None  # Will be set dynamically
+COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', 'ap-south-1_QUDl7hG8u')
+
+# Module-level cache for Cognito public keys (avoids repeated JWKS fetches)
+_cognito_public_keys_cache: Dict[str, Any] = {}
 
 # Connection types
 CONNECTION_TYPES = {
@@ -90,7 +94,7 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
     try:
         # Extract authentication token from query parameters
         query_params = event.get('queryStringParameters') or {}
-        auth_token = query_params.get('token')
+        auth_token = query_params.get('authToken') or query_params.get('token')  # support both for backward compat
         connection_type = query_params.get('type', 'dashboard')
         
         if not auth_token:
@@ -529,18 +533,34 @@ def get_user_devices(user_id: str) -> List[str]:
 
 def get_cognito_public_keys() -> Dict[str, str]:
     """
-    Get Cognito public keys for JWT verification
-    In production, these should be cached
+    Fetch Cognito public keys from JWKS endpoint for JWT verification.
+    Keys are cached at module level to avoid repeated HTTP calls.
     """
+    global _cognito_public_keys_cache
+    if _cognito_public_keys_cache:
+        return _cognito_public_keys_cache
+
     try:
-        # This would typically fetch from Cognito JWKS endpoint
-        # For now, return a placeholder
-        return {
-            'key1': 'public_key_1',
-            'key2': 'public_key_2'
-        }
+        import urllib.request
+        user_pool_id = os.environ.get('COGNITO_USER_POOL_ID', 'ap-south-1_QUDl7hG8u')
+        region = user_pool_id.split('_')[0]
+        jwks_url = f'https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/.well-known/jwks.json'
+
+        with urllib.request.urlopen(jwks_url, timeout=5) as response:
+            jwks = json.loads(response.read().decode())
+
+        from jwt.algorithms import RSAAlgorithm
+        keys = {}
+        for key_data in jwks.get('keys', []):
+            kid = key_data['kid']
+            keys[kid] = RSAAlgorithm.from_jwk(json.dumps(key_data))
+
+        _cognito_public_keys_cache = keys
+        logger.info(f"Loaded {len(keys)} Cognito public keys")
+        return keys
+
     except Exception as e:
-        logger.error(f"Error getting Cognito public keys: {e}")
+        logger.error(f"Error fetching Cognito public keys: {e}")
         return {}
 
 def get_cognito_client_id() -> str:

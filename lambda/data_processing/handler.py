@@ -107,6 +107,8 @@ SEQUENCE_TABLE = os.environ.get('SEQUENCE_TABLE', 'AquaChain-Sequence')
 DATA_LAKE_BUCKET = os.environ.get('DATA_LAKE_BUCKET', None)  # Optional
 SAGEMAKER_ENDPOINT_NAME = os.environ.get('SAGEMAKER_ENDPOINT_NAME', 'aquachain-wqi-endpoint-dev')
 DLQ_URL = os.environ.get('DLQ_URL', None)  # Optional
+WEBSOCKET_CONNECTIONS_TABLE = os.environ.get('WEBSOCKET_CONNECTIONS_TABLE', 'AquaChain-WebSocketConnections-dev')
+WEBSOCKET_ENDPOINT = os.environ.get('WEBSOCKET_ENDPOINT', 'https://p2lgfqqy50.execute-api.ap-south-1.amazonaws.com/dev')
 
 # Simplified validation - use basic Python checks instead of strict JSON schema
 # This is more reliable and doesn't depend on jsonschema library
@@ -285,6 +287,9 @@ def _process_iot_data(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Store processed data in DynamoDB
         stored_reading = store_reading_dynamodb(validated_data, ml_results, s3_reference)
+
+        # Push real-time update to WebSocket subscribers
+        push_reading_to_websocket_subscribers(validated_data, ml_results, stored_reading)
 
         # Update device connectionStatus to 'online' so the dashboard reflects live status
         _update_device_connection_status(validated_data['deviceId'], validated_data['timestamp'])
@@ -810,6 +815,78 @@ def map_wqi_to_quality(wqi: float) -> str:
         return 'Poor'
     else:
         return 'Very Poor'
+
+
+def push_reading_to_websocket_subscribers(validated_data: Dict[str, Any], ml_results: Dict[str, Any], stored_reading: Dict[str, Any]) -> None:
+    """
+    Push the new reading to all WebSocket clients subscribed to 'consumer-updates'.
+    Queries the topic-index GSI on AquaChain-WebSocketConnections-dev and posts
+    to each live connection via API Gateway Management API.
+    Stale connections (GoneException) are cleaned up automatically.
+    """
+    try:
+        from decimal import Decimal
+
+        connections_table = dynamodb.Table(WEBSOCKET_CONNECTIONS_TABLE)
+        apigw = boto3.client('apigatewaymanagementapi', endpoint_url=WEBSOCKET_ENDPOINT)
+
+        # Query all connections subscribed to consumer-updates
+        response = connections_table.query(
+            IndexName='topic-index',
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('topic').eq('consumer-updates')
+        )
+        connections = response.get('Items', [])
+
+        if not connections:
+            logger.info("No WebSocket subscribers for consumer-updates, skipping push")
+            return
+
+        # Build the message payload — convert Decimals to float for JSON serialisation
+        def decimal_to_float(obj):
+            if isinstance(obj, Decimal):
+                return float(obj)
+            raise TypeError
+
+        message = json.dumps({
+            'type': 'water_quality',
+            'data': {
+                'deviceId': validated_data['deviceId'],
+                'timestamp': validated_data['timestamp'],
+                'pH': float(stored_reading.get('pH', validated_data['readings']['pH'])),
+                'turbidity': float(stored_reading.get('turbidity', validated_data['readings']['turbidity'])),
+                'tds': float(stored_reading.get('tds', validated_data['readings']['tds'])),
+                'temperature': float(stored_reading.get('temperature', validated_data['readings']['temperature'])),
+                'wqi': float(stored_reading.get('wqi', ml_results['wqi'])),
+                'quality': ml_results.get('quality', 'Fair'),
+                'anomalyType': ml_results.get('anomalyType', 'normal'),
+            }
+        }, default=decimal_to_float).encode('utf-8')
+
+        stale = []
+        sent = 0
+        for conn in connections:
+            connection_id = conn['connectionId']
+            try:
+                apigw.post_to_connection(ConnectionId=connection_id, Data=message)
+                sent += 1
+            except apigw.exceptions.GoneException:
+                stale.append(connection_id)
+            except Exception as e:
+                logger.warning(f"Failed to push to connection {connection_id}: {e}")
+
+        # Clean up stale connections
+        for connection_id in stale:
+            try:
+                connections_table.delete_item(Key={'connectionId': connection_id})
+                logger.info(f"Removed stale WebSocket connection: {connection_id}")
+            except Exception as e:
+                logger.warning(f"Failed to remove stale connection {connection_id}: {e}")
+
+        logger.info(f"WebSocket push complete — sent={sent}, stale_removed={len(stale)}, device={validated_data['deviceId']}")
+
+    except Exception as e:
+        # Non-fatal — never block IoT ingestion due to WebSocket push failure
+        logger.error(f"WebSocket push failed for device {validated_data.get('deviceId')}: {e}")
 
 
 def _update_device_connection_status(device_id: str, timestamp: str) -> None:

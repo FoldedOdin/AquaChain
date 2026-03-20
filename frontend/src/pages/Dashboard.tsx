@@ -11,8 +11,7 @@ import { Alert } from '../types/alert';
 import { 
   mockWaterQualityReading, 
   mockAlerts, 
-  getWaterQualityStatus,
-  generateRandomReading 
+  getWaterQualityStatus
 } from '../services/mockData';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
@@ -38,18 +37,7 @@ const Dashboard: React.FC = () => {
     window.location.reload();
   }, []);
 
-  // Simulate real-time data updates (fallback to mock data)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentReading(prev => generateRandomReading(prev));
-    }, 30000); // Update every 30 seconds
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-
-  // Update reading from real-time updates
+  // Update reading from real-time WebSocket push
   useEffect(() => {
     if (latestUpdate?.type === 'water_quality' && latestUpdate.data) {
       setCurrentReading(latestUpdate.data);

@@ -1,0 +1,63 @@
+/*
+ * AquaChain ESP32 Configuration
+ * 
+ * IMPORTANT: This file contains device-specific credentials.
+ * Copy config.h.template to config.h and fill in your actual values.
+ * config.h is excluded from version control via .gitignore.
+ */
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// Device Configuration
+#define DEVICE_ID "YOUR_DEVICE_ID"  // Must match AWS IoT Thing name
+
+// WiFi Configuration
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+
+// AWS IoT Core Configuration
+#define AWS_IOT_ENDPOINT "YOUR_IOT_ENDPOINT.iot.ap-south-1.amazonaws.com"
+
+// Pin Assignments
+#define TDS_PIN       32
+#define TURBIDITY_PIN 33
+#define PH_PIN        34
+#define TEMP_PIN      27
+
+// Publish interval (ms)
+#define PUBLISH_INTERVAL 20000
+
+// Sensor calibration defaults
+#define PH_NEUTRAL_VOLTAGE_DEFAULT 2.5f
+#define TDS_CALIBRATION_FACTOR     1.0f
+
+// Debug
+#define DEBUG_TURBIDITY true
+
+// NTP
+#define NTP_SERVER "pool.ntp.org"
+
+// AWS IoT Certificates
+// Paste the contents of your device certificate and private key below.
+// Download these from AWS IoT Core when you create a device certificate.
+
+const char AWS_ROOT_CA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+<PASTE_AWS_ROOT_CA_HERE>
+-----END CERTIFICATE-----
+)EOF";
+
+const char AWS_CERT[] PROGMEM = R"KEY(
+-----BEGIN CERTIFICATE-----
+<PASTE_DEVICE_CERTIFICATE_HERE>
+-----END CERTIFICATE-----
+)KEY";
+
+const char AWS_PRIVATE_KEY[] PROGMEM = R"KEY(
+-----BEGIN RSA PRIVATE KEY-----
+<PASTE_DEVICE_PRIVATE_KEY_HERE>
+-----END RSA PRIVATE KEY-----
+)KEY";
+
+#endif

@@ -38,6 +38,7 @@ from stacks.security_audit_stack import SecurityAuditStack
 from stacks.auto_technician_assignment_stack import AutoTechnicianAssignmentStack
 from stacks.sagemaker_stack import AquaChainSageMakerStack
 from stacks.device_status_monitor_stack import DeviceStatusMonitorStack
+from stacks.contact_service_stack import ContactServiceStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -410,17 +411,17 @@ def main():
     
     # 30. Device Status Monitor Stack (Device online/offline status monitoring)
     # TEMPORARILY DISABLED - Deploy separately to avoid breaking existing stacks
-    # device_status_monitor_stack = DeviceStatusMonitorStack(
-    #     app,
-    #     f"AquaChain-DeviceStatusMonitor-{env_name}",
-    #     config=config,
-    #     devices_table=data_stack.devices_table,
-    #     readings_table=data_stack.readings_table,
-    #     env=aws_env,
-    #     description=f"AquaChain Device Status Monitoring - {env_name}"
-    # )
-    # device_status_monitor_stack.add_dependency(data_stack)
-    
+    # device_status_monitor_stack = DeviceStatusMonitorStack(...)
+
+    # 31. Contact Service Stack (Contact form submissions with admin notifications)
+    contact_service_stack = ContactServiceStack(
+        app,
+        f"AquaChain-ContactService-{env_name}",
+        env=aws_env,
+        description=f"AquaChain Contact Form Service - {env_name}"
+    )
+    # Independent stack — no hard dependencies on other stacks
+
     # Synthesize the app
     app.synth()
 

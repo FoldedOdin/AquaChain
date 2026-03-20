@@ -6129,22 +6129,8 @@ function createAlert(message, priority = 'medium', type = 'info', deviceId = nul
   return alert;
 }
 
-function createNotification(userId, type, title, message, priority = 'medium') {
-  const notification = {
-    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    userId,
-    type,
-    title,
-    message,
-    priority,
-    read: false,
-    createdAt: new Date().toISOString()
-  };
-  
-  if (!notifications) notifications = [];
-  notifications.push(notification);
-  return notification;
-}
+// createNotification is defined earlier in this file (around line 3508)
+// It writes to devNotifications (Map keyed by userId) which is read by GET /api/notifications
 
 function checkDeviceStatus() {
   // Mock device status check - simplified for development

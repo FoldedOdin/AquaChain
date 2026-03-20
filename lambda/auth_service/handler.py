@@ -512,6 +512,7 @@ def lambda_handler(event, context):
                 'body': json.dumps({
                     'success': True,
                     'token': id_token,
+                    'accessToken': access_token,
                     'refreshToken': refresh_token,
                     'user': {
                         'id': user_id,

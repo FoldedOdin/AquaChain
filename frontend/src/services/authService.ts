@@ -156,7 +156,10 @@ class AuthService {
 
         // Handle the response format from the auth service
         const user = result.user;
-        const token = result.token; // The JWT token from Cognito
+        const token = result.token; // ID token from Cognito
+        const accessToken = result.accessToken; // Access token for WebSocket auth
+        console.log('🔑 Auth response keys:', Object.keys(result));
+        console.log('🔑 accessToken present:', !!accessToken);
         const session = { isValid: () => true, token: token };
         const userRole: UserRole = user.role || 'consumer';
         const redirectPath = this.getRedirectPath(userRole);
@@ -166,6 +169,9 @@ class AuthService {
 
         // Store token and user info in localStorage for persistence
         localStorage.setItem('aquachain_token', token);
+        if (accessToken) {
+          localStorage.setItem('aquachain_access_token', accessToken);
+        }
         localStorage.setItem('aquachain_user', JSON.stringify(user));
         localStorage.setItem('aquachain_role', userRole);
 
@@ -217,6 +223,11 @@ class AuthService {
           // This makes the app work consistently across auth modes
           if (idToken) {
             localStorage.setItem('aquachain_token', idToken);
+            // Store access token separately - required for WebSocket auth (API Gateway expects access tokens)
+            const accessToken = session.tokens?.accessToken?.toString();
+            if (accessToken) {
+              localStorage.setItem('aquachain_access_token', accessToken);
+            }
             localStorage.setItem('aquachain_user', JSON.stringify({
               id: user.userId || user.username,
               email: user.attributes?.email || credentials.email,
@@ -485,6 +496,9 @@ class AuthService {
 
       // Store token and user info in localStorage
       localStorage.setItem('aquachain_token', result.token);
+      if (result.accessToken) {
+        localStorage.setItem('aquachain_access_token', result.accessToken);
+      }
       localStorage.setItem('aquachain_user', JSON.stringify(user));
       localStorage.setItem('aquachain_role', userRole);
 
@@ -523,6 +537,7 @@ class AuthService {
         // Clear localStorage
         localStorage.removeItem('aquachain_user');
         localStorage.removeItem('aquachain_token');
+        localStorage.removeItem('aquachain_access_token');
         localStorage.removeItem('aquachain_role');
       } else {
         // Production: Use AWS Amplify v6
@@ -535,6 +550,7 @@ class AuthService {
         // Clear localStorage (important for AWS mode too!)
         localStorage.removeItem('aquachain_user');
         localStorage.removeItem('aquachain_token');
+        localStorage.removeItem('aquachain_access_token');
         localStorage.removeItem('aquachain_role');
       }
 
@@ -652,6 +668,11 @@ class AuthService {
           // Store it for next time
           if (idToken) {
             localStorage.setItem('aquachain_token', idToken);
+            // Also store access token for WebSocket auth
+            const accessToken = session.tokens?.accessToken?.toString();
+            if (accessToken) {
+              localStorage.setItem('aquachain_access_token', accessToken);
+            }
           }
           
           return idToken || null;

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import SystemHealthCard from '../components/Admin/SystemHealthCard';
 import DeviceFleetOverview from '../components/Admin/DeviceFleetOverview';
 import PerformanceMetricsChart from '../components/Admin/PerformanceMetricsChart';
@@ -38,7 +38,18 @@ const AdminDashboard = () => {
 
   // Use shared hooks
   const dashboardData = useDashboardData();
-  const { latestUpdate } = useRealTimeUpdates('admin-alerts');
+  const [hasAccessToken, setHasAccessToken] = useState(!!localStorage.getItem('aquachain_access_token'));
+  useEffect(() => {
+    if (hasAccessToken) return;
+    const interval = setInterval(() => {
+      if (localStorage.getItem('aquachain_access_token')) {
+        setHasAccessToken(true);
+        clearInterval(interval);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [hasAccessToken]);
+  const { latestUpdate } = useRealTimeUpdates('admin-alerts', { autoConnect: hasAccessToken });
   const { exportData, exporting } = useDataExport();
 
   // Extract data from the hook with memoization

@@ -14,7 +14,6 @@ export function useDevices() {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -25,31 +24,15 @@ export function useDevices() {
     } catch (err: any) {
       console.error('useDevices fetchData error:', err);
       setError(err as Error);
-      
-      // Stop polling on authentication errors to prevent spam
-      if (err?.status === 401 || err?.status === 403) {
-        console.warn('🛑 Authentication failed - stopping devices polling');
-        if (intervalId) {
-          clearInterval(intervalId);
-          setIntervalId(null);
-        }
-      }
     } finally {
       setIsLoading(false);
     }
-  }, [intervalId]);
+  }, []);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refetch every 30s to detect offline devices promptly
-    setIntervalId(interval);
-
-    return () => {
-      clearInterval(interval);
-      setIntervalId(null);
-    };
     // eslint-disable-next-line
-  }, []); // Only run once on mount
+  }, []); // Fetch once on mount — real-time updates come via WebSocket
 
   return { data, isLoading, error, refetch: fetchData };
 }

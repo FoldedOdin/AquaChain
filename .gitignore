@@ -566,6 +566,5 @@ lambda/orders/test_payload.json
 .gitignore
 lambda/orders/response.json
 
-config.h
-*.h
-iot-firmware/aquachain-esp32/aquachain-esp32-improved/config.h
+# IoT firmware config files with real credentials (use config.h.template instead)
+iot-firmware/**/config.h

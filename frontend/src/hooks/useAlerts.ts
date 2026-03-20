@@ -14,7 +14,6 @@ export function useAlerts(limit: number = 50) {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -25,31 +24,15 @@ export function useAlerts(limit: number = 50) {
     } catch (err: any) {
       console.error('useAlerts fetchData error:', err);
       setError(err as Error);
-      
-      // Stop polling on authentication errors to prevent spam
-      if (err?.status === 401 || err?.status === 403) {
-        console.warn('🛑 Authentication failed - stopping alerts polling');
-        if (intervalId) {
-          clearInterval(intervalId);
-          setIntervalId(null);
-        }
-      }
     } finally {
       setIsLoading(false);
     }
-  }, [limit, intervalId]);
+  }, [limit]);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refetch every 30 seconds
-    setIntervalId(interval);
-
-    return () => {
-      clearInterval(interval);
-      setIntervalId(null);
-    };
     // eslint-disable-next-line
-  }, [limit]); // Only refetch when limit changes
+  }, [limit]); // Fetch once — real-time alert updates come via WebSocket
 
   return { data, isLoading, error, refetch: fetchData };
 }
@@ -61,7 +44,6 @@ export function useCriticalAlerts() {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -71,31 +53,15 @@ export function useCriticalAlerts() {
       setError(null);
     } catch (err: any) {
       setError(err as Error);
-      
-      // Stop polling on authentication errors to prevent spam
-      if (err?.status === 401 || err?.status === 403) {
-        console.warn('🛑 Authentication failed - stopping critical alerts polling');
-        if (intervalId) {
-          clearInterval(intervalId);
-          setIntervalId(null);
-        }
-      }
     } finally {
       setIsLoading(false);
     }
-  }, [intervalId]);
+  }, []);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 15000); // Refetch every 15 seconds
-    setIntervalId(interval);
-
-    return () => {
-      clearInterval(interval);
-      setIntervalId(null);
-    };
     // eslint-disable-next-line
-  }, []); // Only run once on mount
+  }, []); // Fetch once — real-time updates come via WebSocket
 
   return { data, isLoading, error, refetch: fetchData };
 }

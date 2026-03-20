@@ -141,11 +141,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
       
       const newIdToken = session.tokens?.idToken?.toString();
+      const newAccessToken = session.tokens?.accessToken?.toString();
       
       if (newIdToken) {
-        // Update stored token
+        // Update stored tokens
         localStorage.setItem('aquachain_token', newIdToken);
-        console.log('✅ Token refreshed and stored');
+        if (newAccessToken) {
+          localStorage.setItem('aquachain_access_token', newAccessToken);
+          console.log('✅ Tokens refreshed and stored (id + access)');
+        } else {
+          console.log('✅ Token refreshed and stored (id only)');
+        }
         return true;
       } else {
         console.error('❌ Failed to get new token from refresh');
@@ -177,6 +183,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setUser(userData);
           setIsAuthenticated(true);
           setIsLoading(false);
+
+          // Background: try to obtain missing access token without blocking the session restore
+          const existingAccessToken = localStorage.getItem('aquachain_access_token');
+          if (!existingAccessToken) {
+            (async () => {
+              try {
+                const session = await fetchAuthSession({ forceRefresh: false });
+                const freshAccessToken = session.tokens?.accessToken?.toString();
+                if (freshAccessToken) {
+                  localStorage.setItem('aquachain_access_token', freshAccessToken);
+                  console.log('✅ Access token obtained from Amplify session (background)');
+                }
+              } catch {
+                // Non-critical — user is still logged in, WebSocket features may be limited
+                console.warn('⚠️ Could not obtain access token in background (non-critical)');
+              }
+            })();
+          }
           
           // Track login on page load if user doesn't have lastLogin timestamp
           // This ensures we capture the login even if tracking failed during actual login
@@ -217,6 +241,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               const session = await fetchAuthSession({ forceRefresh: false });
               
               if (session.tokens?.idToken) {
+                // Also store access token if available (needed for WebSocket auth)
+                const accessToken = session.tokens?.accessToken?.toString();
+                if (accessToken) {
+                  localStorage.setItem('aquachain_access_token', accessToken);
+                }
                 // Token is valid, schedule automatic token refresh
                 scheduleTokenRefresh();
                 console.log('✅ Session validated successfully');
@@ -385,6 +414,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.error('❌ No token received from backend - authentication incomplete');
           console.error('❌ Result structure:', result);
           throw new Error('Authentication failed: No token received from server');
+        }
+        
+        // Store access token for WebSocket auth (API Gateway Cognito Authorizer requires access tokens)
+        // authService.signIn() stores it in aquachain_access_token, but also check result directly
+        const accessTokenFromResult = (result as any).accessToken || (result.session as any)?.accessToken;
+        if (accessTokenFromResult) {
+          localStorage.setItem('aquachain_access_token', accessTokenFromResult);
+          console.log('🔑 Access token saved for WebSocket auth');
+        } else {
+          // authService already stored it if backend returned it; log current state
+          const storedAccessToken = localStorage.getItem('aquachain_access_token');
+          console.log('🔑 Access token in localStorage:', storedAccessToken ? 'present' : 'missing');
         }
 
         console.log('💾 User profile saved to localStorage:', userProfile);
@@ -664,6 +705,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Clear localStorage
       localStorage.removeItem('aquachain_user');
       localStorage.removeItem('aquachain_token');
+      localStorage.removeItem('aquachain_access_token');
+      localStorage.removeItem('aquachain_role');
 
       // Clear state
       setUser(null);
@@ -729,6 +772,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Store it for next time
         if (idToken) {
           localStorage.setItem('aquachain_token', idToken);
+          // Also store access token for WebSocket auth
+          const accessToken = session.tokens?.accessToken?.toString();
+          if (accessToken) {
+            localStorage.setItem('aquachain_access_token', accessToken);
+          }
           console.log('✅ Token fetched and stored');
           
           // Schedule refresh

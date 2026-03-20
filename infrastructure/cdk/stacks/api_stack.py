@@ -1374,6 +1374,63 @@ class AquaChainApiStack(Stack):
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )
         
+        # /api/notifications - Notification management endpoints
+        if "notification_api" in self.lambda_functions:
+            notifications_resource = api_root.add_resource("notifications")
+            notification_integration = apigateway.LambdaIntegration(
+                self.lambda_functions["notification_api"],
+                proxy=True
+            )
+
+            # GET /api/notifications - List notifications
+            notifications_resource.add_method(
+                "GET",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+            # POST /api/notifications - Create notification (admin/system)
+            notifications_resource.add_method(
+                "POST",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+            # /api/notifications/unread-count
+            unread_count_resource = notifications_resource.add_resource("unread-count")
+            unread_count_resource.add_method(
+                "GET",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+            # /api/notifications/read-all
+            read_all_resource = notifications_resource.add_resource("read-all")
+            read_all_resource.add_method(
+                "PUT",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+            # /api/notifications/{notificationId}
+            notification_id_resource = notifications_resource.add_resource("{notificationId}")
+            notification_id_resource.add_method(
+                "PUT",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+            notification_id_resource.add_method(
+                "DELETE",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
         self.api_resources.update({
             "rest_api": self.rest_api,
             "cognito_authorizer": self.cognito_authorizer

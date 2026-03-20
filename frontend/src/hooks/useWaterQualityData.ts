@@ -30,11 +30,6 @@ export function useWaterQualityData(timeRange: string = '24h') {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000); // Refetch every minute
-
-    return () => {
-      clearInterval(interval);
-    };
     // eslint-disable-next-line
   }, [timeRange]); // Only refetch when timeRange changes
 
@@ -64,11 +59,6 @@ export function useLatestWaterQuality() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // Refetch every 30 seconds
-
-    return () => {
-      clearInterval(interval);
-    };
     // eslint-disable-next-line
   }, []); // Only run once on mount
 

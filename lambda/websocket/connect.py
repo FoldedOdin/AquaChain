@@ -16,7 +16,8 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-connections_table = dynamodb.Table(os.environ['CONNECTIONS_TABLE'])
+connections_table_name = os.environ.get('CONNECTIONS_TABLE', 'AquaChain-WebSocketConnections-dev')
+connections_table = dynamodb.Table(connections_table_name)
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:

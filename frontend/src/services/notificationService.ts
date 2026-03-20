@@ -59,7 +59,7 @@ class NotificationService {
       );
 
       // If endpoint doesn't exist (404) or service unavailable, return empty array
-      if (response.status === 404 || response.status === 503 || response.status === 500) {
+      if (response.status === 404 || response.status === 502 || response.status === 503 || response.status === 500) {
         console.warn('Notification service not available (status:', response.status, ')');
         return [];
       }
@@ -202,7 +202,7 @@ class NotificationService {
       );
 
       // If endpoint doesn't exist or has errors, return 0
-      if (response.status === 404 || response.status === 503 || response.status === 500) {
+      if (response.status === 404 || response.status === 502 || response.status === 503 || response.status === 500) {
         return 0;
       }
 

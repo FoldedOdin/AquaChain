@@ -312,7 +312,23 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const dashboardData = useDashboardData();
   const isLoading = dashboardData.loading;
   const error = dashboardData.error;
-  const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: true });
+
+  // Delay WebSocket connection until the access token is available in localStorage.
+  // AuthContext fetches it asynchronously on load; connecting before it's ready
+  // causes the "ID token cannot be used for WebSocket auth" error loop.
+  const [hasAccessToken, setHasAccessToken] = useState(!!localStorage.getItem('aquachain_access_token'));
+  useEffect(() => {
+    if (hasAccessToken) return;
+    const interval = setInterval(() => {
+      if (localStorage.getItem('aquachain_access_token')) {
+        setHasAccessToken(true);
+        clearInterval(interval);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [hasAccessToken]);
+
+  const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: hasAccessToken });
   const { notifications } = useNotifications();
 
   // Fetch users and system configuration

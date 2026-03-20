@@ -10,6 +10,8 @@ interface UseRealTimeUpdatesOptions {
   autoConnect?: boolean;
   enableInDevelopment?: boolean;
   fallbackPollingInterval?: number;
+  /** Delay connection until this is true (e.g. wait for auth token to be available) */
+  enabled?: boolean;
 }
 
 interface RealTimeUpdate {
@@ -26,7 +28,8 @@ export function useRealTimeUpdates(
   const {
     autoConnect = true,
     enableInDevelopment = true,
-    fallbackPollingInterval = 30000 // 30 seconds
+    fallbackPollingInterval = 30000, // 30 seconds
+    enabled = true
   } = options;
 
   const [isConnected, setIsConnected] = useState(false);
@@ -146,7 +149,7 @@ export function useRealTimeUpdates(
 
   // Auto-connect on mount
   useEffect(() => {
-    if (autoConnect) {
+    if (autoConnect && enabled) {
       connect();
     }
 
@@ -154,7 +157,7 @@ export function useRealTimeUpdates(
     return () => {
       disconnect();
     };
-  }, [autoConnect, connect, disconnect]);
+  }, [autoConnect, enabled, connect, disconnect]);
 
   // Development mode fallback - simulate updates
   useEffect(() => {

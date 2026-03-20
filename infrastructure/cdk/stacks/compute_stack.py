@@ -76,7 +76,10 @@ class AquaChainComputeStack(Stack):
                 "ML_MODELS_BUCKET": get_resource_name(self.config, "bucket", f"ml-models-{self.account}"),
                 "DATA_KEY_ID": self.security_resources["data_key"].key_id,
                 "SIGNING_KEY_ID": self.security_resources["ledger_signing_key"].key_id,
-                "REDIS_ENDPOINT": os.environ.get("REDIS_ENDPOINT", "")  # Will be set after cache stack deployment
+                "REDIS_ENDPOINT": os.environ.get("REDIS_ENDPOINT", ""),  # Will be set after cache stack deployment
+                "WEBSOCKET_CONNECTIONS_TABLE": "AquaChain-WebSocketConnections-dev",
+                "WEBSOCKET_ENDPOINT": "https://p2lgfqqy50.execute-api.ap-south-1.amazonaws.com/dev",
+                "COGNITO_USER_POOL_ID": os.environ.get("COGNITO_USER_POOL_ID", "ap-south-1_QUDl7hG8u")
             },
             "tracing": lambda_.Tracing.ACTIVE if self.config["enable_xray_tracing"] else lambda_.Tracing.DISABLED,
             "reserved_concurrent_executions": self.config.get("lambda_reserved_concurrency")
@@ -128,6 +131,30 @@ class AquaChainComputeStack(Stack):
                 resources=[
                     f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'data-lake-{self.account}')}/*",
                     f"arn:aws:s3:::{get_resource_name(self.config, 'bucket', f'audit-trail-{self.account}')}/*"
+                ]
+            )
+        )
+
+        # Grant permissions to push WebSocket messages and read connections table
+        self.data_processing_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["execute-api:ManageConnections"],
+                resources=[
+                    f"arn:aws:execute-api:{self.region}:{self.account}:p2lgfqqy50/dev/POST/@connections/*"
+                ]
+            )
+        )
+        self.data_processing_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:Query",
+                    "dynamodb:DeleteItem"
+                ],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/AquaChain-WebSocketConnections-dev",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/AquaChain-WebSocketConnections-dev/index/topic-index"
                 ]
             )
         )
@@ -345,6 +372,21 @@ class AquaChainComputeStack(Stack):
             ]
         ))
 
+        notification_env = {
+            **common_lambda_config["environment"],
+            "USERS_TABLE": get_resource_name(self.config, "table", "users"),
+            "NOTIFICATIONS_TABLE": "aquachain-notifications",
+            "RATE_LIMIT_TABLE": "aquachain-rate-limits",
+            "ALERTS_TABLE": get_resource_name(self.config, "table", "alerts"),
+            "SES_FROM_EMAIL": self.config.get("ses_from_email", "alerts@aquachain.io"),
+            "SES_CONFIGURATION_SET": "aquachain-notifications",
+            "APP_URL": self.config.get("app_url", "https://app.aquachain.io"),
+            "CRITICAL_ALERTS_TOPIC_ARN": self.security_resources["critical_alerts_topic"].topic_arn,
+            "SERVICE_UPDATES_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
+            "SYSTEM_ALERTS_TOPIC_ARN": self.security_resources["system_alerts_topic"].topic_arn,
+        }
+
+        # SNS/multi-channel notification processor (triggered by SNS/EventBridge)
         self.notification_function = lambda_python.PythonFunction(
             self, "NotificationFunction",
             function_name=get_resource_name(self.config, "function", "notification"),
@@ -353,19 +395,20 @@ class AquaChainComputeStack(Stack):
             handler="lambda_handler",
             role=notification_role,
             layers=layers,
-            environment={
-                **common_lambda_config["environment"],
-                "USERS_TABLE": get_resource_name(self.config, "table", "users"),
-                "NOTIFICATIONS_TABLE": "aquachain-notifications",
-                "RATE_LIMIT_TABLE": "aquachain-rate-limits",
-                "ALERTS_TABLE": get_resource_name(self.config, "table", "alerts"),
-                "SES_FROM_EMAIL": self.config.get("ses_from_email", "alerts@aquachain.io"),
-                "SES_CONFIGURATION_SET": "aquachain-notifications",
-                "APP_URL": self.config.get("app_url", "https://app.aquachain.io"),
-                "CRITICAL_ALERTS_TOPIC_ARN": self.security_resources["critical_alerts_topic"].topic_arn,
-                "SERVICE_UPDATES_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
-                "SYSTEM_ALERTS_TOPIC_ARN": self.security_resources["system_alerts_topic"].topic_arn,
-            },
+            environment=notification_env,
+            **{k: v for k, v in common_lambda_config.items() if k != "environment"}
+        )
+
+        # REST API handler for /api/notifications (triggered by API Gateway)
+        self.notification_api_function = lambda_python.PythonFunction(
+            self, "NotificationApiFunction",
+            function_name=get_resource_name(self.config, "function", "notification-api"),
+            entry="../../lambda/notification_service",
+            index="api_handler.py",
+            handler="lambda_handler",
+            role=notification_role,
+            layers=layers,
+            environment=notification_env,
             **{k: v for k, v in common_lambda_config.items() if k != "environment"}
         )
         
@@ -446,6 +489,7 @@ class AquaChainComputeStack(Stack):
             "audit_processor": self.audit_processor_function,
             "websocket": self.websocket_function,
             "notification": self.notification_function,
+            "notification_api": self.notification_api_function,
             "admin_service": self.admin_service_function
         })
         

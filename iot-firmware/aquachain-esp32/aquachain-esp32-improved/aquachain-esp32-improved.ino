@@ -1,6 +1,7 @@
 /*
- AquaChain ESP32 Water Quality Monitor
- Improved version with better telemetry control
+  AquaChain ESP32 Water Quality Monitor
+  Stable version with reconnect debounce
+  SEN0189 turbidity calibration corrected
 */
 
 #include <WiFi.h>
@@ -10,12 +11,8 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <time.h>
+#include <math.h>
 #include "config.h"
-
-#define TDS_PIN 32
-#define TURBIDITY_PIN 33
-#define PH_PIN 34
-#define TEMP_PIN 27
 
 WiFiClientSecure net;
 PubSubClient client(net);
@@ -24,47 +21,32 @@ OneWire oneWire(TEMP_PIN);
 DallasTemperature sensors(&oneWire);
 
 const char* aws_endpoint = AWS_IOT_ENDPOINT;
-const char* deviceId = DEVICE_ID;
+const char* deviceId     = DEVICE_ID;
+const char* ssid         = WIFI_SSID;
+const char* password     = WIFI_PASSWORD;
 
-const char* ssid = WIFI_SSID;
-const char* password = WIFI_PASSWORD;
-
-String dataTopic = "aquachain/devices/" + String(deviceId) + "/data";
+String dataTopic      = "aquachain/devices/" + String(deviceId) + "/data";
 String telemetryTopic = "aquachain/devices/" + String(deviceId) + "/telemetry";
 
-/* Publish intervals */
-unsigned long lastDataPublish = 0;
-unsigned long lastTelemetryPublish = 0;
+unsigned long lastPublish = 0;
 
-const unsigned long DATA_INTERVAL = 30000;
-const unsigned long TELEMETRY_INTERVAL = 120000;
-
-/* Calibration */
-float PH_NEUTRAL_VOLTAGE = 2.5;
-float TURBIDITY_CLEAR_VOLTAGE = 2.8;
-float TDS_CALIBRATION_FACTOR = 1.0;
-
-/* NTP */
-const char* ntpServer = "pool.ntp.org";
-
-/* Message counter */
-unsigned long messageCounter = 0;
+/* Calibration (defaults from config.h, pH overwritten at boot) */
+float PH_NEUTRAL_VOLTAGE = PH_NEUTRAL_VOLTAGE_DEFAULT;
 
 /* ---------- Utility Functions ---------- */
 
 float readVoltage(int pin)
 {
-  const int samples = 30;
+  const int samples = 40;
   float sum = 0;
 
   for (int i = 0; i < samples; i++)
   {
     sum += analogRead(pin);
-    delay(3);
+    delay(2);
   }
 
   float avg = sum / samples;
-
   return avg * (3.3 / 4095.0);
 }
 
@@ -84,7 +66,6 @@ String getISO8601Timestamp()
   gmtime_r(&now, &timeinfo);
 
   char buffer[25];
-
   sprintf(buffer,
           "%04d-%02d-%02dT%02d:%02d:%02dZ",
           timeinfo.tm_year + 1900,
@@ -110,24 +91,16 @@ void setup()
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
 
-  pinMode(PH_PIN, INPUT);
+  pinMode(PH_PIN,        INPUT);
   pinMode(TURBIDITY_PIN, INPUT);
-  pinMode(TDS_PIN, INPUT);
+  pinMode(TDS_PIN,       INPUT);
 
   sensors.begin();
 
   connectWiFi();
+  delay(2000);
 
-  while (WiFi.localIP() == INADDR_NONE)
-  {
-    delay(100);
-  }
-
-  Serial.print("WiFi RSSI: ");
-  Serial.println(WiFi.RSSI());
-
-  configTime(0, 0, ntpServer);
-
+  configTime(0, 0, NTP_SERVER);
   Serial.print("Syncing time");
 
   while (getEpochTime() < 100000)
@@ -149,8 +122,10 @@ void setup()
 
   connectAWS();
 
-  Serial.println("Calibrating pH...");
+  Serial.println("Stabilizing sensors...");
+  delay(10000);
 
+  Serial.println("Calibrating pH...");
   for (int i = 0; i < 30; i++)
   {
     client.loop();
@@ -158,7 +133,6 @@ void setup()
   }
 
   PH_NEUTRAL_VOLTAGE = readVoltage(PH_PIN);
-
   Serial.print("Neutral Voltage (pH 7): ");
   Serial.println(PH_NEUTRAL_VOLTAGE, 3);
 }
@@ -180,16 +154,11 @@ void loop()
 
   client.loop();
 
-  if (millis() - lastDataPublish >= DATA_INTERVAL)
+  if (millis() - lastPublish >= PUBLISH_INTERVAL)
   {
     publishSensorData();
-    lastDataPublish = millis();
-  }
-
-  if (millis() - lastTelemetryPublish >= TELEMETRY_INTERVAL)
-  {
     publishTelemetry();
-    lastTelemetryPublish = millis();
+    lastPublish = millis();
   }
 }
 
@@ -198,7 +167,6 @@ void loop()
 void connectWiFi()
 {
   Serial.print("Connecting WiFi ");
-
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED)
@@ -248,8 +216,6 @@ void publishSensorData()
     return;
   }
 
-  messageCounter++;
-
   sensors.requestTemperatures();
   float temperature = sensors.getTempCByIndex(0);
 
@@ -259,40 +225,40 @@ void publishSensorData()
     temperature = 25.0;
   }
 
-  float ph = readPH();
+  float ph        = readPH();
   float turbidity = readTurbidity();
-  float tds = readTDS(temperature);
+  float tds       = readTDS(temperature);
+
+  String sensorStatus = "normal";
+  if (turbidity > 200 && tds < 20)
+  {
+    sensorStatus = "sensor_fault";
+  }
 
   StaticJsonDocument<512> doc;
 
-  doc["deviceId"] = deviceId;
-  doc["messageId"] = messageCounter;
+  doc["deviceId"]  = deviceId;
   doc["timestamp"] = getISO8601Timestamp();
 
   JsonObject location = doc.createNestedObject("location");
-  location["latitude"] = 0.0;
+  location["latitude"]  = 0.0;
   location["longitude"] = 0.0;
 
   JsonObject readings = doc.createNestedObject("readings");
-  readings["pH"] = ph;
-  readings["turbidity"] = turbidity;
-  readings["tds"] = tds;
+  readings["pH"]          = ph;
+  readings["turbidity"]   = turbidity;
+  readings["tds"]         = tds;
   readings["temperature"] = temperature;
 
   JsonObject diagnostics = doc.createNestedObject("diagnostics");
-  diagnostics["batteryLevel"] = 100.0;
+  diagnostics["batteryLevel"]   = 100.0;
   diagnostics["signalStrength"] = WiFi.RSSI();
-  diagnostics["sensorStatus"] = "normal";
+  diagnostics["sensorStatus"]   = sensorStatus;
 
   char buffer[512];
-
   serializeJson(doc, buffer);
 
-  Serial.print("Publish #");
-  Serial.println(messageCounter);
-
   Serial.println(buffer);
-
   client.publish(dataTopic.c_str(), buffer);
 }
 
@@ -300,14 +266,13 @@ void publishTelemetry()
 {
   StaticJsonDocument<128> doc;
 
-  doc["deviceId"] = deviceId;
-  doc["status"] = "online";
-  doc["signal"] = WiFi.RSSI();
-  doc["heap"] = ESP.getFreeHeap();
+  doc["deviceId"]  = deviceId;
+  doc["status"]    = "online";
+  doc["signal"]    = WiFi.RSSI();
+  doc["heap"]      = ESP.getFreeHeap();
   doc["timestamp"] = getEpochTime();
 
   char buffer[128];
-
   serializeJson(doc, buffer);
 
   client.publish(telemetryTopic.c_str(), buffer);
@@ -318,32 +283,60 @@ void publishTelemetry()
 float readPH()
 {
   float voltage = readVoltage(PH_PIN);
-
   float ph = 7 + ((PH_NEUTRAL_VOLTAGE - voltage) / 0.18);
-
   ph = constrain(ph, 0, 14);
-
   return ph;
 }
 
+/* ---------- Turbidity (SEN0189 calibrated for ~2.2V clear water) ---------- */
+
 float readTurbidity()
 {
-  float voltage = readVoltage(TURBIDITY_PIN);
+  const int samples = 40;
+  float sum = 0;
 
-  float turbidity = (TURBIDITY_CLEAR_VOLTAGE - voltage) * 200;
+  for (int i = 0; i < samples; i++)
+  {
+    sum += analogRead(TURBIDITY_PIN);
+    delay(2);
+  }
 
-  if (turbidity < 0) turbidity = 0;
+  float avg     = sum / samples;
+  float voltage = avg * (3.3 / 4095.0);
+
+  if (DEBUG_TURBIDITY)
+  {
+    Serial.print("Turbidity ADC: ");
+    Serial.print(avg);
+    Serial.print(" | Voltage: ");
+    Serial.print(voltage, 3);
+    Serial.println(" V");
+  }
+
+  float turbidity = (2.2 - voltage) * 300;
+  if (turbidity < 0)    turbidity = 0;
+  if (turbidity > 1000) turbidity = 1000;
 
   return turbidity;
 }
+
+/* ---------- TDS ---------- */
 
 float readTDS(float temperature)
 {
   float voltage = readVoltage(TDS_PIN);
 
-  float tds = voltage * 500 * TDS_CALIBRATION_FACTOR;
+  float compensationCoefficient = 1.0 + 0.02 * (temperature - 25.0);
+  float compensatedVoltage      = voltage / compensationCoefficient;
 
-  if (tds < 0) tds = 0;
+  float tds = (133.42 * pow(compensatedVoltage, 3)
+             - 255.86 * pow(compensatedVoltage, 2)
+             + 857.39 * compensatedVoltage) * 0.5;
+
+  tds = tds * TDS_CALIBRATION_FACTOR;
+
+  if (tds < 0)    tds = 0;
+  if (tds > 3000) tds = 3000;
 
   return tds;
 }

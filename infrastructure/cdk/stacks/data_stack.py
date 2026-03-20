@@ -98,7 +98,7 @@ class AquaChainDataStack(Stack):
                     name="deviceId",
                     type=dynamodb.AttributeType.STRING
                 ),
-                billing_mode=dynamodb.BillingMode.ON_DEMAND,
+                billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
                 encryption=dynamodb.TableEncryption.AWS_MANAGED,
                 removal_policy=RemovalPolicy.RETAIN,
                 point_in_time_recovery=True
@@ -117,6 +117,32 @@ class AquaChainDataStack(Stack):
                 )
             )
         
+        # Create Notifications table (CDK will manage it; RETAIN policy prevents accidental deletion)
+        self.notifications_table = dynamodb.Table(
+            self, "NotificationsTable",
+            table_name="aquachain-notifications",
+            partition_key=dynamodb.Attribute(
+                name="notificationId",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
+            time_to_live_attribute="ttl"
+        )
+        self.notifications_table.add_global_secondary_index(
+            index_name="userId-createdAt-index",
+            partition_key=dynamodb.Attribute(
+                name="userId",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="createdAt",
+                type=dynamodb.AttributeType.STRING
+            )
+        )
+
         # Import Audit Logs table
         self.audit_logs_table = dynamodb.Table.from_table_name(
             self, "AuditLogsTable",
@@ -137,6 +163,7 @@ class AquaChainDataStack(Stack):
             "service_requests_table": self.service_requests_table,
             "devices_table": self.devices_table,
             "pluggable_devices_table": self.pluggable_devices_table,
+            "notifications_table": self.notifications_table,
             "audit_logs_table": self.audit_logs_table,
             "system_config_table": self.system_config_table
         })

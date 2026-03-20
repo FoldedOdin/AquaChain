@@ -95,7 +95,8 @@ class ContactServiceStack(Stack):
                 'CONTACT_TABLE_NAME': contact_table.table_name,
                 'ADMIN_EMAIL': admin_email,
                 'FROM_EMAIL': from_email,
-                'AWS_REGION': self.region
+                'AWS_REGION': self.region,
+                'NOTIFICATION_FUNCTION_NAME': 'aquachain-function-notification-dev'
             },
             log_retention=logs.RetentionDays.ONE_MONTH,
             tracing=lambda_.Tracing.ACTIVE
@@ -113,6 +114,17 @@ class ContactServiceStack(Stack):
                     'ses:SendRawEmail'
                 ],
                 resources=['*']
+            )
+        )
+
+        # Grant Lambda permission to invoke the notification service
+        contact_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=['lambda:InvokeFunction'],
+                resources=[
+                    f'arn:aws:lambda:{self.region}:{self.account}:function:aquachain-function-notification-dev'
+                ]
             )
         )
         

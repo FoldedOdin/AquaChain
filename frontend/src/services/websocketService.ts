@@ -104,26 +104,13 @@ class WebSocketService {
    */
   private getCurrentEndpoint(): string {
     if (!this.enableMultiRegion || this.regionEndpoints.length === 0) {
-      // Check if we're in development mode
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      
-      if (isDevelopment) {
-        // In development, check if WebSocket server is available
-        const wsEndpoint = process.env.REACT_APP_WEBSOCKET_ENDPOINT;
-        if (wsEndpoint) {
-          return wsEndpoint;
-        }
-        
-        // Fallback to API endpoint with WebSocket path
-        const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
-        const wsEndpoint2 = apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://');
-        return `${wsEndpoint2}/ws`;
+      const wsEndpoint = process.env.REACT_APP_WEBSOCKET_ENDPOINT;
+      if (wsEndpoint) {
+        return wsEndpoint;
       }
-      
-      // Production endpoint
+      // Fallback: derive from API endpoint
       const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
-      const wsEndpoint = apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://');
-      return `${wsEndpoint}/ws`;
+      return apiEndpoint.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
     }
 
     // Find the first healthy endpoint
@@ -160,27 +147,14 @@ class WebSocketService {
    */
   connect(topic: string, onMessage: (data: unknown) => void): void {
     // Check if WebSocket is disabled by user preference
-    const wsEnabled = localStorage.getItem('aquachain_websocket_enabled') === 'true';
+    const wsDisabled = localStorage.getItem('aquachain_websocket_enabled') === 'false';
     
-    if (!wsEnabled) {
+    if (wsDisabled) {
       console.log(`🔌 WebSocket disabled by user preference for topic: ${topic}`);
       // Notify subscriber that WebSocket is disabled
       onMessage({
         type: 'websocket_disabled',
         message: 'WebSocket connections are disabled. Using polling instead.',
-        topic
-      });
-      return;
-    }
-    
-    const WEBSOCKET_DISABLED = false;
-    
-    if (WEBSOCKET_DISABLED) {
-      console.log(`🔌 WebSocket temporarily disabled for topic: ${topic}`);
-      // Notify subscriber that WebSocket is disabled
-      onMessage({
-        type: 'websocket_disabled',
-        message: 'WebSocket connections are temporarily disabled. Using polling instead.',
         topic
       });
       return;
@@ -206,15 +180,65 @@ class WebSocketService {
   }
 
   /**
+   * Retrieve the Cognito auth token from localStorage (set by authService).
+   */
+  private getAuthToken(): string | null {
+    // API Gateway Cognito Authorizer requires access tokens (token_use: "access")
+    // ID tokens (token_use: "id") will always result in 401 Unauthorized
+    const accessToken = localStorage.getItem('aquachain_access_token');
+    if (accessToken) {
+      return accessToken;
+    }
+
+    // Fallback: check aquachain_token but only use it if it's actually an access token
+    const fallbackToken = localStorage.getItem('aquachain_token');
+    if (fallbackToken) {
+      try {
+        const payload = JSON.parse(atob(fallbackToken.split('.')[1]));
+        if (payload.token_use === 'access') {
+          return fallbackToken;
+        }
+        // It's an ID token - don't use it, it will 401
+        console.warn('🔑 WebSocket: stored token is an ID token (token_use: "id"), cannot use for WebSocket auth. Please log out and back in.');
+        return null;
+      } catch {
+        // Can't decode token, skip it
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Create a new WebSocket connection
    */
   private createConnection(topic: string, onMessage: (data: unknown) => void): void {
     try {
       const endpoint = this.getCurrentEndpoint();
-      const wsUrl = `${endpoint}?topic=${encodeURIComponent(topic)}`;
+      const token = this.getAuthToken();
+
+      if (!token) {
+        console.warn(`🔌 WebSocket: no auth token available for topic "${topic}", will retry in 3s...`);
+        // Retry once after a short delay — AuthContext.checkAuthState() runs a background
+        // Amplify session fetch that may store the access token within ~1-2 seconds
+        setTimeout(() => {
+          const retryToken = this.getAuthToken();
+          if (retryToken) {
+            console.log(`🔌 WebSocket: access token now available, retrying connection for "${topic}"`);
+            this.createConnection(topic, onMessage);
+          } else {
+            console.warn(`🔌 WebSocket: still no access token for "${topic}" after retry. Please log out and back in.`);
+            onMessage({ type: 'connection_error', message: 'Not authenticated', topic });
+          }
+        }, 3000);
+        return;
+      }
+
+      const wsUrl = `${endpoint}?topic=${encodeURIComponent(topic)}&authToken=${encodeURIComponent(token)}`;
       
       // Always log connection attempts for debugging
-      console.log(`🔌 WebSocket connecting to: ${wsUrl}`);
+      console.log(`🔌 WebSocket connecting to: ${endpoint}?topic=${encodeURIComponent(topic)}&token=<redacted>`);
       console.log(`   Environment: ${process.env.NODE_ENV}`);
       console.log(`   Endpoint from env: ${process.env.REACT_APP_WEBSOCKET_ENDPOINT}`);
       
@@ -237,9 +261,13 @@ class WebSocketService {
         connection.isConnected = true;
         connection.reconnectAttempts = 0;
         connection.lastConnectedAt = new Date();
+        // Clear error/disconnect logs so they show again if it drops
+        this.loggedErrors.delete(topic);
+        this.loggedDisconnections.delete(topic);
+        this.loggedMaxAttempts.delete(topic);
 
         // Send authentication if token is available
-        const authToken = localStorage.getItem('authToken') || localStorage.getItem('aquachain_token');
+        const authToken = this.getAuthToken();
         if (authToken) {
           ws.send(JSON.stringify({ type: 'auth', token: authToken }));
         }
@@ -275,20 +303,22 @@ class WebSocketService {
 
       ws.onerror = (error) => {
         connection.isConnected = false;
-        // Always log errors for debugging
-        console.error(`❌ WebSocket error on topic ${topic}:`, error);
-        console.error(`   URL: ${wsUrl}`);
-        console.error(`   ReadyState: ${ws.readyState}`);
+        // Only log the first error per topic to avoid console spam
+        if (!this.loggedErrors.has(topic)) {
+          console.warn(`⚠️ WebSocket unavailable for topic "${topic}" (${wsUrl}). Will retry with backoff.`);
+          this.loggedErrors.add(topic);
+        }
       };
 
       ws.onclose = (event) => {
         connection.isConnected = false;
         this.stopHeartbeat(topic);
         
-        // Always log disconnections for debugging
-        console.log(`🔌 WebSocket disconnected: ${topic}`);
-        console.log(`   Code: ${event.code}, Reason: ${event.reason || 'No reason'}`);
-        console.log(`   Was clean: ${event.wasClean}`);
+        // Only log first disconnection per topic
+        if (!this.loggedDisconnections.has(topic)) {
+          console.log(`🔌 WebSocket disconnected: ${topic} (code: ${event.code})`);
+          this.loggedDisconnections.add(topic);
+        }
 
         // Handle reconnection with development mode considerations
         this.handleReconnect(topic, endpoint);
@@ -359,7 +389,10 @@ class WebSocketService {
 
     // Check if we've exceeded max reconnect attempts
     if (connection.reconnectAttempts >= maxAttempts) {
-      console.error(`❌ Max reconnect attempts (${maxAttempts}) reached for topic: ${topic}`);
+      if (!this.loggedMaxAttempts.has(topic)) {
+        console.warn(`⚠️ WebSocket: giving up on topic "${topic}" after ${maxAttempts} attempts. Falling back to polling.`);
+        this.loggedMaxAttempts.add(topic);
+      }
       
       // Mark region as unhealthy if multi-region is enabled
       if (this.enableMultiRegion) {
@@ -592,8 +625,8 @@ class WebSocketService {
 
 // Export singleton instance
 export const websocketService = new WebSocketService({
-  maxReconnectAttempts: 5,
-  reconnectDelay: 1000,
+  maxReconnectAttempts: 3,
+  reconnectDelay: 2000,
   heartbeatInterval: 30000,
   enableMultiRegion: process.env.REACT_APP_ENABLE_MULTI_REGION === 'true'
 });

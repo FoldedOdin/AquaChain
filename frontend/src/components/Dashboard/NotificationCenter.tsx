@@ -43,11 +43,17 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
       setIsLoading(true);
       setError(null);
       const data = await notificationService.getNotifications();
-      // Convert timestamp strings to Date objects for compatibility
-      const processedData = data.map(n => ({
-        ...n,
-        timestamp: new Date(n.timestamp)
-      }));
+      // Convert timestamp strings to Date objects, filtering out malformed entries
+      const processedData = data
+        .filter(n => n.id && n.timestamp)
+        .map((n, index) => {
+          const parsed = new Date(n.timestamp);
+          return {
+            ...n,
+            id: n.id || `notification-${index}`,
+            timestamp: isNaN(parsed.getTime()) ? new Date() : parsed
+          };
+        });
       setNotifications(processedData);
     } catch (err: any) {
       // Service returns empty array on errors, so this shouldn't happen

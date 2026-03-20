@@ -80,6 +80,10 @@ const GoogleCallbackHandler: React.FC = () => {
         if (data.token) {
           localStorage.setItem('aquachain_token', data.token);
         }
+        // Store access token for WebSocket auth
+        if (data.accessToken) {
+          localStorage.setItem('aquachain_access_token', data.accessToken);
+        }
 
         // Store user data
         if (data.user) {
