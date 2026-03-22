@@ -568,3 +568,4 @@ lambda/orders/response.json
 
 # IoT firmware config files with real credentials (use config.h.template instead)
 iot-firmware/**/config.h
+notif-key.json
