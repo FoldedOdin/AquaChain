@@ -162,9 +162,14 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   console.log('🔍 Ordering context available:', !!orderingContext);
   console.log('🔍 Ordering state:', orderingContext?.state);
 
-  // Derive online status from lastSeen — device sends every 60s, so >2 min stale = offline
+  // Track lastSeen per device from real-time WebSocket pushes (overrides stale API data)
+  const [lastSeenOverrides, setLastSeenOverrides] = useState<Record<string, string>>({});
+
+  // Derive online status — prefer WebSocket-updated lastSeen over stale API value
   const isDeviceOnline = (device: any): boolean => {
-    const ms = device?.lastSeen ? new Date(device.lastSeen).getTime() : 0;
+    const deviceId = device?.device_id || device?.deviceId;
+    const lastSeenStr = (deviceId && lastSeenOverrides[deviceId]) || device?.lastSeen;
+    const ms = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
     return ms > 0 && (Date.now() - ms) < 2 * 60 * 1000;
   };
 
@@ -238,6 +243,10 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       if (!currentDeviceId || !incoming.deviceId || incoming.deviceId === currentDeviceId) {
         console.log('📡 Real-time reading update applied:', incoming);
         setCurrentReadingData(incoming);
+      }
+      // Always update lastSeen for the device that sent data — keeps online indicator fresh
+      if (incoming.deviceId && incoming.timestamp) {
+        setLastSeenOverrides(prev => ({ ...prev, [incoming.deviceId]: incoming.timestamp }));
       }
     }
   }, [latestUpdate, currentDevice]);

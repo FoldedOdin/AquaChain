@@ -11,6 +11,7 @@ from aws_cdk import (
     aws_sagemaker as sagemaker,
     aws_iam as iam,
     aws_sns as sns,
+    aws_sns_subscriptions as sns_subscriptions,
     aws_location as location,
     Duration,
     Size
@@ -192,7 +193,13 @@ class AquaChainComputeStack(Stack):
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
             layers=layers,
-            **common_lambda_config
+            **{k: v for k, v in common_lambda_config.items() if k != "environment"},
+            environment={
+                **common_lambda_config.get("environment", {}),
+                "CRITICAL_ALERTS_TOPIC_ARN": self.security_resources["critical_alerts_topic"].topic_arn,
+                "WARNING_ALERTS_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
+                "NOTIFICATION_LAMBDA_NAME": get_resource_name(self.config, "function", "notification"),
+            }
         )
         
         # User Management Lambda
@@ -249,7 +256,11 @@ class AquaChainComputeStack(Stack):
             handler="lambda_handler",
             role=self.security_resources["data_processing_role"],
             layers=layers,
-            **common_lambda_config
+            **{k: v for k, v in common_lambda_config.items() if k != "environment"},
+            environment={
+                **common_lambda_config.get("environment", {}),
+                "NOTIFICATION_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
+            }
         )
         
         # Grant service requests table access using IAM policy
@@ -362,11 +373,12 @@ class AquaChainComputeStack(Stack):
             sid="DynamoDBNotifications",
             effect=iam.Effect.ALLOW,
             actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-                     "dynamodb:Query", "dynamodb:Scan"],
+                     "dynamodb:Query", "dynamodb:Scan", "dynamodb:DeleteItem"],
             resources=[
                 f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'users')}",
                 f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'users')}/index/*",
                 f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-notifications",
+                f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-notifications/index/*",
                 f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-rate-limits",
                 f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'alerts')}",
             ]
@@ -510,14 +522,25 @@ class AquaChainComputeStack(Stack):
         # Use system alerts topic from security stack
         self.system_alerts_topic = self.security_resources["system_alerts_topic"]
         
-        # Grant publish permissions to Lambda functions
-        self.critical_alerts_topic.grant_publish(self.alert_detection_function)
-        self.critical_alerts_topic.grant_publish(self.notification_function)
+        # Permissions for SNS publish and Lambda invoke are granted via data_processing_role
+        # in security_stack.py using wildcard ARN patterns (aquachain-*) to avoid cross-stack
+        # cyclic references. Any add_to_role_policy on functions using data_processing_role
+        # would modify DataProcessingRole/DefaultPolicy in Security stack, and if those
+        # statements reference Compute-stack ARNs (like notification_function.function_arn),
+        # CDK creates a Security→Compute dependency that cycles back.
         
-        self.service_updates_topic.grant_publish(self.service_request_function)
-        self.service_updates_topic.grant_publish(self.notification_function)
+        # Subscribe notification Lambda to service_updates_topic.
+        # Use Topic.from_topic_arn to avoid cross-stack object reference — this creates
+        # a local proxy that doesn't add a resource policy on the Security-stack topic.
+        local_service_updates_topic = sns.Topic.from_topic_arn(
+            self, "ServiceUpdatesTopicRef",
+            self.service_updates_topic.topic_arn
+        )
+        local_service_updates_topic.add_subscription(
+            sns_subscriptions.LambdaSubscription(self.notification_function)
+        )
         
-        self.system_alerts_topic.grant_publish(self.data_processing_function)
+        # SNS publish for data_processing_function granted via data_processing_role in security_stack
         
         self.compute_resources.update({
             "critical_alerts_topic": self.critical_alerts_topic,

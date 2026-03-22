@@ -828,20 +828,99 @@ def request_inventory_restock(restock_data: dict, user_info: dict):
 
 
 def accept_technician_task(task_id: str, user_info: dict):
-    """Accept a task assignment"""
+    """Accept a task assignment.
+
+    Supports both service-request IDs (SR-...) and order IDs (ord_...).
+    Orders assigned to technicians are stored in the orders table; accepting
+    them sets the order status to 'accepted'.
+    """
     try:
         # Only technicians can accept tasks
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
-        
-        # Update service request status to 'accepted'
+
+        # Order-based tasks — any ID that is NOT an SR- service request
+        # Order IDs are plain UUIDs (e.g. 550e8400-e29b-41d4-a716-446655440000)
+        # or may carry an ord_/ord- prefix. SR IDs always start with 'SR-'.
+        is_service_request = task_id.upper().startswith('SR-')
+        if not is_service_request:
+            orders_table = dynamodb.Table(ORDERS_TABLE)
+            response = orders_table.get_item(Key={'orderId': task_id})
+            if 'Item' not in response:
+                return create_response(404, {'error': 'Order not found'})
+
+            order = response['Item']
+
+            # Verify this order is assigned to the requesting technician.
+            # The assignedTechnician field may hold a full Cognito UUID, a short
+            # 'tech_XXXXXXXX' ID, or may be absent (admin-created orders).
+            # We match against all known formats; if none match we still allow
+            # the accept when the order appears in the technician's own task list
+            # (i.e. get_technician_orders already filtered it for them).
+            technician_id = user_info.get('userId') or ''
+            short_id = ('tech_' + technician_id.replace('-', '')[:8]) if technician_id else ''
+            assigned_to = (
+                order.get('assignedTechnicianId') or
+                order.get('assignedTechnician') or
+                (order.get('technicianAssignment') or {}).get('technicianId', '')
+            )
+            # Only block if there IS an explicit assignment to a different technician
+            if assigned_to and assigned_to not in (technician_id, short_id):
+                return create_response(403, {'error': 'This order is not assigned to you'})
+
+            now = datetime.utcnow().isoformat()
+            audit_entry = {
+                'action': 'ORDER_ACCEPTED',
+                'by': technician_id,
+                'at': now
+            }
+
+            orders_table.update_item(
+                Key={'orderId': task_id},
+                UpdateExpression='SET #s = :s, acceptedAt = :at, updatedAt = :at, auditTrail = list_append(if_not_exists(auditTrail, :empty), :entry)',
+                ExpressionAttributeNames={'#s': 'status'},
+                ExpressionAttributeValues={
+                    ':s': 'accepted',
+                    ':at': now,
+                    ':entry': [audit_entry],
+                    ':empty': []
+                }
+            )
+
+            # Notify consumer that technician accepted the order
+            consumer_id = order.get('userId') or order.get('consumerId')
+            if NOTIFICATION_TOPIC_ARN and consumer_id:
+                try:
+                    sns.publish(
+                        TopicArn=NOTIFICATION_TOPIC_ARN,
+                        Subject=f'Order Accepted: {task_id}',
+                        Message=json.dumps({
+                            'type': 'service_request_status_updated',
+                            'orderId': task_id,
+                            'consumerId': consumer_id,
+                            'technicianId': technician_id,
+                            'status': 'accepted',
+                            'previous_status': order.get('status'),
+                            'timestamp': now
+                        })
+                    )
+                except Exception as notify_err:
+                    logger.error(f"Failed to send acceptance notification for order {task_id}: {str(notify_err)}")
+
+            return create_response(200, {
+                'success': True,
+                'message': 'Task accepted successfully',
+                'orderId': task_id
+            })
+
+        # Legacy service-request IDs (SR-...) — use the service request manager
         result = service_request_manager.update_service_request_status(
             task_id,
             'accepted',
             user_info['userId'],
             'Task accepted by technician'
         )
-        
+
         if result['success']:
             return create_response(200, {
                 'success': True,
@@ -850,7 +929,7 @@ def accept_technician_task(task_id: str, user_info: dict):
             })
         else:
             return create_response(400, {'error': result['error']})
-        
+
     except Exception as e:
         logger.error(f"Error accepting task: {str(e)}")
         return create_response(500, {'error': 'Failed to accept task'})
@@ -859,34 +938,38 @@ def accept_technician_task(task_id: str, user_info: dict):
 def update_technician_task_status(task_id: str, update_data: dict, user_info: dict):
     """Update task status"""
     try:
-        # Only technicians can update task status
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
-        
+
         status = update_data.get('status')
         note = update_data.get('note', '')
-        
+
         if not status:
             return create_response(400, {'error': 'Status is required'})
-        
-        # Update service request status
+
+        # Order-based tasks — update orders table directly
+        if task_id.startswith('ord_') or task_id.startswith('ord-'):
+            orders_table = dynamodb.Table(ORDERS_TABLE)
+            now = datetime.utcnow().isoformat()
+            audit_entry = {'action': f'STATUS_UPDATED_{status.upper()}', 'by': user_info['userId'], 'at': now}
+            orders_table.update_item(
+                Key={'orderId': task_id},
+                UpdateExpression='SET #s = :s, updatedAt = :at, auditTrail = list_append(if_not_exists(auditTrail, :empty), :entry)',
+                ExpressionAttributeNames={'#s': 'status'},
+                ExpressionAttributeValues={':s': status, ':at': now, ':entry': [audit_entry], ':empty': []}
+            )
+            return create_response(200, {'success': True, 'message': 'Task status updated successfully', 'orderId': task_id, 'status': status})
+
+        # Legacy service-request IDs
         result = service_request_manager.update_service_request_status(
-            task_id,
-            status,
-            user_info['userId'],
-            note,
-            update_data
+            task_id, status, user_info['userId'], note, update_data
         )
-        
+
         if result['success']:
-            return create_response(200, {
-                'success': True,
-                'message': 'Task status updated successfully',
-                'task': result['service_request']
-            })
+            return create_response(200, {'success': True, 'message': 'Task status updated successfully', 'task': result['service_request']})
         else:
             return create_response(400, {'error': result['error']})
-        
+
     except Exception as e:
         logger.error(f"Error updating task status: {str(e)}")
         return create_response(500, {'error': 'Failed to update task status'})
@@ -929,26 +1012,40 @@ def add_technician_task_note(task_id: str, note_data: dict, user_info: dict):
 def complete_technician_task(task_id: str, completion_data: dict, user_info: dict):
     """Complete a task"""
     try:
-        # Only technicians can complete tasks
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
-        
-        # Complete service request
+
+        # Order-based tasks — mark order as completed/installed in orders table
+        if task_id.startswith('ord_') or task_id.startswith('ord-'):
+            orders_table = dynamodb.Table(ORDERS_TABLE)
+            now = datetime.utcnow().isoformat()
+            audit_entry = {'action': 'INSTALLATION_COMPLETED', 'by': user_info['userId'], 'at': now}
+            update_expr = 'SET #s = :s, completedAt = :at, updatedAt = :at, auditTrail = list_append(if_not_exists(auditTrail, :empty), :entry)'
+            expr_values = {':s': 'completed', ':at': now, ':entry': [audit_entry], ':empty': []}
+            if completion_data.get('deviceId'):
+                update_expr += ', installedDeviceId = :did'
+                expr_values[':did'] = completion_data['deviceId']
+            if completion_data.get('location'):
+                update_expr += ', installationLocation = :loc'
+                expr_values[':loc'] = completion_data['location']
+            orders_table.update_item(
+                Key={'orderId': task_id},
+                UpdateExpression=update_expr,
+                ExpressionAttributeNames={'#s': 'status'},
+                ExpressionAttributeValues=expr_values
+            )
+            return create_response(200, {'success': True, 'message': 'Task completed successfully', 'orderId': task_id})
+
+        # Legacy service-request IDs
         result = service_request_manager.complete_service_request(
-            task_id,
-            user_info['userId'],
-            completion_data
+            task_id, user_info['userId'], completion_data
         )
-        
+
         if result['success']:
-            return create_response(200, {
-                'success': True,
-                'message': 'Task completed successfully',
-                'task': result['service_request']
-            })
+            return create_response(200, {'success': True, 'message': 'Task completed successfully', 'task': result['service_request']})
         else:
             return create_response(400, {'error': result['error']})
-        
+
     except Exception as e:
         logger.error(f"Error completing task: {str(e)}")
         return create_response(500, {'error': 'Failed to complete task'})

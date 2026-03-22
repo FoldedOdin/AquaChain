@@ -282,8 +282,24 @@ def _process_iot_data(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         else:
             logger.info("S3 data lake not configured, skipping raw data storage")
         
-        # Invoke ML inference for WQI calculation
-        ml_results = invoke_ml_inference(validated_data)
+        # Skip ML inference for sensor-faulted readings — the values are physically
+        # impossible so inference would produce meaningless results.
+        if validated_data.get('sensorFault'):
+            ml_results = {
+                'wqi': None,
+                'quality': 'Unknown',
+                'anomalyType': 'sensor_fault',
+                'confidence': None,
+                'prediction_timestamp': datetime.utcnow().isoformat() + 'Z',
+                'sensor_fault_details': validated_data.get('sensorFaultDetails', [])
+            }
+            logger.warning(
+                f"Skipping ML inference due to sensor fault - device_id={validated_data['deviceId']}, "
+                f"faults={validated_data.get('sensorFaultDetails')}"
+            )
+        else:
+            # Invoke ML inference for WQI calculation
+            ml_results = invoke_ml_inference(validated_data)
         
         # Store processed data in DynamoDB
         stored_reading = store_reading_dynamodb(validated_data, ml_results, s3_reference)
@@ -446,51 +462,55 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
         # Validate data structure using simplified validation
         validate_data_structure(data)
         
-        # Additional range validation
+        # Sensor range validation — out-of-range values are flagged as sensor_fault
+        # rather than rejected, so the reading is still stored and visible on the dashboard.
         readings = data['readings']
-        
-        # pH validation (0-14 is valid range)
+        sensor_faults = []
+
+        # pH: physically impossible outside 0-14
         if not (0 <= readings['pH'] <= 14):
-            raise AquaChainValidationError(
-                message="pH value out of valid range",
-                details={'value': readings['pH'], 'valid_range': '0-14'}
-            )
-        
-        # Turbidity validation (0-4000 NTU)
+            sensor_faults.append({'sensor': 'pH', 'value': readings['pH'], 'valid_range': '0-14'})
+
+        # Turbidity: physically impossible outside 0-4000 NTU
         if not (0 <= readings['turbidity'] <= 4000):
-            raise AquaChainValidationError(
-                message="Turbidity value out of valid range",
-                details={'value': readings['turbidity'], 'valid_range': '0-4000'}
-            )
-        
-        # TDS validation (0-5000 ppm)
+            sensor_faults.append({'sensor': 'turbidity', 'value': readings['turbidity'], 'valid_range': '0-4000'})
+
+        # TDS: physically impossible outside 0-5000 ppm
         if not (0 <= readings['tds'] <= 5000):
-            raise AquaChainValidationError(
-                message="TDS value out of valid range",
-                details={'value': readings['tds'], 'valid_range': '0-5000'}
-            )
-        
-        # Temperature validation (-40 to 125°C)
+            sensor_faults.append({'sensor': 'tds', 'value': readings['tds'], 'valid_range': '0-5000'})
+
+        # Temperature: physically impossible outside -40 to 125°C
         if not (-40 <= readings['temperature'] <= 125):
-            raise AquaChainValidationError(
-                message="Temperature value out of valid range",
-                details={'value': readings['temperature'], 'valid_range': '-40 to 125'}
+            sensor_faults.append({'sensor': 'temperature', 'value': readings['temperature'], 'valid_range': '-40 to 125'})
+
+        if sensor_faults:
+            logger.warning(
+                f"Sensor fault detected - device_id={data['deviceId']}, faults={sensor_faults}"
             )
-        
+            data['sensorFault'] = True
+            data['sensorFaultDetails'] = sensor_faults
+            # Mark diagnostics so the frontend can display the fault state
+            if 'diagnostics' not in data:
+                data['diagnostics'] = {}
+            data['diagnostics']['sensorStatus'] = 'fault'
+        else:
+            data['sensorFault'] = False
+
         # Sanitize timestamp to ISO format
         timestamp = data['timestamp']
         if not timestamp.endswith('Z'):
             timestamp += 'Z'
         data['timestamp'] = timestamp
-        
-        # Round sensor values to appropriate precision
+
+        # Round sensor values to appropriate precision (even for faulted readings)
         data['readings']['pH'] = round(readings['pH'], 2)
         data['readings']['turbidity'] = round(readings['turbidity'], 1)
         data['readings']['tds'] = round(readings['tds'], 0)
         data['readings']['temperature'] = round(readings['temperature'], 1)
-        
+
         logger.info(
-            f"Data validation successful - device_id={data['deviceId']}, "
+            f"Data validation complete - device_id={data['deviceId']}, "
+            f"sensor_fault={data['sensorFault']}, "
             f"pH={data['readings']['pH']}, turbidity={data['readings']['turbidity']}, "
             f"tds={data['readings']['tds']}, temperature={data['readings']['temperature']}"
         )
@@ -856,9 +876,10 @@ def push_reading_to_websocket_subscribers(validated_data: Dict[str, Any], ml_res
                 'turbidity': float(stored_reading.get('turbidity', validated_data['readings']['turbidity'])),
                 'tds': float(stored_reading.get('tds', validated_data['readings']['tds'])),
                 'temperature': float(stored_reading.get('temperature', validated_data['readings']['temperature'])),
-                'wqi': float(stored_reading.get('wqi', ml_results['wqi'])),
-                'quality': ml_results.get('quality', 'Fair'),
+                'wqi': float(stored_reading.get('wqi') or 0),
+                'quality': ml_results.get('quality', 'Unknown'),
                 'anomalyType': ml_results.get('anomalyType', 'normal'),
+                'sensorFault': validated_data.get('sensorFault', False),
             }
         }, default=decimal_to_float).encode('utf-8')
 
@@ -887,6 +908,20 @@ def push_reading_to_websocket_subscribers(validated_data: Dict[str, Any], ml_res
     except Exception as e:
         # Non-fatal — never block IoT ingestion due to WebSocket push failure
         logger.error(f"WebSocket push failed for device {validated_data.get('deviceId')}: {e}")
+
+
+def _get_device_owner_id(device_id: str) -> Optional[str]:
+    """Look up the userId (owner) of a device from the Devices table. Non-fatal."""
+    try:
+        devices_table_name = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
+        table = dynamodb.Table(devices_table_name)
+        response = table.get_item(Key={'deviceId': device_id})
+        device = response.get('Item')
+        if device:
+            return device.get('userId') or device.get('ownerId')
+    except Exception as e:
+        logger.warning(f"Could not look up owner for device {device_id}: {e}")
+    return None
 
 
 def _update_device_connection_status(device_id: str, timestamp: str) -> None:
@@ -941,6 +976,10 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
         partition_key = f"{device_id}_{dt.strftime('%Y-%m')}"
         
         # Prepare reading item
+        # Look up device owner so the alert detection stream can target notifications
+        # without a second DB lookup. Non-fatal if the device isn't found yet.
+        owner_user_id = _get_device_owner_id(device_id)
+
         reading_item = {
             'deviceId': device_id,
             'deviceId_month': partition_key,
@@ -949,9 +988,9 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             'turbidity': Decimal(str(data['readings']['turbidity'])),
             'tds': Decimal(str(data['readings']['tds'])),
             'temperature': Decimal(str(data['readings']['temperature'])),
-            'wqi': Decimal(str(ml_results['wqi'])),
-            'quality': ml_results.get('quality', 'Fair'),
-            'qualityScore': Decimal(str(ml_results['wqi'])),  # Keep for backward compatibility
+            'wqi': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else Decimal('0'),
+            'quality': ml_results.get('quality', 'Unknown'),
+            'qualityScore': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else Decimal('0'),  # Keep for backward compatibility
             'qualityStatus': ml_results['anomalyType'],
             'anomalyType': ml_results['anomalyType'],
             'confidence': Decimal(str(ml_results.get('confidence', 0.0))),
@@ -959,6 +998,9 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             'metric_type': 'water_quality',
             'createdAt': datetime.utcnow().isoformat()
         }
+
+        if owner_user_id:
+            reading_item['userId'] = owner_user_id
         
         if s3_reference:
             reading_item['s3Reference'] = s3_reference

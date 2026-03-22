@@ -88,14 +88,13 @@ class ContactServiceStack(Stack):
             function_name='aquachain-contact-form-handler',
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler='handler.lambda_handler',
-            code=lambda_.Code.from_asset('lambda/contact_service'),
+            code=lambda_.Code.from_asset('../../lambda/contact_service'),
             timeout=Duration.seconds(30),
             memory_size=256,
             environment={
                 'CONTACT_TABLE_NAME': contact_table.table_name,
                 'ADMIN_EMAIL': admin_email,
                 'FROM_EMAIL': from_email,
-                'AWS_REGION': self.region,
                 'NOTIFICATION_FUNCTION_NAME': 'aquachain-function-notification-dev'
             },
             log_retention=logs.RetentionDays.ONE_MONTH,

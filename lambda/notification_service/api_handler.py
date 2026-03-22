@@ -19,8 +19,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 from cors_utils import handle_options, cors_response, success_response, error_response
 
 # Import error handling
-from errors import ValidationError, AuthenticationError, DatabaseError, ResourceNotFoundError
-from error_handler import handle_errors
+from error_handler import (
+    handle_errors,
+    ValidationError,
+    AuthenticationError,
+    ResourceNotFoundError,
+    DatabaseError,
+)
 
 # Import structured logging
 from structured_logger import get_logger
@@ -77,11 +82,16 @@ def lambda_handler(event, context):
             # PUT /api/notifications/read-all - Mark all as read
             return handle_mark_all_read(user_id)
         
-        elif http_method == 'PUT' and '/read' in path:
+        elif http_method == 'PUT' and path.endswith('/read'):
             # PUT /api/notifications/{notificationId}/read - Mark one as read
             notification_id = path_params.get('notificationId')
             if not notification_id:
                 raise ValidationError('Notification ID required')
+            return handle_mark_as_read(user_id, notification_id)
+        
+        elif http_method == 'PUT' and path_params.get('notificationId'):
+            # PUT /api/notifications/{notificationId} - also mark as read (legacy path)
+            notification_id = path_params.get('notificationId')
             return handle_mark_as_read(user_id, notification_id)
         
         elif http_method == 'DELETE' and path_params.get('notificationId'):
@@ -122,6 +132,63 @@ def _get_user_id_from_event(event: Dict) -> Optional[str]:
         return None
 
 
+def _map_notification(item: Dict) -> Dict:
+    """
+    Map a raw DynamoDB notification record to the shape the frontend expects.
+    The notification_service/handler.py stores fields like notificationId,
+    notificationType, and embeds title/message inside a 'content' map.
+    The frontend NotificationCenter expects: id, type, title, message, timestamp, read, priority.
+    """
+    content = item.get('content', {})
+
+    # Derive a human-readable type from notificationType
+    raw_type = item.get('notificationType', 'info')
+    type_map = {
+        'water_quality_alert': 'warning',
+        'contact_form_submission': 'info',
+        'service_update': 'info',
+        'system_alert': 'error',
+        'device_offline': 'warning',
+        'device_online': 'success',
+    }
+    mapped_type = type_map.get(raw_type, 'info')
+
+    # Derive priority from alertLevel
+    alert_level = item.get('alertLevel', 'medium')
+    priority_map = {'critical': 'high', 'warning': 'medium', 'info': 'low'}
+    priority = priority_map.get(alert_level, 'medium')
+
+    # Build a meaningful message from content if no explicit message field
+    message = content.get('message') or item.get('message') or ''
+    if not message:
+        if raw_type == 'water_quality_alert':
+            device_id = content.get('deviceId', '')
+            wqi = content.get('wqi', '')
+            reasons = content.get('alertReasons', [])
+            if reasons:
+                message = f"Device {device_id}: {reasons[0]}" if device_id else reasons[0]
+            elif wqi:
+                message = f"Device {device_id}: Water Quality Index is {wqi}" if device_id else f"Water Quality Index is {wqi}"
+        elif raw_type == 'contact_form_submission':
+            message = content.get('subject') or content.get('name') or 'New contact form submission received'
+
+    # deviceId may be top-level or inside content
+    device_id = item.get('deviceId') or content.get('deviceId')
+
+    return {
+        'id': item.get('notificationId', ''),
+        'type': mapped_type,
+        'title': content.get('title') or item.get('title') or raw_type.replace('_', ' ').title(),
+        'message': message,
+        'timestamp': item.get('createdAt', ''),
+        'read': item.get('read', False),
+        'priority': item.get('priority', priority),
+        'userId': item.get('userId'),
+        'deviceId': device_id,
+        'actionUrl': item.get('actionUrl'),
+    }
+
+
 def handle_list_notifications(user_id: str, query_params: Dict) -> Dict:
     """
     List notifications for user with pagination
@@ -150,7 +217,8 @@ def handle_list_notifications(user_id: str, query_params: Dict) -> Dict:
         
         response = table.query(**query_kwargs)
         
-        notifications = response.get('Items', [])
+        # Map raw DynamoDB items to the shape the frontend expects
+        notifications = [_map_notification(item) for item in response.get('Items', [])]
         
         # Format response
         result = {
@@ -221,20 +289,22 @@ def handle_create_notification(user_id: str, body: Dict) -> Dict:
 
 def handle_get_unread_count(user_id: str) -> Dict:
     """
-    Get count of unread notifications for user
+    Get count of unread notifications for user.
+    Counts records where read is False OR read attribute is absent (new notifications).
     """
     try:
         table = dynamodb.Table(NOTIFICATIONS_TABLE)
         
-        # Query unread notifications
+        # Query all notifications for user, filter unread client-side
+        # (attribute_not_exists handles records created before 'read' field was added)
         response = table.query(
             IndexName='userId-createdAt-index',
             KeyConditionExpression='userId = :userId',
-            FilterExpression='#read = :read',
+            FilterExpression='#read = :false OR attribute_not_exists(#read)',
             ExpressionAttributeNames={'#read': 'read'},
             ExpressionAttributeValues={
                 ':userId': user_id,
-                ':read': False
+                ':false': False
             },
             Select='COUNT'
         )
@@ -295,14 +365,15 @@ def handle_mark_all_read(user_id: str) -> Dict:
         table = dynamodb.Table(NOTIFICATIONS_TABLE)
         
         # Query all unread notifications for user
+        # Include records where read is False OR read attribute is absent (new notifications)
         response = table.query(
             IndexName='userId-createdAt-index',
             KeyConditionExpression='userId = :userId',
-            FilterExpression='#read = :read',
+            FilterExpression='#read = :false OR attribute_not_exists(#read)',
             ExpressionAttributeNames={'#read': 'read'},
             ExpressionAttributeValues={
                 ':userId': user_id,
-                ':read': False
+                ':false': False
             }
         )
         

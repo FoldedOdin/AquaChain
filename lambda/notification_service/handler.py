@@ -67,13 +67,27 @@ class NotificationError(Exception):
 
 def lambda_handler(event, context):
     """
-    Main Lambda handler for multi-channel notifications
+    Main Lambda handler for multi-channel notifications.
+    Supports both direct invocations (with 'action' key) and SNS-triggered
+    invocations (Records[].Sns.Message payloads).
     """
     try:
         logger.info(f"Processing notification request: {json.dumps(event)}")
-        
+
+        # --- SNS-triggered invocation ---
+        # SNS wraps each message as event['Records'][n]['Sns']['Message']
+        if 'Records' in event:
+            results = []
+            for record in event['Records']:
+                if record.get('EventSource') == 'aws:sns' or record.get('eventSource') == 'aws:sns':
+                    sns_message = json.loads(record['Sns']['Message'])
+                    result = _handle_sns_message(sns_message)
+                    results.append(result)
+            return create_success_response("SNS notifications processed", results)
+
+        # --- Direct invocation ---
         action = event.get('action')
-        
+
         if action == 'send_alert':
             return handle_alert_notification(event['alert'])
         elif action == 'send_service_update':
@@ -82,7 +96,7 @@ def lambda_handler(event, context):
             return handle_system_notification(event['systemNotification'])
         else:
             raise NotificationError(f"Unknown action: {action}")
-        
+
     except Exception as e:
         logger.error(f"Notification service error: {e}")
         return {
@@ -92,6 +106,37 @@ def lambda_handler(event, context):
                 'timestamp': datetime.utcnow().isoformat()
             })
         }
+
+
+def _handle_sns_message(message: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Route an SNS message payload to the appropriate handler based on its type.
+    Covers service request status updates published by technician_service.
+    """
+    msg_type = message.get('type', '')
+
+    if msg_type in ('service_request_status_updated', 'service_request_status_update'):
+        # Normalise into the shape handle_service_notification expects
+        service_update = {
+            'consumerId': message.get('consumerId'),
+            'technicianId': message.get('technicianId'),
+            'updateType': message.get('status', 'accepted'),
+            'requestId': message.get('requestId') or message.get('orderId'),
+            'status': message.get('status'),
+            'previous_status': message.get('previous_status'),
+            'timestamp': message.get('timestamp'),
+        }
+        return handle_service_notification(service_update)
+
+    elif msg_type == 'water_quality_alert':
+        return handle_alert_notification(message)
+
+    elif msg_type == 'system_notification':
+        return handle_system_notification(message)
+
+    else:
+        logger.warning(f"Unhandled SNS message type: {msg_type}")
+        return {'skipped': True, 'type': msg_type}
 
 def handle_alert_notification(alert: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -120,8 +165,14 @@ def handle_alert_notification(alert: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 logger.warning(f"Failed to publish to SNS topic: {e}")
 
-        # Get users associated with the device
-        users = get_device_users(device_id)
+        # Get users associated with the device.
+        # Prefer the userId carried in the alert (set by data_processing) to avoid
+        # a full table scan. Fall back to device lookup if not present.
+        direct_user_id = alert.get('userId')
+        if direct_user_id:
+            users = get_users_by_ids([direct_user_id])
+        else:
+            users = get_device_users(device_id)
 
         if not users:
             logger.warning(f"No users found for device {device_id}")
@@ -155,7 +206,10 @@ def handle_service_notification(service_update: Dict[str, Any]) -> Dict[str, Any
     Handle service request update notifications
     """
     try:
-        consumer_id = service_update['consumerId']
+        consumer_id = service_update.get('consumerId') or service_update.get('userId')
+        if not consumer_id:
+            logger.warning(f"Service notification missing consumerId: {service_update}")
+            return create_success_response("No consumer to notify")
         technician_id = service_update.get('technicianId')
         update_type = service_update['updateType']
         
@@ -246,6 +300,23 @@ def get_device_users(device_id: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error getting device users: {e}")
         return []
+
+def get_users_by_ids(user_ids: List[str]) -> List[Dict[str, Any]]:
+    """
+    Fetch user records by a list of userIds using point reads (no scan).
+    """
+    users = []
+    table = dynamodb.Table(USERS_TABLE)
+    for uid in user_ids:
+        try:
+            response = table.get_item(Key={'userId': uid})
+            item = response.get('Item')
+            if item:
+                users.append(item)
+        except Exception as e:
+            logger.warning(f"Could not fetch user {uid}: {e}")
+    return users
+
 
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """

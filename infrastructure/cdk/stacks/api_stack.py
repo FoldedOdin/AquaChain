@@ -1382,6 +1382,20 @@ class AquaChainApiStack(Stack):
                 proxy=True
             )
 
+            # Shared CORS options for all notification sub-resources (no auth on OPTIONS)
+            notification_cors_options = apigateway.CorsOptions(
+                allow_origins=apigateway.Cors.ALL_ORIGINS,
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_headers=[
+                    "Content-Type",
+                    "Authorization",
+                    "X-Amz-Date",
+                    "X-Api-Key",
+                    "X-Amz-Security-Token"
+                ],
+                allow_credentials=False
+            )
+
             # GET /api/notifications - List notifications
             notifications_resource.add_method(
                 "GET",
@@ -1399,7 +1413,10 @@ class AquaChainApiStack(Stack):
             )
 
             # /api/notifications/unread-count
-            unread_count_resource = notifications_resource.add_resource("unread-count")
+            unread_count_resource = notifications_resource.add_resource(
+                "unread-count",
+                default_cors_preflight_options=notification_cors_options
+            )
             unread_count_resource.add_method(
                 "GET",
                 notification_integration,
@@ -1408,7 +1425,10 @@ class AquaChainApiStack(Stack):
             )
 
             # /api/notifications/read-all
-            read_all_resource = notifications_resource.add_resource("read-all")
+            read_all_resource = notifications_resource.add_resource(
+                "read-all",
+                default_cors_preflight_options=notification_cors_options
+            )
             read_all_resource.add_method(
                 "PUT",
                 notification_integration,
@@ -1417,7 +1437,10 @@ class AquaChainApiStack(Stack):
             )
 
             # /api/notifications/{notificationId}
-            notification_id_resource = notifications_resource.add_resource("{notificationId}")
+            notification_id_resource = notifications_resource.add_resource(
+                "{notificationId}",
+                default_cors_preflight_options=notification_cors_options
+            )
             notification_id_resource.add_method(
                 "PUT",
                 notification_integration,
@@ -1429,6 +1452,37 @@ class AquaChainApiStack(Stack):
                 notification_integration,
                 authorizer=self.cognito_authorizer,
                 authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+            # /api/notifications/{notificationId}/read
+            notification_read_resource = notification_id_resource.add_resource(
+                "read",
+                default_cors_preflight_options=notification_cors_options
+            )
+            notification_read_resource.add_method(
+                "PUT",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+        # Gateway Responses: add CORS headers to all API Gateway-level error responses
+        # Without this, 4XX/5XX responses from API Gateway (before Lambda runs) have no CORS headers
+        cors_response_headers = {
+            "Access-Control-Allow-Origin": "'*'",
+            "Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+            "Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'"
+        }
+        for response_type in [
+            apigateway.ResponseType.DEFAULT_4_XX,
+            apigateway.ResponseType.DEFAULT_5_XX,
+            apigateway.ResponseType.UNAUTHORIZED,
+            apigateway.ResponseType.ACCESS_DENIED,
+        ]:
+            self.rest_api.add_gateway_response(
+                f"GatewayResponse{response_type.response_type.replace('_', '')}",
+                type=response_type,
+                response_headers=cors_response_headers
             )
 
         self.api_resources.update({

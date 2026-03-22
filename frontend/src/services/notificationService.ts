@@ -85,7 +85,7 @@ class NotificationService {
   async markAsRead(notificationId: string): Promise<void> {
     try {
       const response = await fetchWithAuth(
-        `${this.baseUrl}/api/notifications/${notificationId}/read`,
+        `${this.baseUrl}/api/notifications/${encodeURIComponent(notificationId)}/read`,
         {
           method: 'PUT',
           headers: {
@@ -97,7 +97,7 @@ class NotificationService {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to mark notification as read');
+        throw new Error(result.error || result.message || 'Failed to mark notification as read');
       }
     } catch (error: any) {
       console.error('Mark as read error:', error);
@@ -137,7 +137,7 @@ class NotificationService {
   async deleteNotification(notificationId: string): Promise<void> {
     try {
       const response = await fetchWithAuth(
-        `${this.baseUrl}/api/notifications/${notificationId}`,
+        `${this.baseUrl}/api/notifications/${encodeURIComponent(notificationId)}`,
         {
           method: 'DELETE',
           headers: {
@@ -149,7 +149,7 @@ class NotificationService {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to delete notification');
+        throw new Error(result.error || result.message || 'Failed to delete notification');
       }
     } catch (error: any) {
       console.error('Delete notification error:', error);

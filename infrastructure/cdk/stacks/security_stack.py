@@ -140,6 +140,30 @@ class AquaChainSecurityStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
+                    "sns:Publish"
+                ],
+                resources=[
+                    f"arn:aws:sns:{self.region}:{self.account}:aquachain-*"
+                ]
+            )
+        )
+        
+        self.data_processing_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "lambda:InvokeFunction"
+                ],
+                resources=[
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:aquachain-*"
+                ]
+            )
+        )
+        
+        self.data_processing_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
                     "s3:PutObject",
                     "s3:GetObject",
                     "s3:PutObjectLegalHold",

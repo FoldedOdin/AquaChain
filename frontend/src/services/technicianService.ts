@@ -39,7 +39,8 @@ class TechnicianService {
 
   async acceptTask(taskId: string): Promise<void> {
     await this.apiCall(`/api/v1/technician/tasks/${taskId}/accept`, {
-      method: 'POST'
+      method: 'POST',
+      body: JSON.stringify({})
     });
   }
 

@@ -248,6 +248,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const getStatusColor = (status: string) => {
     switch(status) {
       case 'assigned': return 'bg-blue-100 text-blue-800';
+      case 'delivered': return 'bg-green-100 text-green-800';
       case 'accepted': return 'bg-green-100 text-green-800';
       case 'in_progress': return 'bg-yellow-100 text-yellow-800';
       case 'completed': return 'bg-gray-100 text-gray-800';
@@ -301,8 +302,13 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   };
 
   const isDeliveryConfirmed = (orderId: string): boolean => {
+    // Check shipment API status (local dev only)
     const shipment = shipmentStatuses[orderId];
-    return shipment?.shipment?.internal_status === 'delivered';
+    if (shipment?.shipment?.internal_status === 'delivered') return true;
+    // Fallback: check the order's own raw status — device is at customer's location for any of these
+    const task = techOrders.find((t: any) => t.orderId === orderId);
+    const s = (task?.status || '').toUpperCase();
+    return ['DELIVERED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'TECHNICIAN_ASSIGNED', 'ASSIGNED'].includes(s);
   };
 
   // Task action handlers
@@ -310,8 +316,9 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     try {
       setIsProcessing(orderId);
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/tech/orders/${orderId}/accept`, {
-        method: 'PUT',
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const response = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/accept`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -358,13 +365,14 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     try {
       setIsProcessing(selectedTask.taskId);
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/tech/orders/${selectedTask.taskId}/decline`, {
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const response = await fetch(`${apiBase}/api/v1/technician/tasks/${selectedTask.taskId}/status`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ reason: declineReason })
+        body: JSON.stringify({ status: 'declined', note: declineReason })
       });
       
       if (!response.ok) throw new Error('Failed to decline task');
@@ -397,12 +405,14 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     try {
       setIsProcessing(orderId);
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/tech/orders/${orderId}/start`, {
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const response = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/status`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ status: 'in_progress' })
       });
       
       const data = await response.json();
@@ -438,7 +448,8 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     try {
       setIsProcessing(orderId);
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/tech/installations/${orderId}/complete`, {
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const response = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/complete`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -704,12 +715,15 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   
   // Map order statuses to task statuses for display
   const tasksWithMappedStatus = tasks.map((task: any) => {
+    const rawStatus = (task.status || '').toUpperCase();
     let mappedStatus = task.status;
-    // Map order statuses to task workflow statuses
-    if (task.status === 'shipped') mappedStatus = 'assigned'; // Newly assigned
-    if (task.status === 'TECHNICIAN_ASSIGNED' || task.status === 'assigned') mappedStatus = 'assigned';
-    if (task.status === 'installing') mappedStatus = 'in_progress'; // Work in progress
-    if (task.status === 'completed' || task.status === 'INSTALLED') mappedStatus = 'completed';
+    // Normalize all status variants (backend uses uppercase, dev server may use mixed case)
+    if (['SHIPPED', 'TECHNICIAN_ASSIGNED', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(rawStatus)) {
+      mappedStatus = 'assigned'; // Device on the way or delivered — technician can accept
+    }
+    if (rawStatus === 'ACCEPTED') mappedStatus = 'accepted';
+    if (['INSTALLING', 'IN_PROGRESS'].includes(rawStatus)) mappedStatus = 'in_progress';
+    if (['COMPLETED', 'INSTALLED', 'DELIVERED_AND_INSTALLED'].includes(rawStatus)) mappedStatus = 'completed';
 
     // Resolve consumer name from multiple possible fields (do NOT fall back to email)
     const isEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
@@ -1040,7 +1054,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-gray-600">
                                   <MapPin className="w-4 h-4 flex-shrink-0" />
-                                  <span className="truncate">{task.address || (typeof task.location === 'object' ? task.location.address || 'Location' : task.location)}</span>
+                                  <span className="break-words">{task.address || (typeof task.location === 'object' ? task.location.address || 'Location' : task.location)}</span>
                                 </div>
                                 <button
                                   onClick={(e) => {
@@ -1077,8 +1091,8 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                             </div>
                           </div>
                         </div>
-                        <span className={`ml-3 px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap ${getStatusColor(task.mappedStatus || task.status || 'pending')}`}>
-                          {(task.mappedStatus || task.status || 'pending').replace(/_/g, ' ')}
+                        <span className={`ml-3 px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap ${getStatusColor(task.status?.toUpperCase() === 'DELIVERED' ? 'delivered' : task.mappedStatus || task.status || 'pending')}`}>
+                          {task.status?.toUpperCase() === 'DELIVERED' ? 'DELIVERED' : (task.mappedStatus || task.status || 'pending').replace(/_/g, ' ').toUpperCase()}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 flex-wrap">
@@ -1432,7 +1446,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                 >
                   Close
                 </button>
-                {selectedTask.status === 'shipped' && (
+                {(selectedTask.status === 'shipped' || selectedTask.status === 'assigned' || selectedTask.mappedStatus === 'assigned' || selectedTask.status === 'delivered') && (
                   <button
                     onClick={() => {
                       setShowTaskDetails(false);

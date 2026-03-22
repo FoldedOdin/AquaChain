@@ -116,10 +116,10 @@ class AuthorizationError(AquaChainError):
 class ResourceNotFoundError(AquaChainError):
     """Resource not found error"""
     
-    def __init__(self, resource_type: str, resource_id: str, 
-                 correlation_id: Optional[str] = None):
+    def __init__(self, message: str, resource_type: Optional[str] = None,
+                 resource_id: Optional[str] = None, correlation_id: Optional[str] = None):
         super().__init__(
-            message=f"{resource_type} not found",
+            message=message,
             code=ErrorCode.RESOURCE_NOT_FOUND,
             status_code=404,
             details={'resource_type': resource_type, 'resource_id': resource_id},
@@ -165,6 +165,19 @@ class BusinessRuleViolationError(AquaChainError):
             code=ErrorCode.BUSINESS_RULE_VIOLATION,
             status_code=422,
             details={'rule': rule},
+            correlation_id=correlation_id
+        )
+
+
+class DatabaseError(AquaChainError):
+    """Database operation error"""
+    
+    def __init__(self, message: str = "A database error occurred",
+                 correlation_id: Optional[str] = None):
+        super().__init__(
+            message=message,
+            code=ErrorCode.DATABASE_ERROR,
+            status_code=500,
             correlation_id=correlation_id
         )
 
@@ -279,7 +292,10 @@ class ErrorHandler:
             'headers': {
                 'Content-Type': 'application/json',
                 'X-Correlation-ID': correlation_id,
-                'X-Error-Code': error.code.value
+                'X-Error-Code': error.code.value,
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD'
             },
             'body': json.dumps(response)
         }
@@ -318,7 +334,10 @@ class ErrorHandler:
             'headers': {
                 'Content-Type': 'application/json',
                 'X-Correlation-ID': correlation_id,
-                'X-Error-Code': ErrorCode.INTERNAL_ERROR.value
+                'X-Error-Code': ErrorCode.INTERNAL_ERROR.value,
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD'
             },
             'body': json.dumps(response)
         }

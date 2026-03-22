@@ -7,6 +7,7 @@ Also serves as API endpoint for retrieving user alerts
 import json
 import boto3
 import hashlib
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from decimal import Decimal
@@ -21,29 +22,126 @@ dynamodb = boto3.resource('dynamodb')
 sns_client = boto3.client('sns')
 lambda_client = boto3.client('lambda')
 
-# Environment variables
-ALERTS_TABLE = 'aquachain-alerts'
-USERS_TABLE = 'aquachain-users'
-CRITICAL_ALERTS_TOPIC = 'arn:aws:sns:ap-south-1:758346259059:aquachain-topic-critical-alerts-dev'
-WARNING_ALERTS_TOPIC = 'arn:aws:sns:ap-south-1:758346259059:aquachain-topic-monitoring-warning-dev'
-NOTIFICATION_LAMBDA = 'aquachain-function-notification-dev'
+# Environment variables — never hardcoded
+ALERTS_TABLE = os.environ.get('ALERTS_TABLE', 'aquachain-alerts')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'aquachain-users')
+DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'aquachain-devices')
+CONFIG_TABLE = os.environ.get('CONFIG_TABLE', 'AquaChain-SystemConfig')
+CRITICAL_ALERTS_TOPIC = os.environ.get('CRITICAL_ALERTS_TOPIC_ARN', '')
+WARNING_ALERTS_TOPIC = os.environ.get('WARNING_ALERTS_TOPIC_ARN', '')
+NOTIFICATION_LAMBDA = os.environ.get('NOTIFICATION_LAMBDA_NAME', 'aquachain-function-notification-dev')
 
-# Alert thresholds based on requirements
-CRITICAL_THRESHOLDS = {
-    'wqi_min': 50,  # WQI below 50 is critical
-    'pH_min': 6.5,  # pH below 6.5 is critical
-    'pH_max': 8.5,  # pH above 8.5 is critical
-    'turbidity_max': 25,  # High turbidity indicates contamination
-    'tds_max': 1000  # High TDS indicates contamination
+# ── Default thresholds (used as fallback when DynamoDB config is unavailable) ──
+_DEFAULT_CRITICAL = {
+    'wqi_min': 50,
+    'pH_min': 6.5,
+    'pH_max': 8.5,
+    'turbidity_max': 25,
+    'tds_max': 1000,
+    'temperature_min': 0,
+    'temperature_max': 45,
+}
+_DEFAULT_WARNING = {
+    'wqi_min': 70,
+    'pH_min': 6.8,
+    'pH_max': 8.2,
+    'turbidity_max': 10,
+    'tds_max': 600,
+    'temperature_min': 5,
+    'temperature_max': 40,
 }
 
-WARNING_THRESHOLDS = {
-    'wqi_min': 70,  # WQI below 70 is warning
-    'pH_min': 6.8,  # pH below 6.8 is warning
-    'pH_max': 8.2,  # pH above 8.2 is warning
-    'turbidity_max': 10,  # Moderate turbidity is warning
-    'tds_max': 600  # Moderate TDS is warning
-}
+# ── In-memory threshold cache (refreshed every 60 s) ──
+_threshold_cache: Dict[str, Any] = {}
+_threshold_cache_ts: float = 0.0
+_THRESHOLD_CACHE_TTL = 60  # seconds
+
+
+def _load_thresholds() -> Dict[str, Dict[str, Any]]:
+    """
+    Load alert thresholds from AquaChain-SystemConfig DynamoDB table.
+    Results are cached for _THRESHOLD_CACHE_TTL seconds to avoid a DB hit
+    on every stream record.  Falls back to hardcoded defaults on any error.
+
+    Returns a dict with keys 'critical' and 'warning', each mapping
+    sensor names to their threshold values in the internal format used by
+    detect_alert_level() and get_alert_reasons().
+    """
+    import time
+    global _threshold_cache, _threshold_cache_ts
+
+    now = time.monotonic()
+    if _threshold_cache and (now - _threshold_cache_ts) < _THRESHOLD_CACHE_TTL:
+        return _threshold_cache
+
+    try:
+        table = dynamodb.Table(CONFIG_TABLE)
+        response = table.get_item(Key={'configKey': 'system_config'})
+        item = response.get('Item')
+
+        if not item or 'alertThresholds' not in item:
+            raise ValueError("No alertThresholds in system config")
+
+        global_t = item['alertThresholds'].get('global', {})
+
+        def _num(val, default):
+            """Convert Decimal or numeric to float, fall back to default."""
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return default
+
+        # pH — supports both legacy {min/max} and severity {critical/warning} formats
+        ph = global_t.get('pH', {})
+        ph_crit = ph.get('critical', {})
+        ph_warn = ph.get('warning', {})
+
+        # turbidity
+        turb = global_t.get('turbidity', {})
+        turb_crit = turb.get('critical', {})
+        turb_warn = turb.get('warning', {})
+
+        # TDS
+        tds = global_t.get('tds', {})
+        tds_crit = tds.get('critical', {})
+        tds_warn = tds.get('warning', {})
+
+        # temperature
+        temp = global_t.get('temperature', {})
+        temp_crit = temp.get('critical', {})
+        temp_warn = temp.get('warning', {})
+
+        # WQI
+        wqi_t = global_t.get('wqi', {})
+
+        critical = {
+            'wqi_min':        _num(wqi_t.get('critical'), _DEFAULT_CRITICAL['wqi_min']),
+            'pH_min':         _num(ph_crit.get('min', ph.get('min')), _DEFAULT_CRITICAL['pH_min']),
+            'pH_max':         _num(ph_crit.get('max', ph.get('max')), _DEFAULT_CRITICAL['pH_max']),
+            'turbidity_max':  _num(turb_crit.get('max', turb.get('max')), _DEFAULT_CRITICAL['turbidity_max']),
+            'tds_max':        _num(tds_crit.get('max', tds.get('max')), _DEFAULT_CRITICAL['tds_max']),
+            'temperature_min': _num(temp_crit.get('min', temp.get('min')), _DEFAULT_CRITICAL['temperature_min']),
+            'temperature_max': _num(temp_crit.get('max', temp.get('max')), _DEFAULT_CRITICAL['temperature_max']),
+        }
+        warning = {
+            'wqi_min':        _num(wqi_t.get('warning'), _DEFAULT_WARNING['wqi_min']),
+            'pH_min':         _num(ph_warn.get('min'), _DEFAULT_WARNING['pH_min']),
+            'pH_max':         _num(ph_warn.get('max'), _DEFAULT_WARNING['pH_max']),
+            'turbidity_max':  _num(turb_warn.get('max'), _DEFAULT_WARNING['turbidity_max']),
+            'tds_max':        _num(tds_warn.get('max'), _DEFAULT_WARNING['tds_max']),
+            'temperature_min': _num(temp_warn.get('min'), _DEFAULT_WARNING['temperature_min']),
+            'temperature_max': _num(temp_warn.get('max'), _DEFAULT_WARNING['temperature_max']),
+        }
+
+        _threshold_cache = {'critical': critical, 'warning': warning}
+        _threshold_cache_ts = now
+        logger.info("Loaded alert thresholds from SystemConfig")
+        return _threshold_cache
+
+    except Exception as e:
+        logger.warning(f"Could not load thresholds from DynamoDB, using defaults: {e}")
+        return {'critical': _DEFAULT_CRITICAL, 'warning': _DEFAULT_WARNING}
+
 
 # Alert escalation settings
 ESCALATION_WINDOW_MINUTES = 30  # Time window for sustained issues
@@ -258,61 +356,77 @@ def convert_dynamodb_record(dynamodb_data: Dict[str, Any]) -> Dict[str, Any]:
     Convert DynamoDB Stream record format to standard reading format
     """
     try:
+        # Readings are stored as top-level fields in DynamoDB (not nested under 'readings')
         reading = {
             'deviceId': dynamodb_data['deviceId']['S'],
             'timestamp': dynamodb_data['timestamp']['S'],
             'wqi': float(dynamodb_data['wqi']['N']),
             'anomalyType': dynamodb_data['anomalyType']['S'],
             'readings': {
-                'pH': float(dynamodb_data['readings']['M']['pH']['N']),
-                'turbidity': float(dynamodb_data['readings']['M']['turbidity']['N']),
-                'tds': float(dynamodb_data['readings']['M']['tds']['N']),
-                'temperature': float(dynamodb_data['readings']['M']['temperature']['N'])
+                'pH': float(dynamodb_data['pH']['N']),
+                'turbidity': float(dynamodb_data['turbidity']['N']),
+                'tds': float(dynamodb_data['tds']['N']),
+                'temperature': float(dynamodb_data['temperature']['N'])
             },
             'location': {
-                'latitude': float(dynamodb_data['location']['M']['latitude']['N']),
-                'longitude': float(dynamodb_data['location']['M']['longitude']['N'])
+                'latitude': float(dynamodb_data.get('location', {}).get('M', {}).get('latitude', {}).get('N', 0)),
+                'longitude': float(dynamodb_data.get('location', {}).get('M', {}).get('longitude', {}).get('N', 0))
             }
         }
-        
+
+        # Carry the device owner through so notifications can target them directly
+        if 'userId' in dynamodb_data:
+            reading['userId'] = dynamodb_data['userId']['S']
+
         return reading
-        
+
     except Exception as e:
         logger.error(f"Error converting DynamoDB record: {e}")
         raise AlertDetectionError(f"Record conversion failed: {e}")
 
 def detect_alert_level(reading: Dict[str, Any]) -> str:
     """
-    Detect alert level based on WQI and sensor thresholds
+    Detect alert level based on WQI and sensor thresholds loaded from SystemConfig.
     Returns: 'critical', 'warning', or 'safe'
     """
     try:
-        wqi = reading['wqi']
-        readings = reading['readings']
         anomaly_type = reading['anomalyType']
-        
-        # Check for critical conditions
-        if (wqi < CRITICAL_THRESHOLDS['wqi_min'] or
-            readings['pH'] < CRITICAL_THRESHOLDS['pH_min'] or
-            readings['pH'] > CRITICAL_THRESHOLDS['pH_max'] or
-            readings['turbidity'] > CRITICAL_THRESHOLDS['turbidity_max'] or
-            readings['tds'] > CRITICAL_THRESHOLDS['tds_max'] or
-            anomaly_type == 'contamination'):
-            
-            return 'critical'
-        
-        # Check for warning conditions
-        if (wqi < WARNING_THRESHOLDS['wqi_min'] or
-            readings['pH'] < WARNING_THRESHOLDS['pH_min'] or
-            readings['pH'] > WARNING_THRESHOLDS['pH_max'] or
-            readings['turbidity'] > WARNING_THRESHOLDS['turbidity_max'] or
-            readings['tds'] > WARNING_THRESHOLDS['tds_max'] or
-            anomaly_type == 'sensor_fault'):
-            
+
+        # sensor_fault is always a warning — wqi=0 is a sentinel, not a real measurement,
+        # so skip numeric threshold checks to avoid false critical alerts.
+        if anomaly_type == 'sensor_fault':
             return 'warning'
-        
+
+        thresholds = _load_thresholds()
+        crit = thresholds['critical']
+        warn = thresholds['warning']
+
+        wqi = reading['wqi']
+        r = reading['readings']
+
+        # Check for critical conditions
+        if (wqi < crit['wqi_min'] or
+                r['pH'] < crit['pH_min'] or
+                r['pH'] > crit['pH_max'] or
+                r['turbidity'] > crit['turbidity_max'] or
+                r['tds'] > crit['tds_max'] or
+                r['temperature'] < crit['temperature_min'] or
+                r['temperature'] > crit['temperature_max'] or
+                anomaly_type == 'contamination'):
+            return 'critical'
+
+        # Check for warning conditions
+        if (wqi < warn['wqi_min'] or
+                r['pH'] < warn['pH_min'] or
+                r['pH'] > warn['pH_max'] or
+                r['turbidity'] > warn['turbidity_max'] or
+                r['tds'] > warn['tds_max'] or
+                r['temperature'] < warn['temperature_min'] or
+                r['temperature'] > warn['temperature_max']):
+            return 'warning'
+
         return 'safe'
-        
+
     except Exception as e:
         logger.error(f"Error detecting alert level: {e}")
         return 'safe'  # Default to safe if detection fails
@@ -360,35 +474,45 @@ def generate_alert_id(device_id: str, timestamp: str) -> str:
 
 def get_alert_reasons(reading: Dict[str, Any], alert_level: str) -> List[str]:
     """
-    Get specific reasons for the alert based on threshold violations
+    Get specific reasons for the alert based on threshold violations.
+    Thresholds are loaded from SystemConfig so they reflect admin-configured values.
     """
     reasons = []
     wqi = reading['wqi']
-    readings = reading['readings']
+    r = reading['readings']
     anomaly_type = reading['anomalyType']
-    
-    thresholds = CRITICAL_THRESHOLDS if alert_level == 'critical' else WARNING_THRESHOLDS
-    
-    # Check each threshold
-    if wqi < thresholds['wqi_min']:
-        reasons.append(f"Water Quality Index ({wqi:.1f}) below safe threshold ({thresholds['wqi_min']})")
-    
-    if readings['pH'] < thresholds['pH_min']:
-        reasons.append(f"pH level ({readings['pH']:.2f}) too acidic (below {thresholds['pH_min']})")
-    elif readings['pH'] > thresholds['pH_max']:
-        reasons.append(f"pH level ({readings['pH']:.2f}) too alkaline (above {thresholds['pH_max']})")
-    
-    if readings['turbidity'] > thresholds['turbidity_max']:
-        reasons.append(f"High turbidity ({readings['turbidity']:.1f} NTU) indicates water cloudiness")
-    
-    if readings['tds'] > thresholds['tds_max']:
-        reasons.append(f"High dissolved solids ({readings['tds']:.0f} ppm) detected")
-    
+
+    # sensor_fault: report the fault directly, skip numeric threshold checks
+    # since wqi=0 is a sentinel value and readings may be physically impossible.
+    if anomaly_type == 'sensor_fault':
+        reasons.append("Sensor malfunction detected - readings may be inaccurate")
+        return reasons
+
+    thresholds = _load_thresholds()
+    t = thresholds['critical'] if alert_level == 'critical' else thresholds['warning']
+
+    if wqi < t['wqi_min']:
+        reasons.append(f"Water Quality Index ({wqi:.1f}) below safe threshold ({t['wqi_min']})")
+
+    if r['pH'] < t['pH_min']:
+        reasons.append(f"pH level ({r['pH']:.2f}) too acidic (below {t['pH_min']})")
+    elif r['pH'] > t['pH_max']:
+        reasons.append(f"pH level ({r['pH']:.2f}) too alkaline (above {t['pH_max']})")
+
+    if r['turbidity'] > t['turbidity_max']:
+        reasons.append(f"High turbidity ({r['turbidity']:.1f} NTU) above threshold ({t['turbidity_max']})")
+
+    if r['tds'] > t['tds_max']:
+        reasons.append(f"High dissolved solids ({r['tds']:.0f} ppm) above threshold ({t['tds_max']})")
+
+    if r['temperature'] < t['temperature_min']:
+        reasons.append(f"Temperature ({r['temperature']:.1f}°C) below minimum ({t['temperature_min']}°C)")
+    elif r['temperature'] > t['temperature_max']:
+        reasons.append(f"Temperature ({r['temperature']:.1f}°C) above maximum ({t['temperature_max']}°C)")
+
     if anomaly_type == 'contamination':
         reasons.append("AI model detected potential water contamination")
-    elif anomaly_type == 'sensor_fault':
-        reasons.append("Sensor malfunction detected - readings may be inaccurate")
-    
+
     return reasons
 
 def convert_floats_to_decimal(obj):
@@ -469,11 +593,14 @@ def trigger_alert_notification(alert: Dict[str, Any]) -> None:
     try:
         # Determine SNS topic based on alert level
         topic_arn = CRITICAL_ALERTS_TOPIC if alert['alertLevel'] == 'critical' else WARNING_ALERTS_TOPIC
-        
-        # Create notification message
+
+        # Create notification message — include userId so the notification
+        # Lambda can target the consumer directly without a second lookup
         notification_message = {
+            'type': 'water_quality_alert',
             'alertId': alert['alertId'],
             'deviceId': alert['deviceId'],
+            'userId': alert.get('userId'),
             'alertLevel': alert['alertLevel'],
             'timestamp': alert['timestamp'],
             'wqi': alert['wqi'],
@@ -481,34 +608,34 @@ def trigger_alert_notification(alert: Dict[str, Any]) -> None:
             'alertReasons': alert['alertReasons'],
             'anomalyType': alert['anomalyType']
         }
-        
+
         # Publish to SNS topic
-        sns_response = sns_client.publish(
-            TopicArn=topic_arn,
-            Message=json.dumps(notification_message),
-            Subject=f"{alert['alertLevel'].title()} Water Quality Alert - Device {alert['deviceId']}",
-            MessageAttributes={
-                'alertLevel': {'DataType': 'String', 'StringValue': alert['alertLevel']},
-                'deviceId': {'DataType': 'String', 'StringValue': alert['deviceId']},
-                'wqi': {'DataType': 'Number', 'StringValue': str(alert['wqi'])}
-            }
-        )
-        
-        # Invoke notification service Lambda for multi-channel delivery
-        lambda_client.invoke(
-            FunctionName=NOTIFICATION_LAMBDA,
-            InvocationType='Event',  # Async invocation
-            Payload=json.dumps({
-                'action': 'send_alert',
-                'alert': notification_message
-            })
-        )
-        
-        # Update alert record with notification info
-        update_alert_notifications(alert['alertId'], 'sns', sns_response['MessageId'])
-        
+        if topic_arn:
+            sns_response = sns_client.publish(
+                TopicArn=topic_arn,
+                Message=json.dumps(notification_message),
+                Subject=f"{alert['alertLevel'].title()} Water Quality Alert - Device {alert['deviceId']}",
+                MessageAttributes={
+                    'alertLevel': {'DataType': 'String', 'StringValue': alert['alertLevel']},
+                    'deviceId': {'DataType': 'String', 'StringValue': alert['deviceId']},
+                    'wqi': {'DataType': 'Number', 'StringValue': str(alert['wqi'] if alert['wqi'] is not None else 0)}
+                }
+            )
+            update_alert_notifications(alert['alertId'], 'sns', sns_response['MessageId'])
+
+        # Invoke notification service Lambda for multi-channel delivery (push/email/SMS)
+        if NOTIFICATION_LAMBDA:
+            lambda_client.invoke(
+                FunctionName=NOTIFICATION_LAMBDA,
+                InvocationType='Event',  # Async
+                Payload=json.dumps({
+                    'action': 'send_alert',
+                    'alert': notification_message
+                })
+            )
+
         logger.info(f"Triggered {alert['alertLevel']} alert notification for device {alert['deviceId']}")
-        
+
     except Exception as e:
         logger.error(f"Error triggering alert notification: {e}")
         # Don't fail the entire process if notification fails
@@ -634,21 +761,32 @@ def update_alert_escalation(alert_id: str) -> None:
 
 def get_device_users(device_id: str) -> List[Dict[str, Any]]:
     """
-    Get users associated with a device for targeted notifications
+    Get users associated with a device.
+    Looks up the device record first (which stores the owner's userId),
+    then fetches the user profile — avoids a full Users table scan.
     """
     try:
-        table = dynamodb.Table(USERS_TABLE)
-        
-        # Query users who have this device associated
-        response = table.scan(
-            FilterExpression='contains(deviceIds, :deviceId)',
-            ExpressionAttributeValues={
-                ':deviceId': device_id
-            }
-        )
-        
-        return response.get('Items', [])
-        
+        # 1. Look up device to get the owner's userId
+        devices_table = dynamodb.Table(DEVICES_TABLE)
+        device_response = devices_table.get_item(Key={'deviceId': device_id})
+        device = device_response.get('Item')
+
+        if not device:
+            logger.warning(f"Device {device_id} not found in devices table")
+            return []
+
+        owner_id = device.get('userId') or device.get('ownerId')
+        if not owner_id:
+            logger.warning(f"Device {device_id} has no userId/ownerId")
+            return []
+
+        # 2. Fetch the owner's user profile
+        users_table = dynamodb.Table(USERS_TABLE)
+        user_response = users_table.get_item(Key={'userId': owner_id})
+        user = user_response.get('Item')
+
+        return [user] if user else []
+
     except Exception as e:
-        logger.warning(f"Error getting device users: {e}")
+        logger.error(f"Error getting device users: {e}")
         return []

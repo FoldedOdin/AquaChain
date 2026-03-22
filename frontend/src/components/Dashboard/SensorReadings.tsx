@@ -6,12 +6,17 @@ interface SensorReadingsProps {
 }
 
 const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
+  const isSensorFault = reading.anomalyType === 'sensor_fault';
+
   const getSensorStatus = (value: number, min: number, max: number) => {
     if (value < min || value > max) {
       return 'text-critical bg-red-50 border-red-200';
     }
     return 'text-gray-900 bg-white border-gray-200';
   };
+
+  const isOutOfRange = (value: number, min: number, max: number) =>
+    value < min || value > max;
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleString();
@@ -24,6 +29,7 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
       unit: '',
       range: '6.5 - 8.5',
       status: getSensorStatus(reading.readings.pH, 6.5, 8.5),
+      fault: isOutOfRange(reading.readings.pH, 0, 14),
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -36,6 +42,7 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
       unit: 'NTU',
       range: '< 4.0',
       status: getSensorStatus(reading.readings.turbidity, 0, 4.0),
+      fault: isOutOfRange(reading.readings.turbidity, 0, 4000),
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -48,6 +55,7 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
       unit: 'ppm',
       range: '< 500',
       status: getSensorStatus(reading.readings.tds, 0, 500),
+      fault: isOutOfRange(reading.readings.tds, 0, 5000),
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
@@ -60,6 +68,7 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
       unit: '°C',
       range: '0 - 40',
       status: getSensorStatus(reading.readings.temperature, 0, 40),
+      fault: isOutOfRange(reading.readings.temperature, -40, 125),
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l3-3 3 3v13M9 19a3 3 0 106 0M9 19h6" />
@@ -72,6 +81,7 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
       unit: '%',
       range: '30 - 70',
       status: getSensorStatus(reading.readings.humidity, 30, 70),
+      fault: false,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
@@ -85,8 +95,18 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
       <div className="px-4 py-5 sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-medium text-gray-900">Current Readings</h3>
-          <div className="text-sm text-gray-500">
-            Last updated: {formatTimestamp(reading.timestamp)}
+          <div className="flex items-center space-x-3">
+            {isSensorFault && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                Sensor Fault
+              </span>
+            )}
+            <div className="text-sm text-gray-500">
+              Last updated: {formatTimestamp(reading.timestamp)}
+            </div>
           </div>
         </div>
 
@@ -104,6 +124,9 @@ const SensorReadings: React.FC<SensorReadingsProps> = ({ reading }) => {
                   {sensor.icon}
                   <span className="text-sm font-medium">{sensor.label}</span>
                 </div>
+                {sensor.fault && (
+                  <span className="text-xs font-medium text-red-600">Sensor Fault</span>
+                )}
               </div>
               
               <div className="flex items-baseline space-x-1">
