@@ -30,8 +30,8 @@ cognito_client = boto3.client('cognito-idp')
 ssm_client = boto3.client('ssm')
 
 # Environment variables
-CONNECTIONS_TABLE = 'aquachain-websocket-connections'
-USERS_TABLE = 'aquachain-users'
+CONNECTIONS_TABLE = os.environ.get('CONNECTIONS_TABLE', 'AquaChain-WebSocketConnections-dev')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
 WEBSOCKET_ENDPOINT = None  # Will be set dynamically
 COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', 'ap-south-1_QUDl7hG8u')
 
@@ -96,6 +96,7 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
         query_params = event.get('queryStringParameters') or {}
         auth_token = query_params.get('authToken') or query_params.get('token')  # support both for backward compat
         connection_type = query_params.get('type', 'dashboard')
+        topic = query_params.get('topic', 'consumer-updates')
         
         if not auth_token:
             logger.warning(f"Connection {connection_id} rejected: No auth token")
@@ -118,6 +119,7 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
             'userId': user_info['sub'],
             'userRole': user_info.get('cognito:groups', ['consumer'])[0],
             'connectionType': connection_type,
+            'topic': topic,
             'connectedAt': datetime.utcnow().isoformat(),
             'lastPing': datetime.utcnow().isoformat(),
             'subscriptions': [],

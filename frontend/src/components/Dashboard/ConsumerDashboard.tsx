@@ -117,14 +117,14 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // ✅ Fetch real data from API using proper hooks
   const { data: devices, isLoading: devicesLoading, error: devicesError, refetch: refetchDevices } = useDevices();
-  const { data: alerts, isLoading: alertsLoading, error: alertsError } = useAlerts();
+  const { data: alerts, isLoading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useAlerts();
   
   // Combine loading states
   const isLoading = devicesLoading || alertsLoading;
   const error = devicesError || alertsError;
   
   // ✅ Get proper refresh function from DashboardContext
-  const { triggerManualRefresh } = useDashboard();
+  const { triggerManualRefresh, lastRefreshTimestamp } = useDashboard();
   const refetch = () => {
     triggerManualRefresh();
     refetchDevices(); // Also trigger device-specific refetch
@@ -165,12 +165,28 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   // Track lastSeen per device from real-time WebSocket pushes (overrides stale API data)
   const [lastSeenOverrides, setLastSeenOverrides] = useState<Record<string, string>>({});
 
-  // Derive online status — prefer WebSocket-updated lastSeen over stale API value
+  // Derive online status — prefer WebSocket-updated lastSeen over stale API value.
+  // Falls back to the DynamoDB-persisted connectionStatus when no WebSocket message
+  // has arrived yet (e.g. right after page load or reconnect).
   const isDeviceOnline = (device: any): boolean => {
     const deviceId = device?.device_id || device?.deviceId;
-    const lastSeenStr = (deviceId && lastSeenOverrides[deviceId]) || device?.lastSeen;
+    const override = deviceId ? lastSeenOverrides[deviceId] : undefined;
+
+    if (override) {
+      // WebSocket has delivered at least one message — use its timestamp
+      const ms = new Date(override).getTime();
+      return ms > 0 && (Date.now() - ms) < 5 * 60 * 1000;
+    }
+
+    // No WebSocket message yet — trust the persisted connectionStatus from the API
+    const persistedStatus = device?.connectionStatus;
+    if (persistedStatus === 'online') return true;
+    if (persistedStatus === 'offline') return false;
+
+    // Last resort: fall back to lastSeen timestamp math (5 min matches backend monitor threshold)
+    const lastSeenStr = device?.lastSeen;
     const ms = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
-    return ms > 0 && (Date.now() - ms) < 2 * 60 * 1000;
+    return ms > 0 && (Date.now() - ms) < 5 * 60 * 1000;
   };
 
   // ✅ Get devices list from dashboard data
@@ -202,7 +218,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     }
   }, [devicesList.length]); // Only depend on length, not the entire array
 
-  // ✅ Fetch current reading when selected device changes (initial load only)
+  // ✅ Fetch current reading when selected device changes OR on auto-refresh tick
   useEffect(() => {
     const fetchCurrentReading = async () => {
       if (!currentDevice) {
@@ -222,7 +238,20 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       try {
         const reading = await unifiedDataService.getLatestDeviceReading(deviceId);
         console.log('📦 Current reading fetched:', reading);
-        setCurrentReadingData(reading);
+        if (reading) {
+          // Only apply REST result if it's newer than what WebSocket already delivered.
+          // Prevents a slow API response from overwriting a fresher real-time push.
+          setCurrentReadingData((prev: any) => {
+            const prevTs = prev?.timestamp ? new Date(prev.timestamp).getTime() : 0;
+            const newTs = reading.timestamp ? new Date(reading.timestamp).getTime() : 0;
+            if (newTs >= prevTs) {
+              setLastRefreshTime(new Date());
+              return reading;
+            }
+            console.log('⏭️ Skipping stale REST reading — WebSocket data is newer');
+            return prev;
+          });
+        }
       } catch (error) {
         console.error('❌ Error fetching current reading:', error);
         setCurrentReadingData(null);
@@ -232,7 +261,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     };
 
     fetchCurrentReading();
-  }, [currentDevice]);
+  }, [currentDevice, lastRefreshTimestamp]); // lastRefreshTimestamp triggers re-fetch on every auto-refresh cycle (default 30s)
 
   // ✅ Update reading from WebSocket real-time push (no polling needed)
   useEffect(() => {
@@ -243,11 +272,18 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       if (!currentDeviceId || !incoming.deviceId || incoming.deviceId === currentDeviceId) {
         console.log('📡 Real-time reading update applied:', incoming);
         setCurrentReadingData(incoming);
+        setLastRefreshTime(new Date());
       }
       // Always update lastSeen for the device that sent data — keeps online indicator fresh
       if (incoming.deviceId && incoming.timestamp) {
         setLastSeenOverrides(prev => ({ ...prev, [incoming.deviceId]: incoming.timestamp }));
       }
+    }
+
+    // Refresh alerts when a new alert arrives via WebSocket
+    if (latestUpdate?.type === 'alert' || latestUpdate?.type === 'new_alert') {
+      console.log('📡 Real-time alert received, refreshing alerts');
+      refetchAlerts();
     }
   }, [latestUpdate, currentDevice]);
 
@@ -582,11 +618,19 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     }
     
     const { pH, turbidity, tds, temperature } = currentReading;
+    const isSensorFault = currentReading.sensorFault === true || currentReading.anomalyType === 'sensor_fault';
 
     // Use WQI stored by Lambda (calculated server-side with consistent formula).
     // Fall back to a simple local calculation only if the API didn't return one.
     let wqi: number;
-    if (currentReading.wqi != null && currentReading.wqi > 0) {
+    if (isSensorFault) {
+      // Sensor fault — compute WQI from the valid parameters only (pH, TDS, temp)
+      // so the dashboard shows a meaningful value instead of 0/Poor.
+      const pHScore = Math.max(0, 100 - Math.abs(pH - 7.0) * 15);
+      const tdsScore = Math.max(0, 100 - Math.abs(tds - 100) / 10);
+      const tempScore = Math.max(0, 100 - Math.abs(temperature - 25) * 2);
+      wqi = Math.round((pHScore + tdsScore + tempScore) / 3);
+    } else if (currentReading.wqi != null && currentReading.wqi >= 0) {
       wqi = Math.round(Number(currentReading.wqi));
     } else {
       // Fallback: mirror Lambda's calculate_simple_wqi formula exactly
@@ -598,19 +642,22 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     }
     
     // Determine status and color based on WQI scale (0-100)
-    let status = 'Poor';
-    let color = 'red';
-    let bgColor = 'bg-red-100';
+    let status = isSensorFault ? 'Sensor Fault' : 'Poor';
+    let color = isSensorFault ? 'orange' : 'red';
+    let bgColor = isSensorFault ? 'bg-orange-100' : 'bg-red-100';
     
-    if (wqi >= 90) { status = 'Excellent'; color = 'green'; bgColor = 'bg-green-100'; }
-    else if (wqi >= 70) { status = 'Good'; color = 'blue'; bgColor = 'bg-blue-100'; }
-    else if (wqi >= 50) { status = 'Fair'; color = 'yellow'; bgColor = 'bg-yellow-100'; }
+    if (!isSensorFault) {
+      if (wqi >= 90) { status = 'Excellent'; color = 'green'; bgColor = 'bg-green-100'; }
+      else if (wqi >= 70) { status = 'Good'; color = 'blue'; bgColor = 'bg-blue-100'; }
+      else if (wqi >= 50) { status = 'Fair'; color = 'yellow'; bgColor = 'bg-yellow-100'; }
+    }
     
     return {
       wqi,
       status,
       color,
       bgColor,
+      isSensorFault,
       metrics: {
         pH: { value: pH, min: 6.5, max: 8.5, unit: '', icon: Beaker, status: pH >= 6.5 && pH <= 8.5 ? 'safe' : 'warning' },
         turbidity: { value: turbidity, min: 0, max: 5, unit: 'NTU', icon: Eye, status: turbidity < 5 ? 'safe' : 'warning' },
@@ -1247,13 +1294,19 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
             <div className={`relative w-48 h-48 ${waterQualityMetrics.bgColor} rounded-full flex items-center justify-center mb-4`}>
               <div className="text-center">
                 <div className={`text-6xl font-bold text-${waterQualityMetrics.color}-600`}>
-                  {waterQualityMetrics.wqi}
+                  {waterQualityMetrics.isSensorFault ? '—' : waterQualityMetrics.wqi}
                 </div>
                 <div className={`text-lg font-medium text-${waterQualityMetrics.color}-600`}>
                   {waterQualityMetrics.status}
                 </div>
               </div>
             </div>
+            {waterQualityMetrics.isSensorFault && (
+              <div className="mb-3 flex items-center gap-2 px-3 py-1.5 bg-orange-100 border border-orange-300 rounded-full text-sm text-orange-800">
+                <AlertTriangle className="w-4 h-4" />
+                Sensor fault detected — check device hardware
+              </div>
+            )}
             <div className="flex items-center space-x-8 text-sm text-gray-600">
               <div className="text-center">
                 <div className="flex items-center space-x-1">
@@ -1298,7 +1351,22 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Devices</h3>
-              <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">Active</span>
+              {(() => {
+                const onlineCount = devicesList.filter((d: any) => isDeviceOnline(d)).length;
+                const total = devicesList.length;
+                const allOnline = total > 0 && onlineCount === total;
+                const someOnline = onlineCount > 0 && onlineCount < total;
+                return (
+                  <span className={`px-2 py-1 text-xs font-medium rounded ${
+                    allOnline ? 'bg-green-100 text-green-800' :
+                    someOnline ? 'bg-yellow-100 text-yellow-800' :
+                    total === 0 ? 'bg-green-100 text-green-800' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {total === 0 ? 'Active' : allOnline ? 'Active' : someOnline ? `${onlineCount}/${total} Online` : 'Offline'}
+                  </span>
+                );
+              })()}
             </div>
             <div className="text-3xl font-bold text-gray-900">
               {dashboardData && 'devices' in dashboardData ? dashboardData.devices?.length || 0 : 0}

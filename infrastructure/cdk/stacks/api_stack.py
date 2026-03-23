@@ -1436,6 +1436,30 @@ class AquaChainApiStack(Stack):
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )
 
+            # /api/notifications/broadcast (must be before {notificationId} wildcard)
+            broadcast_resource = notifications_resource.add_resource(
+                "broadcast",
+                default_cors_preflight_options=notification_cors_options
+            )
+            broadcast_resource.add_method(
+                "POST",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+            # /api/notifications/announcements (must be before {notificationId} wildcard)
+            announcements_resource = notifications_resource.add_resource(
+                "announcements",
+                default_cors_preflight_options=notification_cors_options
+            )
+            announcements_resource.add_method(
+                "GET",
+                notification_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
             # /api/notifications/{notificationId}
             notification_id_resource = notifications_resource.add_resource(
                 "{notificationId}",

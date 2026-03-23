@@ -28,10 +28,11 @@ const shouldUseMockData = () => {
   const isDevelopmentToken = token && token.startsWith('dev-token-');
   const isProductionAPI = process.env.REACT_APP_API_ENDPOINT?.includes('amazonaws.com');
   
-  // Use mock data if development token with production API
+  // Dev token + production API: warn loudly but still try real API
+  // (mock data here causes stale/static values that never update)
   if (isDevelopmentToken && isProductionAPI) {
-    console.warn('🔄 Switching to mock data: Development token detected with production API');
-    return true;
+    console.warn('⚠️ Development token detected with production API — attempting real API anyway. If requests fail, log out and back in to get a real Cognito token.');
+    return false;
   }
   
   // Use mock data if no token
@@ -101,6 +102,16 @@ export const unifiedDataService = {
     }
     console.log('📊 Using real API for alerts');
     return await dataService.getAlerts();
+  },
+
+  async getDeviceById(deviceId: string) {
+    if (shouldUseMockData()) {
+      console.log('📊 Using mock data for device by id');
+      const devices = await MockDataService.getDevices();
+      return devices.find((d: any) => d.deviceId === deviceId || d.device_id === deviceId) || null;
+    }
+    console.log('📊 Using real API for device by id');
+    return await dataService.getDeviceById(deviceId);
   },
 
   async getDashboardStats() {

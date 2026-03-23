@@ -163,7 +163,9 @@ export const getAllUsers = async (): Promise<UserManagementData[]> => {
     );
 
     if (!response.ok) {
-      throw new Error('Failed to fetch users');
+      const errBody = await response.text().catch(() => '');
+      console.error(`getAllUsers failed: ${response.status} ${response.statusText}`, errBody);
+      throw new Error(`Failed to fetch users: ${response.status}`);
     }
 
     const data = await response.json();

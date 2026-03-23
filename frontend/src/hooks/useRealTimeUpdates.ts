@@ -164,21 +164,29 @@ export function useRealTimeUpdates(
     if (isDevelopment && connectionStatus === 'development_mode' && enableInDevelopment) {
       console.log('🔧 Starting development mode simulation for topic:', topic);
       
-      // Simulate periodic updates in development
+      // Simulate periodic updates in development using water_quality type
+      // so the dashboard's latestUpdate handler actually processes them
       const interval = setInterval(() => {
         const mockUpdate: RealTimeUpdate = {
-          type: 'mock_update',
+          type: 'water_quality',
           data: {
-            message: 'Development mode simulation',
+            deviceId: null, // null = applies to whichever device is selected
             timestamp: new Date().toISOString(),
-            mockData: true
+            pH: parseFloat((6.5 + Math.random() * 2).toFixed(2)),
+            turbidity: parseFloat((Math.random() * 5).toFixed(2)),
+            tds: Math.round(100 + Math.random() * 400),
+            temperature: parseFloat((20 + Math.random() * 15).toFixed(1)),
+            wqi: Math.round(50 + Math.random() * 50),
+            quality: 'Good',
+            anomalyType: 'normal',
+            sensorFault: false,
           },
           timestamp: new Date().toISOString(),
           topic
         };
         
         setLatestUpdate(mockUpdate);
-        console.log('🎭 Mock real-time update:', mockUpdate);
+        console.log('🎭 Dev mode water_quality update:', mockUpdate);
       }, fallbackPollingInterval);
 
       return () => clearInterval(interval);

@@ -555,19 +555,24 @@ class TechnicianAssignmentService:
                                     correlation_id: Optional[str] = None):
         """Update order record with technician assignment"""
         try:
+            # Orders are stored with flat 'orderId' primary key (see create_order.py)
             self.orders_table.update_item(
-                Key={
-                    'PK': f'ORDER#{order_id}',
-                    'SK': f'ORDER#{order_id}'
-                },
+                Key={'orderId': order_id},
                 UpdateExpression='''
                     SET assignedTechnician = :technician_id,
+                        assignedTechnicianName = :technician_name,
                         technicianAssignment = :assignment,
+                        #status = :status,
                         updatedAt = :timestamp
                 ''',
+                ExpressionAttributeNames={
+                    '#status': 'status'
+                },
                 ExpressionAttributeValues={
                     ':technician_id': assignment['technicianId'],
+                    ':technician_name': assignment['technicianName'],
                     ':assignment': assignment,
+                    ':status': 'TECHNICIAN_ASSIGNED',
                     ':timestamp': assignment['assignedAt']
                 }
             )

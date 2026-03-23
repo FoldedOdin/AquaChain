@@ -240,29 +240,50 @@ def get_user_alerts(event, headers):
         # Get query parameters
         query_params = event.get('queryStringParameters') or {}
         limit = int(query_params.get('limit', 50))
-        
-        # Get user info from JWT token (simplified for now)
-        # In production, you'd decode the JWT token from Authorization header
-        user_id = 'test-user'  # This should come from JWT token
-        
+
+        # Extract user ID from Cognito JWT claims (set by API Gateway authorizer)
+        request_context = event.get('requestContext', {})
+        authorizer = request_context.get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        user_id = claims.get('sub') or claims.get('cognito:username')
+
+        if not user_id:
+            logger.warning("No user_id found in JWT claims, returning empty alerts")
+            return {
+                'statusCode': 200,
+                'headers': headers,
+                'body': json.dumps({'alerts': [], 'count': 0, 'timestamp': datetime.utcnow().isoformat()})
+            }
+
+        # Get user's device IDs so we only return alerts for their devices
+        devices_table = dynamodb.Table(DEVICES_TABLE)
+        try:
+            dev_response = devices_table.query(
+                IndexName='UserIndex',
+                KeyConditionExpression=boto3.dynamodb.conditions.Key('userId').eq(user_id)
+            )
+        except Exception:
+            dev_response = devices_table.scan(
+                FilterExpression=boto3.dynamodb.conditions.Attr('userId').eq(user_id)
+            )
+        user_device_ids = {d['deviceId'] for d in dev_response.get('Items', [])}
+
         # Query alerts table
         table = dynamodb.Table(ALERTS_TABLE)
-        
-        # For now, return all alerts (in production, filter by user's devices)
-        response = table.scan(
-            Limit=limit
-            # Note: ScanIndexForward is not valid for scan operations
-        )
-        
-        alerts = response.get('Items', [])
-        
+        response = table.scan(Limit=min(limit * 3, 300))  # over-fetch to allow filtering
+        all_alerts = response.get('Items', [])
+
+        # Filter to only this user's devices
+        if user_device_ids:
+            all_alerts = [a for a in all_alerts if a.get('deviceId') in user_device_ids]
+
+        # Sort by timestamp descending and apply limit
+        all_alerts.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        alerts = all_alerts[:limit]
+
         # Convert Decimal to float for JSON serialization
         alerts = convert_decimals_to_float(alerts)
-        
-        # Mock some alerts if none exist
-        if not alerts:
-            alerts = generate_mock_alerts(limit)
-        
+
         return {
             'statusCode': 200,
             'headers': headers,
@@ -272,7 +293,7 @@ def get_user_alerts(event, headers):
                 'timestamp': datetime.utcnow().isoformat()
             })
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting user alerts: {e}")
         return {
@@ -357,11 +378,20 @@ def convert_dynamodb_record(dynamodb_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         # Readings are stored as top-level fields in DynamoDB (not nested under 'readings')
+        # anomalyType was added later; older records use qualityStatus as the fallback.
+        anomaly_type = (
+            dynamodb_data['anomalyType']['S']
+            if 'anomalyType' in dynamodb_data
+            else dynamodb_data.get('qualityStatus', {}).get('S', 'unknown')
+        )
+        # wqi stored as Decimal(0) sentinel when sensor_fault; treat 0 as valid number
+        wqi_val = float(dynamodb_data['wqi']['N']) if 'wqi' in dynamodb_data else float(dynamodb_data.get('qualityScore', {}).get('N', 0))
+
         reading = {
             'deviceId': dynamodb_data['deviceId']['S'],
             'timestamp': dynamodb_data['timestamp']['S'],
-            'wqi': float(dynamodb_data['wqi']['N']),
-            'anomalyType': dynamodb_data['anomalyType']['S'],
+            'wqi': wqi_val,
+            'anomalyType': anomaly_type,
             'readings': {
                 'pH': float(dynamodb_data['pH']['N']),
                 'turbidity': float(dynamodb_data['turbidity']['N']),
@@ -551,37 +581,33 @@ def store_alert(alert: Dict[str, Any]) -> None:
 
 def is_duplicate_alert(alert: Dict[str, Any]) -> bool:
     """
-    Check if similar alert was recently sent to avoid spam
-    Deduplication window: 5 minutes for same device and alert level
+    Check if similar alert was recently sent to avoid spam.
+    Deduplication window: 5 minutes for same device and alert level.
     """
     try:
         table = dynamodb.Table(ALERTS_TABLE)
-        
-        # Calculate deduplication window
+
         current_time = datetime.fromisoformat(alert['timestamp'].replace('Z', '+00:00'))
         window_start = current_time - timedelta(minutes=5)
-        
-        # Query recent alerts for same device
+
+        # createdAt is the GSI sort key — must be in KeyConditionExpression, not FilterExpression
         response = table.query(
-            IndexName='DeviceAlerts',  # GSI on deviceId
-            KeyConditionExpression='deviceId = :deviceId',
-            FilterExpression='alertLevel = :alertLevel AND createdAt > :windowStart',
-            ExpressionAttributeValues={
-                ':deviceId': alert['deviceId'],
-                ':alertLevel': alert['alertLevel'],
-                ':windowStart': window_start.isoformat()
-            }
+            IndexName='DeviceAlerts',
+            KeyConditionExpression=(
+                boto3.dynamodb.conditions.Key('deviceId').eq(alert['deviceId']) &
+                boto3.dynamodb.conditions.Key('createdAt').gt(window_start.isoformat())
+            ),
+            FilterExpression=boto3.dynamodb.conditions.Attr('alertLevel').eq(alert['alertLevel'])
         )
-        
-        # Check if any recent alerts found
+
         recent_alerts = response.get('Items', [])
-        
+
         if recent_alerts:
             logger.info(f"Duplicate alert detected for device {alert['deviceId']} - skipping notification")
             return True
-        
+
         return False
-        
+
     except Exception as e:
         logger.warning(f"Error checking duplicate alert: {e}")
         return False  # Continue with notification if check fails
@@ -622,6 +648,12 @@ def trigger_alert_notification(alert: Dict[str, Any]) -> None:
                 }
             )
             update_alert_notifications(alert['alertId'], 'sns', sns_response['MessageId'])
+        else:
+            logger.warning(
+                f"SNS topic ARN not configured for alert level '{alert['alertLevel']}' — "
+                f"set CRITICAL_ALERTS_TOPIC_ARN / WARNING_ALERTS_TOPIC_ARN env vars. "
+                f"Alert {alert['alertId']} for device {alert['deviceId']} was NOT published to SNS."
+            )
 
         # Invoke notification service Lambda for multi-channel delivery (push/email/SMS)
         if NOTIFICATION_LAMBDA:
@@ -632,6 +664,12 @@ def trigger_alert_notification(alert: Dict[str, Any]) -> None:
                     'action': 'send_alert',
                     'alert': notification_message
                 })
+            )
+        else:
+            logger.warning(
+                f"Notification Lambda name not configured — "
+                f"set NOTIFICATION_LAMBDA_NAME env var. "
+                f"Alert {alert['alertId']} for device {alert['deviceId']} was NOT delivered via push/email/SMS."
             )
 
         logger.info(f"Triggered {alert['alertLevel']} alert notification for device {alert['deviceId']}")
@@ -655,15 +693,14 @@ def check_alert_escalation(alert: Dict[str, Any]) -> None:
         table = dynamodb.Table(ALERTS_TABLE)
         
         # Query recent critical alerts for same device
+        # createdAt is the GSI sort key — must be in KeyConditionExpression
         response = table.query(
             IndexName='DeviceAlerts',
-            KeyConditionExpression='deviceId = :deviceId',
-            FilterExpression='alertLevel = :alertLevel AND createdAt > :windowStart',
-            ExpressionAttributeValues={
-                ':deviceId': alert['deviceId'],
-                ':alertLevel': 'critical',
-                ':windowStart': window_start.isoformat()
-            }
+            KeyConditionExpression=(
+                boto3.dynamodb.conditions.Key('deviceId').eq(alert['deviceId']) &
+                boto3.dynamodb.conditions.Key('createdAt').gt(window_start.isoformat())
+            ),
+            FilterExpression=boto3.dynamodb.conditions.Attr('alertLevel').eq('critical')
         )
         
         critical_alerts = response.get('Items', [])

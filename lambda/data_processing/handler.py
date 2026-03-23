@@ -494,7 +494,19 @@ def validate_and_sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
                 data['diagnostics'] = {}
             data['diagnostics']['sensorStatus'] = 'fault'
         else:
-            data['sensorFault'] = False
+            # Also honour the device's own self-reported sensor_fault flag from diagnostics.
+            # The ESP32 may detect a hardware fault (e.g. disconnected probe) even when the
+            # reading values happen to fall within physically valid ranges.
+            device_sensor_status = data.get('diagnostics', {}).get('sensorStatus', '')
+            if device_sensor_status == 'sensor_fault':
+                logger.warning(
+                    f"Device self-reported sensor fault - device_id={data['deviceId']}, "
+                    f"sensorStatus={device_sensor_status}"
+                )
+                data['sensorFault'] = True
+                data['sensorFaultDetails'] = [{'sensor': 'device_reported', 'sensorStatus': device_sensor_status}]
+            else:
+                data['sensorFault'] = False
 
         # Sanitize timestamp to ISO format
         timestamp = data['timestamp']
@@ -624,13 +636,11 @@ def store_raw_data_s3(data: Dict[str, Any]) -> str:
         return s3_reference
         
     except Exception as e:
-        logger.error(
-            f"Error storing data in S3 - device_id={device_id}, error={str(e)}"
+        logger.warning(
+            f"Error storing data in S3 - device_id={device_id}, error={str(e)}. "
+            f"Continuing without S3 storage."
         )
-        raise DatabaseError(
-            message="Failed to store raw data in S3",
-            details={'device_id': device_id, 'error': str(e)}
-        )
+        return None
 
 @tracer.trace_external_call('lambda', 'invoke_ml_inference')
 def invoke_ml_inference(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -776,15 +786,42 @@ def calculate_simple_wqi(data: Dict[str, Any]) -> Dict[str, Any]:
         turbidity = float(readings['turbidity'])
         tds = float(readings['tds'])
         temperature = float(readings['temperature'])
-        
-        # Simple WQI calculation (0-100 scale)
-        # Ideal values: pH 7.0, turbidity 0, TDS 100, temp 25
-        pH_score = max(0, 100 - abs(pH - 7.0) * 15)
-        turbidity_score = max(0, 100 - turbidity * 10)
-        tds_score = max(0, 100 - abs(tds - 100) / 10)
-        temp_score = max(0, 100 - abs(temperature - 25) * 2)
-        
-        wqi = (pH_score + turbidity_score + tds_score + temp_score) / 4
+
+        # Per-parameter scores (0-100).
+        # pH: ideal 7.0, safe 6.5-8.5 → linear penalty outside ideal
+        pH_score = max(0.0, 100.0 - abs(pH - 7.0) * 15.0)
+
+        # Turbidity: safe limit 5 NTU per WHO/product spec.
+        # Score drops steeply above 5 NTU so that extreme values (e.g. 2000+ NTU)
+        # produce a near-zero score rather than being averaged away.
+        if turbidity <= 5.0:
+            turbidity_score = 100.0 - (turbidity / 5.0) * 20.0   # 80-100 in safe range
+        else:
+            # Exponential-style decay: every doubling above 5 NTU halves the score
+            import math
+            turbidity_score = max(0.0, 80.0 * math.exp(-0.5 * math.log2(turbidity / 5.0)))
+
+        # TDS: safe limit 500 ppm; ideal ~100 ppm
+        if tds <= 500.0:
+            tds_score = max(0.0, 100.0 - abs(tds - 100.0) / 10.0)
+        else:
+            tds_score = max(0.0, 100.0 - (tds / 500.0) * 50.0)
+
+        # Temperature: ideal 25°C, safe 10-30°C
+        temp_score = max(0.0, 100.0 - abs(temperature - 25.0) * 2.0)
+
+        # Weighted average — turbidity and pH are the most critical parameters
+        # Weights: turbidity 40%, pH 30%, TDS 20%, temperature 10%
+        wqi = (turbidity_score * 0.40 + pH_score * 0.30 +
+               tds_score * 0.20 + temp_score * 0.10)
+
+        # Hard cap: if any critical parameter is severely out of range the WQI
+        # must not exceed a "Poor" ceiling regardless of other scores.
+        if turbidity > 100.0 or pH < 5.0 or pH > 9.5 or tds > 1500.0:
+            wqi = min(wqi, 25.0)
+        elif turbidity > 10.0 or pH < 6.0 or pH > 9.0 or tds > 800.0:
+            wqi = min(wqi, 49.0)
+
         wqi = round(wqi, 1)
         
         # Map to quality
@@ -867,19 +904,28 @@ def push_reading_to_websocket_subscribers(validated_data: Dict[str, Any], ml_res
                 return float(obj)
             raise TypeError
 
+        # Use server-side time for lastSeen so the frontend online check is not
+        # affected by device clock drift (matches _update_device_connection_status).
+        server_now = datetime.utcnow().isoformat() + 'Z'
+
+        raw_wqi = stored_reading.get('wqi')
+        sensor_fault = validated_data.get('sensorFault', False)
+
         message = json.dumps({
             'type': 'water_quality',
             'data': {
                 'deviceId': validated_data['deviceId'],
-                'timestamp': validated_data['timestamp'],
+                'timestamp': server_now,  # server time — used by frontend for online/offline check
+                'deviceTimestamp': validated_data['timestamp'],  # original device timestamp for display
                 'pH': float(stored_reading.get('pH', validated_data['readings']['pH'])),
                 'turbidity': float(stored_reading.get('turbidity', validated_data['readings']['turbidity'])),
                 'tds': float(stored_reading.get('tds', validated_data['readings']['tds'])),
                 'temperature': float(stored_reading.get('temperature', validated_data['readings']['temperature'])),
-                'wqi': float(stored_reading.get('wqi') or 0),
-                'quality': ml_results.get('quality', 'Unknown'),
+                # None when sensor_fault — never coerce to 0 so the gauge shows fault state, not "Poor"
+                'wqi': float(raw_wqi) if raw_wqi is not None and not sensor_fault else None,
+                'quality': None if sensor_fault else ml_results.get('quality', 'Unknown'),
                 'anomalyType': ml_results.get('anomalyType', 'normal'),
-                'sensorFault': validated_data.get('sensorFault', False),
+                'sensorFault': sensor_fault,
             }
         }, default=decimal_to_float).encode('utf-8')
 
@@ -925,19 +971,27 @@ def _get_device_owner_id(device_id: str) -> Optional[str]:
 
 
 def _update_device_connection_status(device_id: str, timestamp: str) -> None:
-    """Update device connectionStatus to 'online' and refresh lastSeen timestamp."""
+    """Update device connectionStatus to 'online' and refresh lastSeen timestamp.
+    
+    Uses server-side UTC time (not device timestamp) as lastSeen so the frontend
+    online/offline check is not affected by device clock drift or message latency.
+    """
     devices_table_name = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
     try:
+        # Use server-side time so the frontend 'last seen within N minutes' check
+        # is accurate regardless of device clock drift or processing delay.
+        server_now = datetime.utcnow().isoformat() + 'Z'
         table = dynamodb.Table(devices_table_name)
         table.update_item(
             Key={'deviceId': device_id},
-            UpdateExpression='SET lastSeen = :ts, connectionStatus = :cs, statusUpdatedAt = :ts',
+            UpdateExpression='SET lastSeen = :ts, connectionStatus = :cs, statusUpdatedAt = :ts, deviceTimestamp = :dts',
             ExpressionAttributeValues={
-                ':ts': timestamp,
+                ':ts': server_now,
                 ':cs': 'online',
+                ':dts': timestamp,  # preserve original device timestamp for audit
             }
         )
-        logger.info(f"Updated connectionStatus=online for device {device_id}")
+        logger.info(f"Updated connectionStatus=online for device {device_id}, lastSeen={server_now}")
     except Exception as e:
         # Non-fatal — log and continue
         logger.warning(f"Could not update device connectionStatus for {device_id}: {e}")
@@ -980,6 +1034,8 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
         # without a second DB lookup. Non-fatal if the device isn't found yet.
         owner_user_id = _get_device_owner_id(device_id)
 
+        is_sensor_fault = data.get('sensorFault', False)
+
         reading_item = {
             'deviceId': device_id,
             'deviceId_month': partition_key,
@@ -988,16 +1044,25 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             'turbidity': Decimal(str(data['readings']['turbidity'])),
             'tds': Decimal(str(data['readings']['tds'])),
             'temperature': Decimal(str(data['readings']['temperature'])),
-            'wqi': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else Decimal('0'),
+            # Store None as null (omit key) for sensor_fault readings so the frontend
+            # can distinguish "no WQI computed" from a genuine WQI of 0.
+            'wqi': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else None,
             'quality': ml_results.get('quality', 'Unknown'),
-            'qualityScore': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else Decimal('0'),  # Keep for backward compatibility
+            'qualityScore': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else None,
             'qualityStatus': ml_results['anomalyType'],
             'anomalyType': ml_results['anomalyType'],
             'confidence': Decimal(str(ml_results.get('confidence', 0.0))),
             'modelVersion': ml_results.get('modelVersion', 'unknown'),
             'metric_type': 'water_quality',
+            # Persist sensor fault state so the API/frontend can correctly identify
+            # sensor_fault readings without relying solely on anomalyType.
+            'sensorFault': is_sensor_fault,
+            'sensorFaultDetails': data.get('sensorFaultDetails', []) if is_sensor_fault else [],
             'createdAt': datetime.utcnow().isoformat()
         }
+
+        # DynamoDB does not allow storing Python None — remove null-valued keys
+        reading_item = {k: v for k, v in reading_item.items() if v is not None}
 
         if owner_user_id:
             reading_item['userId'] = owner_user_id
@@ -1106,6 +1171,10 @@ def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any])
     Publishes critical water quality alerts to SNS topic for
     downstream processing and notification delivery.
     
+    NOTE: This function is a secondary alert path. The primary path is
+    DynamoDB Streams → alert_detection Lambda. This function is kept as
+    a fallback but is not called in the main processing flow.
+    
     Args:
         data: Validated sensor data with device and location info
         ml_results: ML inference results with WQI and anomaly type
@@ -1119,6 +1188,14 @@ def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any])
     try:
         sns_client = boto3.client('sns')
         
+        critical_alerts_topic = os.environ.get('CRITICAL_ALERTS_TOPIC_ARN', '')
+        if not critical_alerts_topic:
+            logger.warning(
+                f"CRITICAL_ALERTS_TOPIC_ARN not configured — "
+                f"critical alert for device {data['deviceId']} (WQI={ml_results['wqi']}) was NOT published."
+            )
+            return
+
         alert_message = {
             'deviceId': data['deviceId'],
             'timestamp': data['timestamp'],
@@ -1131,7 +1208,7 @@ def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any])
         
         # Publish to SNS topic for alert processing
         sns_client.publish(
-            TopicArn='arn:aws:sns:us-east-1:123456789012:aquachain-critical-alerts',
+            TopicArn=critical_alerts_topic,
             Message=json.dumps(alert_message),
             Subject=f'Critical Water Quality Alert - Device {data["deviceId"]}',
             MessageAttributes={
@@ -1150,7 +1227,6 @@ def trigger_alert_notification(data: Dict[str, Any], ml_results: Dict[str, Any])
         logger.error(
             f"Error triggering alert - device_id={data['deviceId']}, error={str(e)}"
         )
-        # Don't fail the entire process if alert fails
 
 def send_to_dlq(event: Dict[str, Any], error_message: str) -> None:
     """

@@ -426,6 +426,9 @@ cdk.context.json
 .dev-data.json
 frontend/.dev-data.json
 
+# API test files (may contain real endpoint URLs)
+api-test.html
+
 # Generated documentation with potential sensitive info
 generated-docs/
 api-docs/

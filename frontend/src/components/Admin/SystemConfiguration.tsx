@@ -4,13 +4,15 @@ import {
   getSystemConfiguration, 
   updateSystemConfiguration,
   validateConfiguration,
-  getSystemHealth
+  getSystemHealth,
+  getConfigurationHistory,
+  rollbackConfiguration
 } from '../../services/adminService';
 import ConfigurationConfirmModal from './ConfigurationConfirmModal';
 import SeverityThresholdSection from './SeverityThresholdSection';
 import MLSettingsSection from './MLSettingsSection';
 import SystemHealthPanel from './SystemHealthPanel';
-import { AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, Info, CheckCircle, XCircle, History, RotateCcw } from 'lucide-react';
 
 const SystemConfiguration = () => {
   const [config, setConfig] = useState<SystemConfigType | null>(null);
@@ -26,6 +28,19 @@ const SystemConfiguration = () => {
   // Phase 3c: System health state
   const [systemHealth, setSystemHealth] = useState<SystemHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+
+  // Configuration history state
+  const [showHistory, setShowHistory] = useState(false);
+  const [configHistory, setConfigHistory] = useState<Array<{
+    version: string;
+    updatedBy: string;
+    updatedAt: string;
+    previousVersion: string;
+    changes: Record<string, { old: any; new: any }>;
+    ipAddress: string;
+  }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [rollingBack, setRollingBack] = useState<string | null>(null);
 
   // Calculate unsaved changes count
   const unsavedChangesCount = useMemo(() => {
@@ -89,6 +104,34 @@ const SystemConfiguration = () => {
       // Don't throw - allow configuration to continue working even if health check fails
     } finally {
       setHealthLoading(false);
+    }
+  };
+
+  const loadConfigHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const result = await getConfigurationHistory(20);
+      setConfigHistory(result.history);
+    } catch (error) {
+      console.error('Failed to load configuration history:', error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleRollback = async (version: string) => {
+    if (!window.confirm(`Roll back to version ${version}? This will overwrite the current configuration.`)) return;
+    setRollingBack(version);
+    try {
+      await rollbackConfiguration(version);
+      await loadConfiguration();
+      setShowHistory(false);
+      alert('Configuration rolled back successfully');
+    } catch (error) {
+      console.error('Rollback failed:', error);
+      alert('Failed to rollback configuration');
+    } finally {
+      setRollingBack(null);
     }
   };
 
@@ -440,12 +483,24 @@ const SystemConfiguration = () => {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-semibold">System Configuration</h2>
         {!editMode ? (
-          <button
-            onClick={() => setEditMode(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Edit Configuration
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setShowHistory(!showHistory);
+                if (!showHistory) loadConfigHistory();
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <History size={16} />
+              History
+            </button>
+            <button
+              onClick={() => setEditMode(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Edit Configuration
+            </button>
+          </div>
         ) : (
           <div className="flex items-center gap-3">
             {unsavedChangesCount > 0 && (
@@ -477,6 +532,55 @@ const SystemConfiguration = () => {
           loading={healthLoading}
           onRefresh={loadSystemHealth}
         />
+      )}
+
+      {/* Configuration History Panel */}
+      {showHistory && !editMode && (
+        <div className="mb-6 border rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <History size={16} />
+              Configuration History
+            </h3>
+            <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+          </div>
+          {historyLoading ? (
+            <div className="p-6 text-center text-gray-500 text-sm">Loading history...</div>
+          ) : configHistory.length === 0 ? (
+            <div className="p-6 text-center text-gray-500 text-sm">No configuration history found</div>
+          ) : (
+            <div className="divide-y max-h-80 overflow-y-auto">
+              {configHistory.map((entry, idx) => (
+                <div key={entry.version} className="px-4 py-3 flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-mono text-gray-500">{entry.version}</span>
+                      {idx === 0 && (
+                        <span className="px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded">current</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-700 mt-0.5">
+                      By <span className="font-medium">{entry.updatedBy}</span> &middot; {new Date(entry.updatedAt).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {Object.keys(entry.changes || {}).length} change(s) &middot; {entry.ipAddress}
+                    </p>
+                  </div>
+                  {idx > 0 && (
+                    <button
+                      onClick={() => handleRollback(entry.version)}
+                      disabled={rollingBack === entry.version}
+                      className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors disabled:opacity-50"
+                    >
+                      <RotateCcw size={12} />
+                      {rollingBack === entry.version ? 'Rolling back...' : 'Rollback'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="space-y-6">
@@ -524,6 +628,38 @@ const SystemConfiguration = () => {
                           notificationSettings: {
                             ...formData.notificationSettings,
                             criticalAlertChannels: channels
+                          }
+                        });
+                      }}
+                      disabled={!editMode}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700 capitalize">{channel}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Warning Alert Channels
+                <span className="ml-2 text-xs text-gray-500 font-normal">(SMS not allowed for warnings)</span>
+              </label>
+              <div className="flex gap-4">
+                {(['email', 'push'] as const).map((channel) => (
+                  <label key={channel} className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={(formData.notificationSettings.warningAlertChannels || []).includes(channel)}
+                      onChange={(e) => {
+                        const current = formData.notificationSettings.warningAlertChannels || [];
+                        const channels = e.target.checked
+                          ? [...current, channel]
+                          : current.filter((c) => c !== channel);
+                        setFormData({
+                          ...formData,
+                          notificationSettings: {
+                            ...formData.notificationSettings,
+                            warningAlertChannels: channels
                           }
                         });
                       }}

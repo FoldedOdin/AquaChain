@@ -198,10 +198,7 @@ class AutoTechnicianAssignmentService:
         """Get order from DynamoDB"""
         try:
             response = self.orders_table.get_item(
-                Key={
-                    'PK': f'ORDER#{order_id}',
-                    'SK': f'ORDER#{order_id}'
-                }
+                Key={'orderId': order_id}
             )
             return response.get('Item')
         except Exception as e:

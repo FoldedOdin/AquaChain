@@ -20,8 +20,9 @@ s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
-BACKUP_BUCKET = 'aquachain-audit-archive-dev'
-LEDGER_TABLE = 'aquachain-ledger'
+import os
+BACKUP_BUCKET = os.environ.get('BACKUP_BUCKET', 'aquachain-audit-archive-dev')
+LEDGER_TABLE = os.environ.get('LEDGER_TABLE', 'AquaChain-Ledger')
 RETENTION_YEARS = 7
 
 class LedgerBackupService:
@@ -74,7 +75,7 @@ class LedgerBackupService:
                 ObjectLockMode='COMPLIANCE',
                 ObjectLockRetainUntilDate=retention_until,
                 ServerSideEncryption='aws:kms',
-                SSEKMSKeyId='alias/aquachain-ledger-key'
+                SSEKMSKeyId=os.environ.get('KMS_KEY_ID', 'alias/aquachain-ledger-key')
             )
             
             logger.info(f"Created immutable backup for sequence {sequence_number} at {s3_key}")

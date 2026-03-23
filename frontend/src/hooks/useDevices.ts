@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { dataService } from '../services/dataService';
+import unifiedDataService from '../services/dataServiceSelector';
 import { DeviceStatus } from '../types';
 
 /**
@@ -18,7 +18,7 @@ export function useDevices() {
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const result = await dataService.getDevices();
+      const result = await unifiedDataService.getDevices();
       setData(result);
       setError(null);
     } catch (err: any) {
@@ -50,7 +50,7 @@ export function useDevice(deviceId: string) {
 
     try {
       setIsLoading(true);
-      const result = await dataService.getDeviceById(deviceId);
+      const result = await unifiedDataService.getDeviceById(deviceId);
       setData(result);
       setError(null);
     } catch (err) {

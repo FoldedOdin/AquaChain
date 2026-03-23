@@ -8,6 +8,8 @@ import boto3
 import logging
 import sys
 import os
+import uuid
+from urllib.parse import unquote
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
@@ -36,6 +38,7 @@ logger = get_logger(__name__, service='notification-api')
 # Initialize DynamoDB
 dynamodb = boto3.resource('dynamodb')
 NOTIFICATIONS_TABLE = os.environ.get('NOTIFICATIONS_TABLE', 'aquachain-notifications')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'aquachain-users')
 
 @handle_errors
 def lambda_handler(event, context):
@@ -87,17 +90,25 @@ def lambda_handler(event, context):
             notification_id = path_params.get('notificationId')
             if not notification_id:
                 raise ValidationError('Notification ID required')
-            return handle_mark_as_read(user_id, notification_id)
+            return handle_mark_as_read(user_id, _decode_id(notification_id))
         
         elif http_method == 'PUT' and path_params.get('notificationId'):
             # PUT /api/notifications/{notificationId} - also mark as read (legacy path)
             notification_id = path_params.get('notificationId')
-            return handle_mark_as_read(user_id, notification_id)
+            return handle_mark_as_read(user_id, _decode_id(notification_id))
         
         elif http_method == 'DELETE' and path_params.get('notificationId'):
             # DELETE /api/notifications/{notificationId} - Delete notification
             notification_id = path_params.get('notificationId')
-            return handle_delete_notification(user_id, notification_id)
+            return handle_delete_notification(user_id, _decode_id(notification_id))
+        
+        elif http_method == 'POST' and '/broadcast' in path:
+            # POST /api/notifications/broadcast - Send system-wide announcement (admin only)
+            return handle_broadcast_announcement(user_id, body, event)
+        
+        elif http_method == 'GET' and '/announcements' in path:
+            # GET /api/notifications/announcements - List past announcements (admin only)
+            return handle_list_announcements(user_id, query_params, event)
         
         else:
             raise ValidationError(f'Endpoint not found: {http_method} {path}')
@@ -258,8 +269,8 @@ def handle_create_notification(user_id: str, body: Dict) -> Dict:
         
         table = dynamodb.Table(NOTIFICATIONS_TABLE)
         
-        # Create notification record
-        notification_id = f"{body['userId']}:{int(datetime.utcnow().timestamp() * 1000)}"
+        # Create notification record — use UUID to avoid composite key issues
+        notification_id = str(uuid.uuid4())
         
         notification = {
             'notificationId': notification_id,
@@ -319,6 +330,30 @@ def handle_get_unread_count(user_id: str) -> Dict:
         raise DatabaseError(f"Failed to get unread count: {str(e)}")
 
 
+def _decode_id(notification_id: str) -> str:
+    """URL-decode a notification ID (API Gateway may leave %3A un-decoded)."""
+    return unquote(notification_id)
+
+
+def _resolve_notification_id(table, notification_id: str):
+    """
+    Look up a notification by ID. If not found and the ID contains a legacy
+    composite suffix (uuid:timestamp), retry with just the UUID portion.
+    Returns the DynamoDB item or None.
+    """
+    response = table.get_item(Key={'notificationId': notification_id})
+    item = response.get('Item')
+    if item:
+        return item
+    # Legacy IDs were stored as "{userId}:{timestamp}" — the frontend may still
+    # hold old IDs in the format "{uuid}:{timestamp}". Try stripping the suffix.
+    if ':' in notification_id:
+        stripped = notification_id.rsplit(':', 1)[0]
+        response = table.get_item(Key={'notificationId': stripped})
+        return response.get('Item')
+    return None
+
+
 def handle_mark_as_read(user_id: str, notification_id: str) -> Dict:
     """
     Mark a specific notification as read
@@ -326,9 +361,9 @@ def handle_mark_as_read(user_id: str, notification_id: str) -> Dict:
     try:
         table = dynamodb.Table(NOTIFICATIONS_TABLE)
         
-        # Verify notification belongs to user
-        response = table.get_item(Key={'notificationId': notification_id})
-        notification = response.get('Item')
+        # Verify notification belongs to user (handles legacy composite IDs)
+        notification = _resolve_notification_id(table, notification_id)
+        resolved_id = notification.get('notificationId') if notification else notification_id
         
         if not notification:
             raise ResourceNotFoundError('Notification not found')
@@ -336,9 +371,9 @@ def handle_mark_as_read(user_id: str, notification_id: str) -> Dict:
         if notification.get('userId') != user_id:
             raise AuthenticationError('Not authorized to modify this notification')
         
-        # Mark as read
+        # Mark as read using the actual stored ID
         table.update_item(
-            Key={'notificationId': notification_id},
+            Key={'notificationId': resolved_id},
             UpdateExpression='SET #read = :read, readAt = :readAt',
             ExpressionAttributeNames={'#read': 'read'},
             ExpressionAttributeValues={
@@ -347,7 +382,7 @@ def handle_mark_as_read(user_id: str, notification_id: str) -> Dict:
             }
         )
         
-        logger.info(f"Marked notification {notification_id} as read for user {user_id}")
+        logger.info(f"Marked notification {resolved_id} as read for user {user_id}")
         return success_response({'message': 'Notification marked as read'})
     
     except (ResourceNotFoundError, AuthenticationError):
@@ -414,9 +449,9 @@ def handle_delete_notification(user_id: str, notification_id: str) -> Dict:
     try:
         table = dynamodb.Table(NOTIFICATIONS_TABLE)
         
-        # Verify notification belongs to user
-        response = table.get_item(Key={'notificationId': notification_id})
-        notification = response.get('Item')
+        # Verify notification belongs to user (handles legacy composite IDs)
+        notification = _resolve_notification_id(table, notification_id)
+        resolved_id = notification.get('notificationId') if notification else notification_id
         
         if not notification:
             raise ResourceNotFoundError('Notification not found')
@@ -424,10 +459,10 @@ def handle_delete_notification(user_id: str, notification_id: str) -> Dict:
         if notification.get('userId') != user_id:
             raise AuthenticationError('Not authorized to delete this notification')
         
-        # Delete notification
-        table.delete_item(Key={'notificationId': notification_id})
+        # Delete using the actual stored ID
+        table.delete_item(Key={'notificationId': resolved_id})
         
-        logger.info(f"Deleted notification {notification_id} for user {user_id}")
+        logger.info(f"Deleted notification {resolved_id} for user {user_id}")
         return success_response({'message': 'Notification deleted'})
     
     except (ResourceNotFoundError, AuthenticationError):
@@ -435,3 +470,146 @@ def handle_delete_notification(user_id: str, notification_id: str) -> Dict:
     except Exception as e:
         logger.error(f"Error deleting notification: {e}")
         raise DatabaseError(f"Failed to delete notification: {str(e)}")
+
+
+def _is_admin(event: Dict) -> bool:
+    """Check if the caller has admin role via Cognito groups claim."""
+    claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+    groups = claims.get('cognito:groups', '')
+    if isinstance(groups, list):
+        return any('admin' in g.lower() for g in groups)
+    return 'admin' in str(groups).lower()
+
+
+def _get_users_by_role(role_filter: str) -> List[Dict]:
+    """
+    Scan the users table and return real users matching the role filter.
+    Excludes simulator-generated users (userId starting with 'user-').
+    role_filter: 'all' | 'consumer' | 'technician'
+    Returns list of dicts with at least userId and role.
+    """
+    table = dynamodb.Table(USERS_TABLE)
+    scan_kwargs: Dict[str, Any] = {
+        'ProjectionExpression': 'userId, #r',
+        'ExpressionAttributeNames': {'#r': 'role'},
+        # Exclude simulator-generated users (user-{timestamp} pattern)
+        'FilterExpression': 'NOT begins_with(userId, :sim_prefix)',
+        'ExpressionAttributeValues': {':sim_prefix': 'user-'},
+    }
+    if role_filter != 'all':
+        scan_kwargs['FilterExpression'] += ' AND #r = :role'
+        scan_kwargs['ExpressionAttributeValues'][':role'] = role_filter
+
+    users: List[Dict] = []
+    while True:
+        response = table.scan(**scan_kwargs)
+        users.extend(response.get('Items', []))
+        last_key = response.get('LastEvaluatedKey')
+        if not last_key:
+            break
+        scan_kwargs['ExclusiveStartKey'] = last_key
+
+    return users
+
+
+def handle_broadcast_announcement(user_id: str, body: Dict, event: Dict) -> Dict:
+    """
+    POST /api/notifications/broadcast
+    Admin-only: send a system-wide announcement to all users, only consumers, or only technicians.
+    Body: { title, message, type ('info'|'warning'|'error'), audience ('all'|'consumer'|'technician') }
+    """
+    if not _is_admin(event):
+        raise AuthenticationError('Admin role required to send announcements')
+
+    title = (body.get('title') or '').strip()
+    message = (body.get('message') or '').strip()
+    announcement_type = body.get('type', 'info')
+    audience = body.get('audience', 'all')
+
+    if not title:
+        raise ValidationError('title is required')
+    if not message:
+        raise ValidationError('message is required')
+    if announcement_type not in ('info', 'warning', 'error', 'success'):
+        raise ValidationError('type must be one of: info, warning, error, success')
+    if audience not in ('all', 'consumer', 'technician'):
+        raise ValidationError('audience must be one of: all, consumer, technician')
+
+    # Fetch target users
+    target_users = _get_users_by_role(audience)
+    if not target_users:
+        return success_response({'message': 'No users found for the selected audience', 'sent': 0})
+
+    notifications_table = dynamodb.Table(NOTIFICATIONS_TABLE)
+    announcement_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat() + 'Z'
+    ttl_seconds = int(datetime.utcnow().timestamp()) + (30 * 24 * 3600)  # 30-day TTL
+
+    sent = 0
+    with notifications_table.batch_writer() as batch:
+        for u in target_users:
+            target_user_id = u.get('userId')
+            if not target_user_id:
+                continue
+            notification_id = f"ann_{announcement_id}_{target_user_id}"
+            batch.put_item(Item={
+                'notificationId': notification_id,
+                'userId': target_user_id,
+                'notificationType': 'announcement',
+                'announcementId': announcement_id,
+                'content': {
+                    'title': title,
+                    'message': message,
+                },
+                'type': announcement_type,
+                'title': title,
+                'message': message,
+                'priority': 'medium' if announcement_type == 'info' else 'high',
+                'read': False,
+                'createdAt': now,
+                'sentBy': user_id,
+                'audience': audience,
+                'ttl': ttl_seconds,
+            })
+            sent += 1
+
+    logger.info(
+        f"Broadcast announcement sent - announcement_id={announcement_id}, "
+        f"audience={audience}, sent={sent}, sent_by={user_id}"
+    )
+
+    return success_response({
+        'message': f'Announcement sent to {sent} user(s)',
+        'announcementId': announcement_id,
+        'audience': audience,
+        'sent': sent,
+    }, status_code=201)
+
+
+def handle_list_announcements(user_id: str, query_params: Dict, event: Dict) -> Dict:
+    """
+    GET /api/notifications/announcements
+    Admin-only: list past announcements (one record per announcement, not per user).
+    Scans for notificationType='announcement' and deduplicates by announcementId.
+    """
+    if not _is_admin(event):
+        raise AuthenticationError('Admin role required to view announcements')
+
+    table = dynamodb.Table(NOTIFICATIONS_TABLE)
+    response = table.scan(
+        FilterExpression='notificationType = :t',
+        ExpressionAttributeValues={':t': 'announcement'},
+        ProjectionExpression='announcementId, title, #msg, #tp, audience, sentBy, createdAt',
+        ExpressionAttributeNames={'#msg': 'message', '#tp': 'type'},
+    )
+
+    # Deduplicate — one entry per announcementId (keep earliest createdAt record)
+    seen: Dict[str, Dict] = {}
+    for item in response.get('Items', []):
+        aid = item.get('announcementId', '')
+        if aid not in seen or item.get('createdAt', '') < seen[aid].get('createdAt', ''):
+            seen[aid] = item
+
+    announcements = sorted(seen.values(), key=lambda x: x.get('createdAt', ''), reverse=True)
+
+    return success_response({'announcements': announcements, 'count': len(announcements)})

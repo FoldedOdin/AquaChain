@@ -312,6 +312,17 @@ function calculateChanges(oldConfig: SystemConfiguration, newConfig: SystemConfi
     });
   }
 
+  const oldWarning = oldNotif.warningAlertChannels || [];
+  const newWarning = newNotif.warningAlertChannels || [];
+  if (JSON.stringify(oldWarning) !== JSON.stringify(newWarning)) {
+    changes.push({
+      field: 'Warning Alert Channels',
+      oldValue: oldWarning.join(', ') || '(none)',
+      newValue: newWarning.join(', ') || '(none)',
+      path: 'notificationSettings.warningAlertChannels'
+    });
+  }
+
   if (oldNotif.rateLimits.smsPerHour !== newNotif.rateLimits.smsPerHour) {
     changes.push({
       field: 'SMS Rate Limit (per hour)',

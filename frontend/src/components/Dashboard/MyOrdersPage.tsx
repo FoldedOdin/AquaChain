@@ -39,6 +39,19 @@ interface Order {
   provisionedDeviceId?: string;
   assignedTechnician?: string;
   assignedTechnicianName?: string;
+  technician?: {
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    experience?: string;
+    rating?: number;
+    estimatedArrival?: string;
+    distance?: number;
+    status?: string;
+  };
+  technicianAssignment?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
   // Additional fields from the actual database
@@ -70,6 +83,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   // Technician modal state
   const [showTechnicianModal, setShowTechnicianModal] = useState(false);
   const [selectedTechnician, setSelectedTechnician] = useState<any>(null);
+  const [selectedTechnicianAssignment, setSelectedTechnicianAssignment] = useState<any>(null);
   const [loadingTechnician, setLoadingTechnician] = useState(false);
   
   // Ref for auto-scrolling to current step
@@ -386,27 +400,30 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
   // Handle view technician details
   const handleViewTechnician = async (order: Order) => {
-    if (!order.assignedTechnicianName && !order.assignedTechnician) {
+    const techName = order.technician?.name || order.assignedTechnicianName || order.assignedTechnician;
+    if (!techName) {
       showToast('No technician assigned to this order', 'info');
       return;
     }
 
     setLoadingTechnician(true);
     try {
-      // For now, create a mock technician object from the order data
-      // In a real implementation, you would fetch full technician details from the API
-      const mockTechnician = {
-        id: order.assignedTechnician || 'tech-001',
-        name: order.assignedTechnicianName || order.assignedTechnician || 'Technician',
-        phone: '+91 98765 43210', // Mock data
-        email: 'technician@aquachain.com', // Mock data
-        address: 'AquaChain Service Center, Mumbai', // Mock data
-        experience: '5+ years', // Mock data
-        rating: 4.8, // Mock data
-        status: 'assigned'
+      // Use real technician data returned by the backend
+      const technicianData = {
+        id: order.technician?.id || order.assignedTechnician || 'unknown',
+        name: techName,
+        phone: order.technician?.phone || '',
+        email: order.technician?.email || '',
+        address: order.technician?.address || '',
+        experience: order.technician?.experience || '',
+        rating: order.technician?.rating || 0,
+        estimatedArrival: order.technician?.estimatedArrival || order.technicianAssignment?.estimatedArrival || '',
+        distance: order.technician?.distance || 0,
+        status: order.technician?.status || 'assigned'
       };
 
-      setSelectedTechnician(mockTechnician);
+      setSelectedTechnician(technicianData);
+      setSelectedTechnicianAssignment(order.technicianAssignment || null);
       setShowTechnicianModal(true);
     } catch (error) {
       console.error('Error loading technician details:', error);
@@ -885,19 +902,25 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                           </div>
 
                           {/* Status Badge */}
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${statusInfo.bg} ${statusInfo.color}`}>
                               <StatusIcon className="w-4 h-4" />
                               {statusInfo.label}
+                              {(order.status === 'TECHNICIAN_ASSIGNED' || order.status === 'assigned') &&
+                               (order.technician?.name || order.assignedTechnicianName) && (
+                                <span className="font-semibold">
+                                  : {order.technician?.name || order.assignedTechnicianName}
+                                </span>
+                              )}
                             </span>
-                            {order.assignedTechnicianName && (
+                            {(order.technician?.name || order.assignedTechnicianName) && (
                               <button
                                 onClick={() => handleViewTechnician(order)}
                                 className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded transition-colors"
                                 disabled={loadingTechnician}
                               >
                                 <User className="w-4 h-4" />
-                                {loadingTechnician ? 'Loading...' : `Technician: ${order.assignedTechnicianName}`}
+                                {loadingTechnician ? 'Loading...' : 'View Details'}
                               </button>
                             )}
                           </div>
@@ -1586,10 +1609,12 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
       {/* Technician Details Modal */}
       <TechnicianModal
         technician={selectedTechnician}
+        technicianAssignment={selectedTechnicianAssignment}
         isOpen={showTechnicianModal}
         onClose={() => {
           setShowTechnicianModal(false);
           setSelectedTechnician(null);
+          setSelectedTechnicianAssignment(null);
         }}
       />
 

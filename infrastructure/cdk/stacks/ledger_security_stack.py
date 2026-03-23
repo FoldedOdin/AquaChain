@@ -27,19 +27,15 @@ class LedgerSecurityStack(Stack):
     """
     
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+        # Pop env_name before passing to CDK Stack (not a CDK parameter)
+        env = kwargs.pop('env_name', 'dev')
         super().__init__(scope, construct_id, **kwargs)
-        
-        # Environment
-        env = kwargs.get('env_name', 'dev')
         
         # Create KMS key for ledger encryption
         self.ledger_kms_key = self._create_ledger_kms_key(env)
         
         # Create S3 bucket with Object Lock
         self.audit_archive_bucket = self._create_audit_archive_bucket(env)
-        
-        # Create ledger backup Lambda function
-        self.backup_function = self._create_backup_function(env)
         
         # Create CloudWatch alarms for security monitoring
         self._create_security_alarms(env)
@@ -51,42 +47,9 @@ class LedgerSecurityStack(Stack):
         """
         Create KMS key for ledger encryption and signing
         """
-        key_policy = iam.PolicyDocument(
-            statements=[
-                iam.PolicyStatement(
-                    sid="EnableIAMUserPermissions",
-                    effect=iam.Effect.ALLOW,
-                    principals=[iam.AccountRootPrincipal()],
-                    actions=["kms:*"],
-                    resources=["*"]
-                ),
-                iam.PolicyStatement(
-                    sid="AllowLedgerServiceAccess",
-                    effect=iam.Effect.ALLOW,
-                    principals=[
-                        iam.ServicePrincipal("lambda.amazonaws.com")
-                    ],
-                    actions=[
-                        "kms:Sign",
-                        "kms:Verify",
-                        "kms:Encrypt",
-                        "kms:Decrypt",
-                        "kms:GenerateDataKey"
-                    ],
-                    resources=["*"],
-                    conditions={
-                        "StringEquals": {
-                            "kms:ViaService": f"dynamodb.{self.region}.amazonaws.com"
-                        }
-                    }
-                )
-            ]
-        )
-        
         ledger_key = kms.Key(
             self, f"LedgerKMSKey-{env}",
             description=f"KMS key for AquaChain ledger encryption and signing ({env})",
-            key_policy=key_policy,
             enable_key_rotation=True,
             removal_policy=RemovalPolicy.RETAIN  # Never delete encryption keys
         )

@@ -6,6 +6,7 @@ Handles SMS, email, and push notifications with rate limiting and delivery track
 import json
 import boto3
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import logging
@@ -149,7 +150,7 @@ def handle_alert_notification(alert: Dict[str, Any]) -> Dict[str, Any]:
         alert_level = alert['alertLevel']
 
         # Publish to SNS topic for fan-out (other subscribers, CloudWatch, etc.)
-        topic_arn = CRITICAL_ALERTS_TOPIC_ARN if alert_level == 'critical' else SERVICE_UPDATES_TOPIC_ARN
+        topic_arn = CRITICAL_ALERTS_TOPIC_ARN if alert_level == 'critical' else SYSTEM_ALERTS_TOPIC_ARN
         if topic_arn:
             try:
                 sns_client.publish(
@@ -393,7 +394,7 @@ def create_notification_record(user_id: str, notification_type: str, alert_level
     """
     Create notification record for tracking and delivery
     """
-    notification_id = f"{user_id}:{int(time.time() * 1000)}"
+    notification_id = str(uuid.uuid4())
     
     notification = {
         'notificationId': notification_id,

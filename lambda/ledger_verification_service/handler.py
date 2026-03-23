@@ -23,9 +23,10 @@ s3_client = boto3.client('s3')
 cloudwatch = boto3.client('cloudwatch')
 
 # Environment variables
-LEDGER_TABLE = 'aquachain-ledger'
-BACKUP_BUCKET = 'aquachain-audit-archive-dev'
-SIGNING_KEY_ALIAS = 'alias/aquachain-ledger-signing-key'
+import os
+LEDGER_TABLE = os.environ.get('LEDGER_TABLE', 'AquaChain-Ledger')
+BACKUP_BUCKET = os.environ.get('BACKUP_BUCKET', 'aquachain-audit-archive-dev')
+SIGNING_KEY_ID = os.environ.get('SIGNING_KEY_ID', 'alias/aquachain-ledger-signing-key')
 
 class LedgerVerificationService:
     """
@@ -34,7 +35,7 @@ class LedgerVerificationService:
     
     def __init__(self):
         self.ledger_table = dynamodb.Table(LEDGER_TABLE)
-        self.signing_key_id = SIGNING_KEY_ALIAS
+        self.signing_key_id = SIGNING_KEY_ID
         self.backup_bucket = BACKUP_BUCKET
     
     def run_comprehensive_verification(self, start_sequence: int = None, 

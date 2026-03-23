@@ -226,18 +226,23 @@ def determine_alert_level(reading: Dict[str, Any]) -> str:
 
 
 def update_device_last_seen(device_id: str, timestamp: str):
-    """Update device last_seen timestamp and set status to online"""
+    """Update device last_seen timestamp and set status to online.
+
+    Uses server-side UTC time (not the device timestamp) so the frontend
+    online/offline check is not affected by device clock drift.
+    """
     try:
+        server_now = datetime.utcnow().isoformat() + 'Z'
         devices_table.update_item(
             Key={'deviceId': device_id},  # Use correct key format
-            UpdateExpression='SET lastSeen = :ts, connectionStatus = :status, statusUpdatedAt = :status_ts',
+            UpdateExpression='SET lastSeen = :ts, connectionStatus = :status, statusUpdatedAt = :ts, deviceTimestamp = :dts',
             ExpressionAttributeValues={
-                ':ts': timestamp,
+                ':ts': server_now,
                 ':status': 'online',
-                ':status_ts': timestamp
+                ':dts': timestamp,  # preserve original device timestamp for audit
             }
         )
-        print(f"✅ Updated device {device_id} lastSeen and status to online")
+        print(f"✅ Updated device {device_id} lastSeen={server_now} and status to online")
     except Exception as e:
         print(f"⚠️  Error updating device status: {e}")
 

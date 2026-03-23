@@ -197,7 +197,7 @@ class AquaChainComputeStack(Stack):
             environment={
                 **common_lambda_config.get("environment", {}),
                 "CRITICAL_ALERTS_TOPIC_ARN": self.security_resources["critical_alerts_topic"].topic_arn,
-                "WARNING_ALERTS_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
+                "WARNING_ALERTS_TOPIC_ARN": self.security_resources["notifications_topic"].topic_arn,
                 "NOTIFICATION_LAMBDA_NAME": get_resource_name(self.config, "function", "notification"),
             }
         )
@@ -437,7 +437,7 @@ class AquaChainComputeStack(Stack):
             timeout=Duration.seconds(60),  # Longer timeout for complex operations
             environment={
                 **common_lambda_config["environment"],
-                "COGNITO_USER_POOL_ID": os.environ.get("COGNITO_USER_POOL_ID", ""),
+                "COGNITO_USER_POOL_ID": os.environ.get("COGNITO_USER_POOL_ID", "ap-south-1_QUDl7hG8u"),
                 "COGNITO_CLIENT_ID": os.environ.get("COGNITO_CLIENT_ID", ""),
                 "CONFIG_TABLE": get_resource_name(self.config, "table", "system-config"),
                 "AUDIT_TABLE": get_resource_name(self.config, "table", "audit-logs"),
@@ -504,7 +504,144 @@ class AquaChainComputeStack(Stack):
             "notification_api": self.notification_api_function,
             "admin_service": self.admin_service_function
         })
-        
+
+        # Ledger Service Lambda
+        self.ledger_service_function = lambda_python.PythonFunction(
+            self, "LedgerServiceFunction",
+            function_name=get_resource_name(self.config, "function", "ledger-service"),
+            entry="../../lambda/ledger_service",
+            index="handler.py",
+            handler="lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            role=self.security_resources["data_processing_role"],
+            layers=layers,
+            timeout=Duration.seconds(30),
+            memory_size=512,
+            environment={
+                **common_lambda_config["environment"],
+                "BACKUP_BUCKET": f"aquachain-audit-archive-{self.config['environment']}",
+            },
+            tracing=common_lambda_config["tracing"],
+        )
+        self.ledger_service_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'ledger')}",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'sequence')}",
+                ]
+            )
+        )
+        self.ledger_service_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["kms:Sign", "kms:Verify"],
+                resources=[self.security_resources["ledger_signing_key"].key_arn]
+            )
+        )
+        self.ledger_service_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["lambda:InvokeFunction"],
+                resources=[f"arn:aws:lambda:{self.region}:{self.account}:function:{get_resource_name(self.config, 'function', 'ledger-backup-service')}"]
+            )
+        )
+
+        # Ledger Backup Service Lambda
+        self.ledger_backup_function = lambda_python.PythonFunction(
+            self, "LedgerBackupFunction",
+            function_name=get_resource_name(self.config, "function", "ledger-backup-service"),
+            entry="../../lambda/ledger_backup_service",
+            index="handler.py",
+            handler="lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            role=self.security_resources["data_processing_role"],
+            layers=layers,
+            timeout=Duration.minutes(5),
+            memory_size=512,
+            environment={
+                **common_lambda_config["environment"],
+                "BACKUP_BUCKET": f"aquachain-audit-archive-{self.config['environment']}",
+                "KMS_KEY_ID": self.security_resources["data_key"].key_id,
+            },
+            tracing=common_lambda_config["tracing"],
+        )
+        self.ledger_backup_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["dynamodb:GetItem", "dynamodb:Query"],
+                resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'ledger')}"]
+            )
+        )
+        self.ledger_backup_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["s3:PutObject", "s3:GetObject", "s3:GetObjectRetention"],
+                resources=[f"arn:aws:s3:::aquachain-audit-archive-{self.config['environment']}/*"]
+            )
+        )
+        self.ledger_backup_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"],
+                resources=[self.security_resources["data_key"].key_arn]
+            )
+        )
+
+        # Ledger Verification Service Lambda
+        self.ledger_verification_function = lambda_python.PythonFunction(
+            self, "LedgerVerificationFunction",
+            function_name=get_resource_name(self.config, "function", "ledger-verification-service"),
+            entry="../../lambda/ledger_verification_service",
+            index="handler.py",
+            handler="lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            role=self.security_resources["data_processing_role"],
+            layers=layers,
+            timeout=Duration.minutes(5),
+            memory_size=512,
+            environment={
+                **common_lambda_config["environment"],
+                "BACKUP_BUCKET": f"aquachain-audit-archive-{self.config['environment']}",
+            },
+            tracing=common_lambda_config["tracing"],
+        )
+        self.ledger_verification_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["dynamodb:GetItem", "dynamodb:Query"],
+                resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'ledger')}"]
+            )
+        )
+        self.ledger_verification_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["kms:Verify"],
+                resources=[self.security_resources["ledger_signing_key"].key_arn]
+            )
+        )
+        self.ledger_verification_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["s3:GetObject"],
+                resources=[f"arn:aws:s3:::aquachain-audit-archive-{self.config['environment']}/*"]
+            )
+        )
+        self.ledger_verification_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["cloudwatch:PutMetricData"],
+                resources=["*"]
+            )
+        )
+
+        self.lambda_functions.update({
+            "ledger_service": self.ledger_service_function,
+            "ledger_backup": self.ledger_backup_function,
+            "ledger_verification": self.ledger_verification_function,
+        })
+
         # Also add to compute_resources for API stack compatibility
         self.compute_resources.update(self.lambda_functions)
     

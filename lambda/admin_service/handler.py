@@ -2023,16 +2023,35 @@ def _get_configuration_history(query_params: Dict):
 
 def _validate_configuration_endpoint(config: Dict):
     """
-    Validate configuration without saving
+    Validate configuration without saving — runs all validators (same as save path)
     """
     try:
+        all_errors = []
+
+        # Base validation
         is_valid, errors = validate_configuration(config)
-        
+        all_errors.extend(errors)
+
+        # Severity threshold validation
+        if 'alertThresholds' in config and 'global' in config['alertThresholds']:
+            severity_valid, severity_errors = validate_severity_thresholds(config['alertThresholds']['global'])
+            all_errors.extend(severity_errors)
+
+        # Notification channel validation
+        if 'notificationSettings' in config:
+            channels_valid, channel_errors = validate_notification_channels(config['notificationSettings'])
+            all_errors.extend(channel_errors)
+
+        # ML settings validation
+        if 'mlSettings' in config:
+            ml_valid, ml_errors = validate_ml_settings(config['mlSettings'])
+            all_errors.extend(ml_errors)
+
         return _create_response(200, {
-            'valid': is_valid,
-            'errors': errors if not is_valid else []
+            'valid': len(all_errors) == 0,
+            'errors': all_errors
         })
-        
+
     except Exception as e:
         logger.error(f"Error validating configuration: {str(e)}")
         return _create_response(500, {
@@ -2072,7 +2091,7 @@ def _rollback_configuration(body: Dict, query_params: Dict):
         
         # Get current configuration for diff
         config_table = dynamodb.Table(CONFIG_TABLE)
-        current_response = config_table.get_item(Key={'config_id': 'system_config'})
+        current_response = config_table.get_item(Key={'configKey': 'system_config'})
         current_config = current_response.get('Item', {}) if 'Item' in current_response else {}
         current_version = current_config.get('version', 'unknown')
         
@@ -2099,7 +2118,7 @@ def _rollback_configuration(body: Dict, query_params: Dict):
         history_table.put_item(Item=history_entry)
         
         # Update current configuration
-        target_config['config_id'] = 'system_config'
+        target_config['configKey'] = 'system_config'
         target_config['version'] = rollback_version_id
         target_config['updated_at'] = rollback_timestamp
         target_config['updated_by'] = admin_id

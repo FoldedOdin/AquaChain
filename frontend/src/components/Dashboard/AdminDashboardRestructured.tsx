@@ -30,6 +30,7 @@ import {
   Download,
   Search,
   Filter,
+  Megaphone,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -71,6 +72,7 @@ import { SystemConfiguration as SystemConfigType } from '../../types/admin';
 // Import dashboard components
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
+import AnnouncementPanel from './AnnouncementPanel';
 
 interface AdminDashboardRestructuredProps {
   // Optional props for customization
@@ -445,7 +447,7 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         warehouseManagers: 0,
         supplierCoordinators: 0,
         procurementControllers: 0,
-        total: 0 
+        total: realTimeMetrics.totalUsers  // fall back to metrics API when user list unavailable
       };
     }
     
@@ -457,6 +459,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     const supplierCoordinators = users.filter(u => u.role === 'supplier_coordinator').length;
     const procurementControllers = users.filter(u => u.role === 'procurement_controller').length;
     
+    // If the users array loaded but is empty, fall back to the metrics API count
+    const derivedTotal = users.length || realTimeMetrics.totalUsers;
+
     return { 
       consumers, 
       technicians, 
@@ -465,9 +470,9 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
       warehouseManagers,
       supplierCoordinators,
       procurementControllers,
-      total: users.length 
+      total: derivedTotal
     };
-  }, [users]);
+  }, [users, realTimeMetrics.totalUsers]);
 
   // Filter users based on search and role filter
   const filteredUsers = useMemo(() => {
@@ -1060,6 +1065,17 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             >
               <Shield className="w-5 h-5" />
               Security & Audit
+            </button>
+            <button
+              onClick={() => setSelectedView('announcements')}
+              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+                selectedView === 'announcements'
+                  ? 'text-purple-600 border-b-2 border-purple-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Megaphone className="w-5 h-5" />
+              Announcements
             </button>
           </div>
         </div>
@@ -1765,6 +1781,11 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
               </div>
             </div>
           </motion.div>
+        )}
+
+        {/* Announcements Tab */}
+        {selectedView === 'announcements' && (
+          <AnnouncementPanel />
         )}
       </main>
       {/* Modals */}

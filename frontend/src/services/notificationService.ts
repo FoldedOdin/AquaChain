@@ -97,7 +97,11 @@ class NotificationService {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || result.message || 'Failed to mark notification as read');
+        throw new Error(
+          typeof result.error === 'string' ? result.error :
+          typeof result.message === 'string' ? result.message :
+          'Failed to mark notification as read'
+        );
       }
     } catch (error: any) {
       console.error('Mark as read error:', error);
@@ -149,7 +153,11 @@ class NotificationService {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || result.message || 'Failed to delete notification');
+        throw new Error(
+          typeof result.error === 'string' ? result.error :
+          typeof result.message === 'string' ? result.message :
+          'Failed to delete notification'
+        );
       }
     } catch (error: any) {
       console.error('Delete notification error:', error);
@@ -218,6 +226,57 @@ class NotificationService {
       return 0;
     }
   }
+
+  /**
+   * Broadcast a system-wide announcement (admin only)
+   */
+  async broadcastAnnouncement(payload: AnnouncementPayload): Promise<{ announcementId: string; sent: number }> {
+    const response = await fetchWithAuth(
+      `${this.baseUrl}/api/notifications/broadcast`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to send announcement');
+    }
+    return result;
+  }
+
+  /**
+   * List past announcements (admin only)
+   */
+  async listAnnouncements(): Promise<AnnouncementRecord[]> {
+    const response = await fetchWithAuth(
+      `${this.baseUrl}/api/notifications/announcements`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to fetch announcements');
+    }
+    return result.announcements || [];
+  }
+}
+
+export interface AnnouncementPayload {
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  audience: 'all' | 'consumer' | 'technician';
+}
+
+export interface AnnouncementRecord {
+  announcementId: string;
+  title: string;
+  message: string;
+  type: string;
+  audience: string;
+  sentBy: string;
+  createdAt: string;
 }
 
 // Export singleton instance

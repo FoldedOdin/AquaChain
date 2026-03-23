@@ -39,6 +39,7 @@ from stacks.auto_technician_assignment_stack import AutoTechnicianAssignmentStac
 from stacks.sagemaker_stack import AquaChainSageMakerStack
 from stacks.device_status_monitor_stack import DeviceStatusMonitorStack
 from stacks.contact_service_stack import ContactServiceStack
+from stacks.ledger_security_stack import LedgerSecurityStack
 from config.environment_config import get_environment_config
 
 def main():
@@ -421,6 +422,16 @@ def main():
         description=f"AquaChain Contact Form Service - {env_name}"
     )
     # Independent stack — no hard dependencies on other stacks
+
+    # 32. Ledger Security Stack (S3 Object Lock bucket, dedicated ledger KMS key, security alarms)
+    ledger_security_stack = LedgerSecurityStack(
+        app,
+        f"AquaChain-LedgerSecurity-{env_name}",
+        env=aws_env,
+        env_name=env_name,
+        description=f"AquaChain Ledger Security Infrastructure - {env_name}"
+    )
+    ledger_security_stack.add_dependency(security_stack)
 
     # Synthesize the app
     app.synth()

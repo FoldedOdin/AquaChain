@@ -22,9 +22,10 @@ dynamodb = boto3.resource('dynamodb')
 kms_client = boto3.client('kms')
 
 # Environment variables
-LEDGER_TABLE = 'aquachain-ledger'
-SEQUENCE_TABLE = 'aquachain-sequence'
-SIGNING_KEY_ALIAS = 'alias/aquachain-ledger-signing-key'
+import os
+LEDGER_TABLE = os.environ.get('LEDGER_TABLE', 'AquaChain-Ledger')
+SEQUENCE_TABLE = os.environ.get('SEQUENCE_TABLE', 'AquaChain-Sequence')
+SIGNING_KEY_ID = os.environ.get('SIGNING_KEY_ID', 'alias/aquachain-ledger-signing-key')
 
 class LedgerError(Exception):
     """Custom exception for ledger operations"""
@@ -38,7 +39,7 @@ class SecureLedgerService:
     def __init__(self):
         self.ledger_table = dynamodb.Table(LEDGER_TABLE)
         self.sequence_table = dynamodb.Table(SEQUENCE_TABLE)
-        self.signing_key_id = SIGNING_KEY_ALIAS
+        self.signing_key_id = SIGNING_KEY_ID
     
     def create_ledger_entry(self, device_id: str, data_hash: str, wqi: float, 
                           anomaly_type: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:

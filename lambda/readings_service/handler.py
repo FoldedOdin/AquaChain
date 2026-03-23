@@ -250,6 +250,13 @@ def get_device_history(device_id: str, days: int = 7) -> List[Dict[str, Any]]:
 def add_missing_wqi_quality(readings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Add WQI and quality for readings that don't have them"""
     for reading in readings:
+        # Skip WQI recalculation for sensor-faulted readings — the values are
+        # unreliable so any calculated WQI would be meaningless.
+        if reading.get('anomalyType') == 'sensor_fault' or reading.get('qualityStatus') == 'sensor_fault':
+            reading.setdefault('quality', 'Sensor Fault')
+            reading.setdefault('wqi', 0)
+            continue
+
         # Check if WQI is missing or N/A
         wqi = reading.get('wqi') or reading.get('qualityScore')
         quality = reading.get('quality')
