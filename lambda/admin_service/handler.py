@@ -34,10 +34,12 @@ cognito_client = boto3.client('cognito-idp')
 dynamodb = boto3.resource('dynamodb')
 dynamodb_client = boto3.client('dynamodb')
 cloudwatch = boto3.client('cloudwatch')
+ses = boto3.client('ses', region_name='ap-south-1')
 
 # Environment variables
 USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID') or os.environ.get('USER_POOL_ID')
 REGION = os.environ.get('AWS_REGION', 'ap-south-1')
+SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'contact.aquachain@gmail.com')
 
 # DynamoDB tables
 USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
@@ -598,6 +600,127 @@ def _get_system_configuration():
         logger.error(f"Error fetching system configuration: {str(e)}")
         return _create_response(500, {'error': 'Failed to fetch system configuration'})
 
+def _notify_users_threshold_change(changes: Dict, version_id: str) -> None:
+    """
+    Send SES email to all active consumers when alert thresholds are modified.
+    Only fires when the changes dict contains alertThresholds keys.
+    Non-fatal — errors are logged but never bubble up to the caller.
+    """
+    try:
+        # Only notify if threshold-related fields actually changed
+        threshold_keys = {k for k in changes if 'alertThresholds' in k or 'threshold' in k.lower()}
+        if not threshold_keys:
+            logger.info("No threshold changes detected — skipping user notification")
+            return
+
+        if not SES_FROM_EMAIL:
+            logger.warning("SES_FROM_EMAIL not set — skipping threshold change notification")
+            return
+
+        # Collect all consumer emails from AquaChain-Users
+        users_table = dynamodb.Table(USERS_TABLE)
+        emails: list = []
+        scan_kwargs = {
+            'FilterExpression': 'attribute_exists(email)',
+            'ProjectionExpression': 'email, #r, profile',
+            'ExpressionAttributeNames': {'#r': 'role'}
+        }
+        while True:
+            resp = users_table.scan(**scan_kwargs)
+            for item in resp.get('Items', []):
+                role = item.get('role', '')
+                email = item.get('email', '')
+                # Only notify consumers (not admins/technicians)
+                if email and role in ('consumer', 'consumers'):
+                    emails.append(email)
+            last_key = resp.get('LastEvaluatedKey')
+            if not last_key:
+                break
+            scan_kwargs['ExclusiveStartKey'] = last_key
+
+        if not emails:
+            logger.info("No consumer emails found — skipping threshold notification")
+            return
+
+        # Build a human-readable summary of what changed
+        change_lines = []
+        for key, val in changes.items():
+            if isinstance(val, dict) and 'old' in val and 'new' in val:
+                change_lines.append(
+                    f"<li><strong>{key}</strong>: {val['old']} → {val['new']}</li>"
+                )
+            else:
+                change_lines.append(f"<li><strong>{key}</strong> updated</li>")
+
+        changes_html = '\n'.join(change_lines) if change_lines else '<li>Alert threshold levels updated</li>'
+
+        subject = 'AquaChain: Water Quality Alert Thresholds Updated'
+        body_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #0066cc;">Alert Threshold Update Notice</h2>
+                <p>Hi,</p>
+                <p>The AquaChain system administrator has updated the water quality alert thresholds
+                that apply to your device monitoring.</p>
+
+                <div style="background-color: #fff8e1; padding: 15px; border-radius: 5px;
+                            margin: 20px 0; border-left: 4px solid #f59e0b;">
+                    <p style="margin: 0 0 8px 0;"><strong>What changed:</strong></p>
+                    <ul style="margin: 0; padding-left: 20px;">
+                        {changes_html}
+                    </ul>
+                </div>
+
+                <p>These new thresholds are now active. You may receive alerts at different
+                sensitivity levels than before. No action is required on your part.</p>
+
+                <p>If you have questions about your water quality readings, please contact
+                our support team or log in to your AquaChain dashboard.</p>
+
+                <p style="color: #666; font-size: 12px; margin-top: 30px;">
+                    Configuration version: {version_id}
+                </p>
+                <p style="margin-top: 10px;">Best regards,<br>The AquaChain Team</p>
+            </div>
+        </body>
+        </html>
+        """
+        body_text = (
+            f"AquaChain alert thresholds have been updated (version {version_id}). "
+            "Log in to your dashboard for details."
+        )
+
+        sent = 0
+        failed = 0
+        for email in emails:
+            try:
+                ses.send_email(
+                    Source=SES_FROM_EMAIL,
+                    Destination={'ToAddresses': [email]},
+                    Message={
+                        'Subject': {'Data': subject},
+                        'Body': {
+                            'Html': {'Data': body_html},
+                            'Text': {'Data': body_text}
+                        }
+                    }
+                )
+                sent += 1
+            except Exception as e:
+                logger.warning(f"Failed to send threshold notification to {email}: {e}")
+                failed += 1
+
+        logger.info(
+            f"Threshold change notifications: {sent} sent, {failed} failed "
+            f"(version {version_id})"
+        )
+
+    except Exception as e:
+        # Non-fatal — config save must not fail because of notification errors
+        logger.error(f"Error in _notify_users_threshold_change: {e}")
+
+
 def _update_system_configuration(config: Dict, query_params: Dict):
     """
     Update system configuration with validation, versioning, and audit logging
@@ -706,7 +829,10 @@ def _update_system_configuration(config: Dict, query_params: Dict):
             changes=changes,
             version=version_id
         )
-        
+
+        # Notify all consumers if alert thresholds changed
+        _notify_users_threshold_change(changes, version_id)
+
         logger.info(f"Configuration updated successfully by {admin_id}, version: {version_id}")
         
         # Return the updated configuration (without DynamoDB-specific fields)
