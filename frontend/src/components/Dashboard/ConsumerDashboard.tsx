@@ -183,26 +183,14 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   // Track lastSeen per device from real-time WebSocket pushes (overrides stale API data)
   const [lastSeenOverrides, setLastSeenOverrides] = useState<Record<string, string>>({});
 
-  // Derive online status — prefer WebSocket-updated lastSeen over stale API value.
-  // Falls back to the DynamoDB-persisted connectionStatus when no WebSocket message
-  // has arrived yet (e.g. right after page load or reconnect).
+  // Derive online status from lastSeen timestamp — same 5-minute threshold the
+  // device_status_monitor Lambda uses. WebSocket overrides take priority when present.
   const isDeviceOnline = (device: any): boolean => {
     const deviceId = device?.device_id || device?.deviceId;
     const override = deviceId ? lastSeenOverrides[deviceId] : undefined;
 
-    if (override) {
-      // WebSocket has delivered at least one message — use its timestamp
-      const ms = new Date(override).getTime();
-      return ms > 0 && (Date.now() - ms) < 5 * 60 * 1000;
-    }
-
-    // No WebSocket message yet — trust the persisted connectionStatus from the API
-    const persistedStatus = device?.connectionStatus;
-    if (persistedStatus === 'online') return true;
-    if (persistedStatus === 'offline') return false;
-
-    // Last resort: fall back to lastSeen timestamp math (5 min matches backend monitor threshold)
-    const lastSeenStr = device?.lastSeen;
+    // Use WebSocket-pushed timestamp if available (most up-to-date)
+    const lastSeenStr = override || device?.lastSeen;
     const ms = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
     return ms > 0 && (Date.now() - ms) < 5 * 60 * 1000;
   };

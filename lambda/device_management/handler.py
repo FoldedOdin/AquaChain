@@ -110,15 +110,18 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             existing_owner = existing.get('userId')
             if existing_owner and existing_owner != user_id:
                 return create_response(409, {
-                    'error': 'Device already registered to another user'
+                    'error': 'Device is currently connected to another account. Ask that user to remove it first.'
                 })
             elif existing_owner == user_id:
                 return create_response(409, {
-                    'error': 'Device already registered to your account'
+                    'error': 'Device already connected to your account'
                 })
         
-        # Create device record (using camelCase for DynamoDB - matches table schema)
+        # Create/update device record
         timestamp = datetime.utcnow().isoformat() + 'Z'
+        # Preserve original createdAt if device was previously registered
+        created_at = existing.get('createdAt', timestamp) if existing else timestamp
+
         device_record = {
             'deviceId': device_id,
             'userId': user_id,
@@ -126,15 +129,15 @@ def register_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'location': body.get('location', 'Unknown'),
             'waterSourceType': body.get('waterSourceType') or body.get('water_source_type', 'household'),
             'status': 'active',
-            'connectionStatus': 'unknown',  # Will be updated when device sends data
-            'createdAt': timestamp,
+            'connectionStatus': 'unknown',
+            'createdAt': created_at,
             'lastSeen': timestamp,
             'statusUpdatedAt': timestamp,
-            'metadata': {
+            'metadata': existing.get('metadata', {
                 'batteryLevel': 100,
                 'signalStrength': 0,
                 'firmwareVersion': 'unknown'
-            }
+            })
         }
         
         devices_table.put_item(Item=device_record)
@@ -282,20 +285,36 @@ def delete_device(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if device.get('userId') != user_id:
             return create_response(403, {'error': 'Access denied'})
         
-        # Remove user association (don't delete device)
+        # Remove user association (don't delete device record)
+        timestamp = datetime.utcnow().isoformat() + 'Z'
         devices_table.update_item(
             Key={'deviceId': device_id},
-            UpdateExpression='REMOVE userId SET #status = :status',
+            UpdateExpression='REMOVE userId SET #status = :status, statusUpdatedAt = :ts',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
-                ':status': 'unregistered'
+                ':status': 'unregistered',
+                ':ts': timestamp,
             }
         )
-        
+
+        # Remove device from user's device list in Users table
+        users_table = dynamodb.Table(USERS_TABLE)
+        try:
+            user_item = users_table.get_item(Key={'userId': user_id}).get('Item', {})
+            current_devices = user_item.get('devices', [])
+            updated_devices = [d for d in current_devices if d != device_id]
+            users_table.update_item(
+                Key={'userId': user_id},
+                UpdateExpression='SET devices = :devices',
+                ExpressionAttributeValues={':devices': updated_devices}
+            )
+        except Exception as e:
+            logger.warning(f"Could not update user device list on unpair: {str(e)}")
+
         logger.info(f"Device {device_id} unpaired from user {user_id}")
-        
+
         return create_response(200, {
-            'message': 'Device unpaired successfully'
+            'message': 'Device removed successfully. It can now be connected to another account.'
         })
         
     except Exception as e:

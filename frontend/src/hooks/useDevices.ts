@@ -31,8 +31,11 @@ export function useDevices() {
 
   useEffect(() => {
     fetchData();
+    // Poll every 2 minutes to stay in sync with the device status monitor Lambda
+    const interval = setInterval(fetchData, 2 * 60 * 1000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line
-  }, []); // Fetch once on mount — real-time updates come via WebSocket
+  }, []);
 
   return { data, isLoading, error, refetch: fetchData };
 }
