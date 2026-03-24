@@ -11,6 +11,7 @@ interface WebSocketConnection {
   reconnectAttempts: number;
   lastConnectedAt: Date | null;
   subscribers: Set<(data: unknown) => void>;
+  intentionallyClosed: boolean;
 }
 
 interface WebSocketServiceOptions {
@@ -250,7 +251,8 @@ class WebSocketService {
         isConnected: false,
         reconnectAttempts: 0,
         lastConnectedAt: null,
-        subscribers: new Set([onMessage])
+        subscribers: new Set([onMessage]),
+        intentionallyClosed: false
       };
 
       this.connections.set(topic, connection);
@@ -266,14 +268,8 @@ class WebSocketService {
         this.loggedDisconnections.delete(topic);
         this.loggedMaxAttempts.delete(topic);
 
-        // Send authentication if token is available
-        const authToken = this.getAuthToken();
-        if (authToken) {
-          ws.send(JSON.stringify({ type: 'auth', token: authToken }));
-        }
-
-        // Subscribe to topic
-        ws.send(JSON.stringify({ type: 'subscribe', topic }));
+        // Auth is handled via authToken query param on connect — no need to re-send.
+        // Subscription is pre-registered on the backend from the topic query param.
 
         // Start heartbeat
         this.startHeartbeat(topic);
@@ -313,6 +309,11 @@ class WebSocketService {
       ws.onclose = (event) => {
         connection.isConnected = false;
         this.stopHeartbeat(topic);
+
+        // If we closed this intentionally (disconnect/cleanup), don't reconnect
+        if (connection.intentionallyClosed) {
+          return;
+        }
         
         // Only log first disconnection per topic
         if (!this.loggedDisconnections.has(topic)) {
@@ -341,7 +342,8 @@ class WebSocketService {
           isConnected: false,
           reconnectAttempts: 0,
           lastConnectedAt: null,
-          subscribers: new Set([onMessage])
+          subscribers: new Set([onMessage]),
+          intentionallyClosed: false
         };
         this.connections.set(topic, mockConnection);
         
@@ -367,8 +369,10 @@ class WebSocketService {
     const isDevelopment = process.env.NODE_ENV === 'development';
 
     // In development mode, limit reconnection attempts to prevent loops
-    if (isDevelopment && connection.reconnectAttempts >= 2) {
-      console.log(`🔌 WebSocket: Stopping reconnection attempts for ${topic} (development mode, max 2 attempts)`);
+    // But only if we've never successfully connected — if we had a good connection
+    // that dropped, we should still try to reconnect normally.
+    if (isDevelopment && connection.reconnectAttempts >= 2 && !connection.lastConnectedAt) {
+      console.log(`🔌 WebSocket: Stopping reconnection attempts for ${topic} (development mode, max 2 attempts without successful connect)`);
       
       // Notify subscribers about connection failure
       connection.subscribers.forEach(callback => {
@@ -458,7 +462,7 @@ class WebSocketService {
 
     const intervalId = setInterval(() => {
       if (connection.ws.readyState === WebSocket.OPEN) {
-        connection.ws.send(JSON.stringify({ type: 'ping' }));
+        connection.ws.send(JSON.stringify({ action: 'ping' }));
       } else {
         this.stopHeartbeat(topic);
       }
@@ -516,9 +520,12 @@ class WebSocketService {
     // Stop heartbeat
     this.stopHeartbeat(topic);
 
+    // Mark as intentionally closed so onclose doesn't trigger reconnect
+    connection.intentionallyClosed = true;
+
     // Close WebSocket
-    if (connection.ws.readyState === WebSocket.OPEN || 
-        connection.ws.readyState === WebSocket.CONNECTING) {
+    if (connection.ws && (connection.ws.readyState === WebSocket.OPEN || 
+        connection.ws.readyState === WebSocket.CONNECTING)) {
       connection.ws.close();
     }
 

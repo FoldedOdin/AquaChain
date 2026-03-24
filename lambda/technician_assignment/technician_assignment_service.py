@@ -332,25 +332,37 @@ class TechnicianAssignmentService:
             )
     
     def _get_available_technicians(self) -> List[Dict[str, Any]]:
-        """Get all available technicians from DynamoDB"""
+        """Get all technicians whose manual override is not 'unavailable'.
+        
+        Actual capacity gating (max concurrent tasks) is handled by
+        TechnicianAvailabilityManager.check_active_service_requests, so we
+        intentionally do NOT filter on the `available` boolean flag here —
+        that flag was previously set to False after the first assignment and
+        would permanently exclude technicians from future orders.
+        """
         try:
             from boto3.dynamodb.conditions import Attr
 
-            # Technicians live in the users table (AquaChain-Users) with role='technician'
-            # and available=True (or availabilityStatus='available')
             users_table_name = os.environ.get('USERS_TABLE', 'AquaChain-Users')
             users_table = dynamodb.Table(users_table_name)
 
+            # Fetch all technicians; exclude only those who have explicitly set
+            # their override to 'unavailable' via the availability manager.
             response = users_table.scan(
                 FilterExpression=(
                     Attr('role').eq('technician') &
-                    (Attr('available').eq(True) | Attr('availabilityStatus').eq('available'))
+                    Attr('availabilityStatus').ne('unavailable')
                 )
             )
 
             technicians = []
             for item in response.get('Items', []):
                 location = item.get('currentLocation') or item.get('location') or {}
+                # Skip technicians with no usable location — distance calc will fail
+                if not location.get('latitude') or not location.get('longitude'):
+                    logger.warning('Skipping technician with missing location',
+                                   technician_id=item.get('userId'))
+                    continue
                 technicians.append({
                     'id': item['userId'],
                     'name': (
@@ -366,7 +378,7 @@ class TechnicianAssignmentService:
                     'rating': float(item.get('performanceScore', item.get('rating', 80)))
                 })
 
-            logger.info(f'Found {len(technicians)} available technicians')
+            logger.info(f'Found {len(technicians)} candidate technicians')
             return technicians
 
         except Exception as e:
@@ -588,7 +600,12 @@ class TechnicianAssignmentService:
     
     def _mark_technician_busy(self, technician_id: str, order_id: str,
                             correlation_id: Optional[str] = None):
-        """Mark technician as busy with current order"""
+        """
+        Track the technician's current assignment without hard-locking availability.
+        The availability check in TechnicianAvailabilityManager.check_active_service_requests
+        already gates assignment based on MAX_CONCURRENT_TASKS, so we only need to
+        record the current order for audit/display purposes.
+        """
         try:
             timestamp = datetime.now(timezone.utc).isoformat()
             users_table_name = os.environ.get('USERS_TABLE', 'AquaChain-Users')
@@ -597,23 +614,19 @@ class TechnicianAssignmentService:
             users_table.update_item(
                 Key={'userId': technician_id},
                 UpdateExpression='''
-                    SET available = :available,
-                        availabilityStatus = :status,
-                        currentOrderId = :order_id,
-                        assignedAt = :timestamp,
+                    SET currentOrderId = :order_id,
+                        lastAssignedAt = :timestamp,
                         updatedAt = :timestamp
                 ''',
                 ExpressionAttributeValues={
-                    ':available': False,
-                    ':status': 'unavailable',
                     ':order_id': order_id,
                     ':timestamp': timestamp
                 }
             )
-            logger.info('Marked technician as busy',
+            logger.info('Recorded technician assignment',
                        technician_id=technician_id, order_id=order_id)
         except ClientError as e:
-            logger.error('Failed to mark technician as busy',
+            logger.error('Failed to record technician assignment',
                         technician_id=technician_id, error=str(e), correlation_id=correlation_id)
     
     def _handle_no_technicians_available(self, order_id: str, correlation_id: Optional[str] = None) -> Dict[str, Any]:

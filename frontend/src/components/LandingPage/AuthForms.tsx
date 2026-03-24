@@ -125,6 +125,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [tempPasswordData, setTempPasswordData] = useState<{ email: string; password: string } | null>(null);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
 
   // Real-time validation
   useEffect(() => {
@@ -218,19 +220,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       RateLimiter.resetRateLimit(rateLimitKey);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Login failed. Please try again.';
+      const authError = err as any;
       
       // Check if user needs email verification
-      if (errorMessage === 'UNCONFIRMED_USER') {
-        setError('Your email is not verified. Please check your inbox for the verification code.');
-        // Store email for verification page
-        sessionStorage.setItem('unverified_email', formData.email);
-        // Show option to resend OTP
-        setTimeout(() => {
-          if (window.confirm('Would you like to verify your email now?')) {
-            // Redirect to verification page or show verification modal
-            window.location.href = `/verify?email=${encodeURIComponent(formData.email)}`;
-          }
-        }, 1000);
+      if (authError?.code === 'EMAIL_NOT_VERIFIED' || errorMessage === 'UNCONFIRMED_USER') {
+        setError(null);
+        setUnverifiedEmail(formData.email);
+        setShowVerificationModal(true);
       } else if (errorMessage === 'NEW_PASSWORD_REQUIRED') {
         setError('You must change your temporary password before logging in.');
         // Store credentials and show change password modal
@@ -450,6 +446,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       <PasswordResetModal
         isOpen={showPasswordReset}
         onClose={() => setShowPasswordReset(false)}
+      />
+
+      {/* Email Verification Modal - shown when unverified user tries to sign in */}
+      <EmailVerificationModal
+        isOpen={showVerificationModal}
+        onClose={() => setShowVerificationModal(false)}
+        email={unverifiedEmail}
+        onVerified={() => {
+          setShowVerificationModal(false);
+          setSuccess('Email verified! You can now sign in.');
+        }}
       />
 
       {/* Change Temporary Password Modal */}

@@ -12,11 +12,6 @@ import logging
 import os
 from botocore.exceptions import ClientError
 
-# Add shared utilities to path
-import sys
-sys.path.append('/opt/python')  # Lambda layer path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
-
 # Import structured logging
 from structured_logger import get_logger
 
@@ -25,14 +20,14 @@ logger = get_logger(__name__, service='websocket-ordering')
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-apigateway_client = boto3.client('apigatewaymanagementapi')
 cognito_client = boto3.client('cognito-idp')
 ssm_client = boto3.client('ssm')
+# NOTE: apigatewaymanagementapi client is created per-invocation in
+# send_message_to_connection() because endpoint_url must be set at creation time.
 
 # Environment variables
 WEBSOCKET_CONNECTIONS_TABLE = os.environ.get('WEBSOCKET_CONNECTIONS_TABLE_NAME', 'aquachain-websocket-connections-dev')
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE_NAME', 'aquachain-orders-dev')
-WEBSOCKET_ENDPOINT = None  # Will be set dynamically
 
 class WebSocketError(Exception):
     """Custom exception for WebSocket errors"""
@@ -48,11 +43,6 @@ def lambda_handler(event, context):
         connection_id = event.get('requestContext', {}).get('connectionId')
         domain_name = event.get('requestContext', {}).get('domainName')
         stage = event.get('requestContext', {}).get('stage')
-        
-        # Set API Gateway Management API endpoint
-        global WEBSOCKET_ENDPOINT
-        WEBSOCKET_ENDPOINT = f"https://{domain_name}/{stage}"
-        apigateway_client.meta.config.endpoint_url = WEBSOCKET_ENDPOINT
         
         logger.info(f"WebSocket ordering event: {route_key} for connection {connection_id}")
         
@@ -82,8 +72,9 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
     """
     try:
         # Extract authentication token from query parameters
+        # Frontend sends 'authToken' param (see websocketService.ts)
         query_params = event.get('queryStringParameters') or {}
-        auth_token = query_params.get('token')
+        auth_token = query_params.get('authToken') or query_params.get('token')
         
         if not auth_token:
             logger.warning(f"Connection {connection_id} rejected: No auth token")
@@ -95,11 +86,19 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
             logger.warning(f"Connection {connection_id} rejected: Invalid token")
             return {'statusCode': 401}
         
+        # Extract user identity — access tokens use 'sub', ID tokens may use 'username'
+        user_id = user_info.get('sub') or user_info.get('username')
+        if not user_id:
+            logger.warning(f"Connection {connection_id} rejected: Token missing user identity")
+            return {'statusCode': 401}
+        
         # Store connection information
+        groups = user_info.get('cognito:groups') or ['consumer']
+        user_role = groups[0] if groups else 'consumer'
         connection_record = {
             'connectionId': connection_id,
-            'userId': user_info['sub'],
-            'userRole': user_info.get('cognito:groups', ['consumer'])[0],
+            'userId': user_id,
+            'userRole': user_role,
             'connectionType': 'order_updates',
             'connectedAt': datetime.utcnow().isoformat(),
             'lastPing': datetime.utcnow().isoformat(),
@@ -109,18 +108,11 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
         
         store_connection(connection_record)
         
-        # Send welcome message
-        welcome_message = {
-            'type': 'connection_established',
-            'connectionId': connection_id,
-            'userId': user_info['sub'],
-            'service': 'order_updates',
-            'timestamp': datetime.utcnow().isoformat()
-        }
+        # NOTE: Do NOT call post_to_connection here — the connection is not
+        # fully open during $connect execution.
         
-        send_message_to_connection(connection_id, welcome_message)
-        
-        logger.info(f"Order WebSocket connection established: {connection_id} for user {user_info['sub']}")
+        user_id = connection_record['userId']
+        logger.info(f"Order WebSocket connection established: {connection_id} for user {user_id}")
         
         return {'statusCode': 200}
         
@@ -329,7 +321,8 @@ def store_connection(connection: Dict[str, Any]) -> None:
         
     except Exception as e:
         logger.error(f"Error storing connection: {e}")
-        raise WebSocketError(f"Failed to store connection: {e}")
+        # Re-raise so handle_connect can catch and return 500 (not crash Lambda)
+        raise
 
 def get_connection(connection_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -425,10 +418,17 @@ def update_connection_ping(connection_id: str) -> None:
 
 def send_message_to_connection(connection_id: str, message: Dict[str, Any]) -> bool:
     """
-    Send message to specific WebSocket connection
+    Send message to specific WebSocket connection.
+    Creates the management client with the correct endpoint each time.
     """
     try:
-        apigateway_client.post_to_connection(
+        endpoint = os.environ.get('WEBSOCKET_ENDPOINT')
+        if not endpoint:
+            logger.error("WEBSOCKET_ENDPOINT environment variable is not set")
+            return False
+
+        mgmt_client = boto3.client('apigatewaymanagementapi', endpoint_url=endpoint)
+        mgmt_client.post_to_connection(
             ConnectionId=connection_id,
             Data=json.dumps(message)
         )
@@ -437,7 +437,6 @@ def send_message_to_connection(connection_id: str, message: Dict[str, Any]) -> b
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == 'GoneException':
-            # Connection is closed, remove it
             logger.info(f"Connection {connection_id} is gone, removing")
             remove_connection(connection_id)
         else:

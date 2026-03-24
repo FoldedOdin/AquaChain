@@ -489,16 +489,23 @@ def _get_users_by_role(role_filter: str) -> List[Dict]:
     Returns list of dicts with at least userId and role.
     """
     table = dynamodb.Table(USERS_TABLE)
-    scan_kwargs: Dict[str, Any] = {
-        'ProjectionExpression': 'userId, #r',
-        'ExpressionAttributeNames': {'#r': 'role'},
-        # Exclude simulator-generated users (user-{timestamp} pattern)
-        'FilterExpression': 'NOT begins_with(userId, :sim_prefix)',
-        'ExpressionAttributeValues': {':sim_prefix': 'user-'},
-    }
-    if role_filter != 'all':
-        scan_kwargs['FilterExpression'] += ' AND #r = :role'
-        scan_kwargs['ExpressionAttributeValues'][':role'] = role_filter
+
+    if role_filter == 'all':
+        scan_kwargs: Dict[str, Any] = {
+            'ProjectionExpression': 'userId',
+            'FilterExpression': 'NOT begins_with(userId, :sim_prefix)',
+            'ExpressionAttributeValues': {':sim_prefix': 'user-'},
+        }
+    else:
+        scan_kwargs = {
+            'ProjectionExpression': 'userId, #r',
+            'ExpressionAttributeNames': {'#r': 'role'},
+            'FilterExpression': 'NOT begins_with(userId, :sim_prefix) AND #r = :role',
+            'ExpressionAttributeValues': {
+                ':sim_prefix': 'user-',
+                ':role': role_filter,
+            },
+        }
 
     users: List[Dict] = []
     while True:
@@ -536,7 +543,12 @@ def handle_broadcast_announcement(user_id: str, body: Dict, event: Dict) -> Dict
         raise ValidationError('audience must be one of: all, consumer, technician')
 
     # Fetch target users
-    target_users = _get_users_by_role(audience)
+    try:
+        target_users = _get_users_by_role(audience)
+    except Exception as e:
+        logger.error(f"Failed to fetch users for broadcast (table={USERS_TABLE}): {e}")
+        raise DatabaseError(f"Failed to fetch target users: {str(e)}")
+
     if not target_users:
         return success_response({'message': 'No users found for the selected audience', 'sent': 0})
 
@@ -546,32 +558,36 @@ def handle_broadcast_announcement(user_id: str, body: Dict, event: Dict) -> Dict
     ttl_seconds = int(datetime.utcnow().timestamp()) + (30 * 24 * 3600)  # 30-day TTL
 
     sent = 0
-    with notifications_table.batch_writer() as batch:
-        for u in target_users:
-            target_user_id = u.get('userId')
-            if not target_user_id:
-                continue
-            notification_id = f"ann_{announcement_id}_{target_user_id}"
-            batch.put_item(Item={
-                'notificationId': notification_id,
-                'userId': target_user_id,
-                'notificationType': 'announcement',
-                'announcementId': announcement_id,
-                'content': {
+    try:
+        with notifications_table.batch_writer() as batch:
+            for u in target_users:
+                target_user_id = u.get('userId')
+                if not target_user_id:
+                    continue
+                notification_id = f"ann_{announcement_id}_{target_user_id}"
+                batch.put_item(Item={
+                    'notificationId': notification_id,
+                    'userId': target_user_id,
+                    'notificationType': 'announcement',
+                    'announcementId': announcement_id,
+                    'content': {
+                        'title': title,
+                        'message': message,
+                    },
+                    'type': announcement_type,
                     'title': title,
                     'message': message,
-                },
-                'type': announcement_type,
-                'title': title,
-                'message': message,
-                'priority': 'medium' if announcement_type == 'info' else 'high',
-                'read': False,
-                'createdAt': now,
-                'sentBy': user_id,
-                'audience': audience,
-                'ttl': ttl_seconds,
-            })
-            sent += 1
+                    'priority': 'medium' if announcement_type == 'info' else 'high',
+                    'read': False,
+                    'createdAt': now,
+                    'sentBy': user_id,
+                    'audience': audience,
+                    'ttl': ttl_seconds,
+                })
+                sent += 1
+    except Exception as e:
+        logger.error(f"Failed to write notifications to DynamoDB (table={NOTIFICATIONS_TABLE}): {e}")
+        raise DatabaseError(f"Failed to store notifications: {str(e)}")
 
     logger.info(
         f"Broadcast announcement sent - announcement_id={announcement_id}, "

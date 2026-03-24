@@ -138,23 +138,36 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     error: error
   };
   
-  // ✅ Real-time updates with WebSocket — only connect once access token is available
-  const [hasAccessToken, setHasAccessToken] = useState(!!localStorage.getItem('aquachain_access_token'));
+  // ✅ Real-time updates with WebSocket — delay connection until after page mount
+  // and access token is confirmed. Starting the WebSocket immediately on mount
+  // causes Firefox to abort the handshake with "interrupted while page was loading".
+  const [wsReady, setWsReady] = useState(false);
   useEffect(() => {
-    if (hasAccessToken) return;
-    // Poll until the access token is stored (AuthContext fetches it asynchronously on load)
-    const interval = setInterval(() => {
-      if (localStorage.getItem('aquachain_access_token')) {
-        setHasAccessToken(true);
-        clearInterval(interval);
+    // Wait for the page to finish its initial render, then check/wait for the token.
+    // The 1500ms delay ensures the browser has completed navigation before we open
+    // a WebSocket — prevents the "interrupted while page was loading" abort.
+    const bootstrap = setTimeout(() => {
+      const token = localStorage.getItem('aquachain_access_token');
+      if (token) {
+        setWsReady(true);
+        return;
       }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [hasAccessToken]);
+      // Token not yet stored — poll until AuthContext finishes its async session fetch
+      const interval = setInterval(() => {
+        if (localStorage.getItem('aquachain_access_token')) {
+          setWsReady(true);
+          clearInterval(interval);
+        }
+      }, 500);
+      // Cleanup interval if component unmounts before token arrives
+      return () => clearInterval(interval);
+    }, 1500);
+    return () => clearTimeout(bootstrap);
+  }, []);
 
   const { latestUpdate, isConnected } = useRealTimeUpdates('consumer-updates', {
     autoConnect: true,
-    enabled: hasAccessToken
+    enabled: wsReady
   });
 
   // Test ordering context

@@ -154,6 +154,7 @@ class WebSocketStack(Stack):
             environment={
                 "CONNECTIONS_TABLE": self.connections_table.table_name,
                 "ENVIRONMENT": self.env_name,
+                # Endpoint is set after API creation via add_environment in _create_websocket_api
             },
             log_retention=logs.RetentionDays.ONE_WEEK if self.env_name == "dev" else logs.RetentionDays.ONE_MONTH,
         )
@@ -176,6 +177,7 @@ class WebSocketStack(Stack):
             environment={
                 "CONNECTIONS_TABLE": self.connections_table.table_name,
                 "ENVIRONMENT": self.env_name,
+                # Endpoint is set after API creation via add_environment in _create_websocket_api
             },
             log_retention=logs.RetentionDays.ONE_WEEK if self.env_name == "dev" else logs.RetentionDays.ONE_MONTH,
         )
@@ -220,6 +222,11 @@ class WebSocketStack(Stack):
             stage_name=self.env_name,
             auto_deploy=True,
         )
+
+        # Inject the management endpoint into handlers that call post_to_connection
+        ws_endpoint = f"https://{websocket_api.api_id}.execute-api.{self.region}.amazonaws.com/{self.env_name}"
+        self.message_handler.add_environment("WEBSOCKET_ENDPOINT", ws_endpoint)
+        self.broadcast_handler.add_environment("WEBSOCKET_ENDPOINT", ws_endpoint)
 
         return websocket_api
 

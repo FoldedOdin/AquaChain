@@ -15,11 +15,13 @@ export interface GoogleOAuthConfig {
 
 // Get configuration from environment variables
 const getGoogleOAuthConfig = (): GoogleOAuthConfig => {
-  const clientId = process.env.REACT_APP_GOOGLE_CLIENT_ID || '';
+  const rawClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID || '';
+  // Treat 'disabled' as intentionally off — not a misconfiguration
+  const clientId = rawClientId === 'disabled' ? '' : rawClientId;
   const baseUrl = process.env.REACT_APP_BASE_URL || 'http://localhost:3000';
   const redirectUri = process.env.REACT_APP_OAUTH_REDIRECT_URI || `${baseUrl}/auth/google/callback`;
 
-  if (!clientId) {
+  if (!clientId && rawClientId !== 'disabled') {
     console.warn('⚠️ REACT_APP_GOOGLE_CLIENT_ID is not set. Google OAuth will not work.');
   }
 
@@ -39,7 +41,10 @@ export const googleOAuthConfig = getGoogleOAuthConfig();
  */
 export const getGoogleAuthUrl = (state?: string): string => {
   const config = googleOAuthConfig;
-  
+
+  // Google OAuth is disabled — return empty string so callers can guard with a simple truthiness check
+  if (!config.clientId) return '';
+
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: config.redirectUri,

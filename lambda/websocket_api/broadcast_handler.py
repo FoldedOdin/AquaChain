@@ -10,13 +10,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 import logging
 
-# Add shared utilities to path
-import sys
 import os
-sys.path.append('/opt/python')  # Lambda layer path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
-
-# Import structured logging
 from structured_logger import get_logger
 
 # Configure structured logging
@@ -24,22 +18,28 @@ logger = get_logger(__name__, service='websocket-broadcast')
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-apigateway_client = boto3.client('apigatewaymanagementapi')
+# NOTE: apigatewaymanagementapi requires endpoint_url at creation time.
+# We create it lazily per-invocation in broadcast_to_connections().
 
 # Environment variables
 CONNECTIONS_TABLE = 'aquachain-websocket-connections'
-WEBSOCKET_ENDPOINT = None  # Will be set from environment
+WEBSOCKET_ENDPOINT = os.environ.get('WEBSOCKET_ENDPOINT')  # Set via Lambda env var
 
 def lambda_handler(event, context):
     """
     Main handler for WebSocket broadcasts
     """
     try:
-        # Set WebSocket endpoint
-        global WEBSOCKET_ENDPOINT
-        WEBSOCKET_ENDPOINT = context.invoked_function_arn.replace('arn:aws:lambda:', 'https://').replace(':function:', '.execute-api.').replace('broadcast_handler', 'websocket')
-        apigateway_client.meta.config.endpoint_url = WEBSOCKET_ENDPOINT
-        
+        # WEBSOCKET_ENDPOINT must be set as a Lambda environment variable.
+        # It cannot be derived from the Lambda ARN — that logic was incorrect.
+        endpoint = os.environ.get('WEBSOCKET_ENDPOINT')
+        if not endpoint:
+            logger.error("WEBSOCKET_ENDPOINT environment variable is not set")
+            return {
+                'statusCode': 500,
+                'body': json.dumps({'error': 'WEBSOCKET_ENDPOINT not configured'})
+            }
+
         logger.info(f"Processing broadcast event: {json.dumps(event)}")
         
         # Handle different event sources
@@ -400,8 +400,16 @@ def subscription_matches_filters(subscription_filters: Dict[str, Any],
 def broadcast_to_connections(connections: List[Dict[str, Any]], 
                            message: Dict[str, Any]) -> Dict[str, int]:
     """
-    Send message to multiple WebSocket connections
+    Send message to multiple WebSocket connections.
+    Creates the management client with the correct endpoint each time.
     """
+    endpoint = os.environ.get('WEBSOCKET_ENDPOINT')
+    if not endpoint:
+        logger.error("WEBSOCKET_ENDPOINT not set — cannot broadcast")
+        return {'successful': 0, 'failed': len(connections)}
+
+    mgmt_client = boto3.client('apigatewaymanagementapi', endpoint_url=endpoint)
+
     successful = 0
     failed = 0
     stale_connections = []
@@ -410,14 +418,13 @@ def broadcast_to_connections(connections: List[Dict[str, Any]],
         connection_id = connection['connectionId']
         
         try:
-            apigateway_client.post_to_connection(
+            mgmt_client.post_to_connection(
                 ConnectionId=connection_id,
                 Data=json.dumps(message)
             )
             successful += 1
             
-        except apigateway_client.exceptions.GoneException:
-            # Connection is stale, mark for removal
+        except mgmt_client.exceptions.GoneException:
             logger.info(f"Connection {connection_id} is gone, marking for removal")
             stale_connections.append(connection_id)
             failed += 1
@@ -426,7 +433,6 @@ def broadcast_to_connections(connections: List[Dict[str, Any]],
             logger.error(f"Error sending message to connection {connection_id}: {e}")
             failed += 1
     
-    # Clean up stale connections
     for connection_id in stale_connections:
         remove_stale_connection(connection_id)
     

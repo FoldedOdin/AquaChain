@@ -25,14 +25,8 @@ class PerformanceMetrics:
     def __init__(self):
         self.start_time = time.time()
         self.metrics = {}
-        self._cloudwatch = None  # lazy init to avoid boto3 call at import time
+        self.cloudwatch = boto3.client('cloudwatch')
         self.namespace = os.environ.get('CLOUDWATCH_NAMESPACE', 'AquaChain/Dashboard')
-
-    @property
-    def cloudwatch(self):
-        if self._cloudwatch is None:
-            self._cloudwatch = boto3.client('cloudwatch')
-        return self._cloudwatch
     
     def start_timer(self, operation: str) -> None:
         """Start timing an operation"""

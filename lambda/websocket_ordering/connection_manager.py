@@ -5,15 +5,11 @@ Handles connection persistence, reconnection logic, and connection health monito
 
 import json
 import boto3
+from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import logging
 import os
-
-# Add shared utilities to path
-import sys
-sys.path.append('/opt/python')  # Lambda layer path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
 
 # Import structured logging
 from structured_logger import get_logger
@@ -23,10 +19,12 @@ logger = get_logger(__name__, service='websocket-connection-manager')
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-apigateway_client = boto3.client('apigatewaymanagementapi')
+# NOTE: apigatewaymanagementapi client is created per-call in send_message()
+# because endpoint_url must be provided at creation time.
 
 # Environment variables
 WEBSOCKET_CONNECTIONS_TABLE = os.environ.get('WEBSOCKET_CONNECTIONS_TABLE_NAME', 'aquachain-websocket-connections-dev')
+WEBSOCKET_ENDPOINT = os.environ.get('WEBSOCKET_ENDPOINT', '')
 
 class ConnectionManager:
     """
@@ -191,21 +189,31 @@ class ConnectionManager:
     
     def send_message(self, connection_id: str, message: Dict[str, Any]) -> bool:
         """
-        Send message to a specific connection
+        Send message to a specific connection.
+        Creates the management client with the correct endpoint each time —
+        never relies on a global client or mutating endpoint_url after creation.
         """
+        endpoint = self.websocket_endpoint or WEBSOCKET_ENDPOINT
+        if not endpoint:
+            logger.error("No WEBSOCKET_ENDPOINT configured — cannot send message")
+            return False
+
         try:
-            apigateway_client.post_to_connection(
+            apigw = boto3.client('apigatewaymanagementapi', endpoint_url=endpoint)
+            apigw.post_to_connection(
                 ConnectionId=connection_id,
                 Data=json.dumps(message)
             )
             return True
-            
-        except apigateway_client.exceptions.GoneException:
-            # Connection is stale, remove it
-            logger.info(f"Connection {connection_id} is gone, removing")
-            self.remove_connection(connection_id)
+
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'GoneException':
+                logger.info(f"Connection {connection_id} is gone, removing")
+                self.remove_connection(connection_id)
+            else:
+                logger.error(f"Error sending message to connection {connection_id}: {e}")
             return False
-            
+
         except Exception as e:
             logger.error(f"Error sending message to connection {connection_id}: {e}")
             return False

@@ -13,6 +13,7 @@ LEGACY_TABLE_NAMES = {
     "devices": "AquaChain-Devices",
     "audit-logs": "AquaChain-AuditLogs",
     "system-config": "AquaChain-SystemConfig",
+    "alerts": "AquaChain-Alerts",
 }
 
 def get_legacy_table_name(resource_name: str) -> str:

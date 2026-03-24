@@ -11,10 +11,33 @@ import time
 import logging
 import sys
 import os
+from decimal import Decimal
 from typing import Dict, List, Optional, Any
 from functools import wraps
 import boto3
 from botocore.exceptions import ClientError
+
+
+def _decimal_default(obj):
+    """JSON serializer for DynamoDB Decimal and Set types."""
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def _sanitize_dynamodb(obj):
+    """Recursively convert DynamoDB Decimal/Set types to JSON-safe Python types."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_dynamodb(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_dynamodb(i) for i in obj]
+    if isinstance(obj, (set, frozenset)):
+        return [_sanitize_dynamodb(i) for i in obj]
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    return obj
 
 # Add shared utilities to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
@@ -320,10 +343,63 @@ def create_auth_middleware(token_manager: TokenManager, auth_manager: Authorizat
     return auth_required
 
 # Lambda handler for authentication service
-@handle_errors
 def lambda_handler(event, context):
     """
     Main Lambda handler for authentication operations.
+    """
+    try:
+        return _handle_request(event, context)
+    except ValidationError as e:
+        return {
+            'statusCode': 400,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({'error': e.message, 'code': e.error_code})
+        }
+    except AuthenticationError as e:
+        return {
+            'statusCode': 401,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({'error': e.message, 'code': e.error_code})
+        }
+    except AuthorizationError as e:
+        return {
+            'statusCode': 403,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({'error': e.message, 'code': e.error_code})
+        }
+    except Exception as e:
+        import traceback
+        logger.error(f"Unhandled error in lambda_handler: {e} | {traceback.format_exc()}")
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({'error': 'Internal server error', 'code': 'INTERNAL_ERROR'})
+        }
+
+
+def _handle_request(event, context):
+    """
+    Internal request handler — called by lambda_handler.
     """
     # Get configuration from environment variables
     user_pool_id = os.environ.get('COGNITO_USER_POOL_ID')
@@ -459,7 +535,14 @@ def lambda_handler(event, context):
             decoded_token = jwt.decode(id_token, options={"verify_signature": False})
             
             user_id = decoded_token.get('sub')
-            user_role = decoded_token.get('cognito:groups', ['consumers'])[0]
+            cognito_group = decoded_token.get('cognito:groups', ['consumers'])[0]
+            # Normalize Cognito group names (plural) to singular role names used by the frontend
+            _group_to_role = {
+                'consumers': 'consumer',
+                'technicians': 'technician',
+                'administrators': 'admin',
+            }
+            user_role = _group_to_role.get(cognito_group, cognito_group)
             
             # Update lastLogin timestamp in DynamoDB and fetch full profile
             db_profile = {}
@@ -485,6 +568,8 @@ def lambda_handler(event, context):
                 logger.warning(f"Failed to update lastLogin for user {user_id}: {str(db_error)}")
             
             # Extract profile fields - DynamoDB stores them nested under 'profile'
+            # Sanitize the entire db_profile to convert Decimal/Set types from DynamoDB
+            db_profile = _sanitize_dynamodb(db_profile)
             nested_profile = db_profile.get('profile', {})
             first_name = nested_profile.get('firstName') or decoded_token.get('given_name', '')
             last_name = nested_profile.get('lastName') or decoded_token.get('family_name', '')
@@ -530,7 +615,7 @@ def lambda_handler(event, context):
                         'lastLogin': db_profile.get('lastLogin', ''),
                         'preferences': db_profile.get('preferences', None)
                     }
-                })
+                }, default=_decimal_default)
             }
             
         except ClientError as e:
@@ -547,11 +632,21 @@ def lambda_handler(event, context):
             )
             
             if error_code == 'NotAuthorizedException':
+                # Check if the user is disabled (email not yet verified via OTP flow)
+                try:
+                    user_info = cognito_client.admin_get_user(
+                        UserPoolId=user_pool_id,
+                        Username=email
+                    )
+                    if not user_info.get('Enabled', True):
+                        raise ValidationError('Email not verified. Please check your inbox for the verification code.', error_code='EMAIL_NOT_VERIFIED')
+                except ClientError:
+                    pass  # If lookup fails, fall through to generic error
                 raise ValidationError('Invalid email or password', error_code='INVALID_CREDENTIALS')
             elif error_code == 'UserNotConfirmedException':
-                raise ValidationError('Email not verified', error_code='EMAIL_NOT_VERIFIED')
+                raise ValidationError('Email not verified. Please check your inbox for the verification code.', error_code='EMAIL_NOT_VERIFIED')
             elif error_code == 'UserNotFoundException':
-                raise ValidationError('User not found', error_code='USER_NOT_FOUND')
+                raise ValidationError('Invalid email or password', error_code='INVALID_CREDENTIALS')
             else:
                 raise ValidationError('Authentication failed', error_code='AUTH_FAILED')
     

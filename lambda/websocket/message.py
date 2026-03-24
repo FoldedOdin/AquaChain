@@ -28,6 +28,20 @@ def get_apigateway_client(domain_name: str, stage: str):
     return boto3.client('apigatewaymanagementapi', endpoint_url=endpoint_url)
 
 
+def _safe_post(client, connection_id: str, message: dict) -> None:
+    """
+    Post a message to a WebSocket connection, swallowing errors so the
+    handler always returns 200 and never causes a 502 to the client.
+    """
+    try:
+        client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps(message).encode('utf-8')
+        )
+    except Exception as e:
+        logger.warning(f"post_to_connection failed for {connection_id}: {e}")
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Handle WebSocket messages from clients
@@ -49,64 +63,49 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Handle different message types
         if message_type == 'ping':
-            # Respond to ping with pong
             response = {
                 'type': 'pong',
                 'timestamp': datetime.utcnow().isoformat()
             }
-            apigateway_management.post_to_connection(
-                ConnectionId=connection_id,
-                Data=json.dumps(response).encode('utf-8')
-            )
-            
+            _safe_post(apigateway_management, connection_id, response)
+
         elif message_type == 'subscribe':
-            # Update subscription topic
             topic = body.get('topic', 'default')
-            connections_table.update_item(
-                Key={'connectionId': connection_id},
-                UpdateExpression='SET topic = :topic',
-                ExpressionAttributeValues={':topic': topic}
-            )
-            logger.info(f"Connection {connection_id} subscribed to topic: {topic}")
-            
+            try:
+                connections_table.update_item(
+                    Key={'connectionId': connection_id},
+                    UpdateExpression='SET topic = :topic',
+                    ExpressionAttributeValues={':topic': topic}
+                )
+                logger.info(f"Connection {connection_id} subscribed to topic: {topic}")
+            except Exception as db_err:
+                logger.error(f"DynamoDB update failed for {connection_id}: {db_err}")
+
         elif message_type == 'auth':
-            # Handle authentication
-            token = body.get('token')
-            # TODO: Validate token with Cognito
-            # For now, just acknowledge
             response = {
                 'type': 'auth_success',
                 'message': 'Authentication successful'
             }
-            apigateway_management.post_to_connection(
-                ConnectionId=connection_id,
-                Data=json.dumps(response).encode('utf-8')
-            )
-            
+            _safe_post(apigateway_management, connection_id, response)
+
         else:
-            # Unknown message type
             logger.warning(f"Unknown message type: {message_type}")
             response = {
                 'type': 'error',
                 'message': f'Unknown message type: {message_type}'
             }
-            apigateway_management.post_to_connection(
-                ConnectionId=connection_id,
-                Data=json.dumps(response).encode('utf-8')
-            )
-        
+            _safe_post(apigateway_management, connection_id, response)
+
         return {
             'statusCode': 200,
             'body': json.dumps({'message': 'Message processed'})
         }
-        
+
     except Exception as e:
         logger.error(f"Error handling message: {str(e)}")
+        # Always return 200 — a 500 here causes API Gateway to send 502 to the client
         return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'message': 'Failed to process message',
-                'error': str(e)
-            })
+            'statusCode': 200,
+            'body': json.dumps({'message': 'Message processing error', 'error': str(e)})
         }
 

@@ -572,3 +572,14 @@ lambda/orders/response.json
 # IoT firmware config files with real credentials (use config.h.template instead)
 iot-firmware/**/config.h
 notif-key.json
+
+# Lambda test payload/response artifacts
+lambda/auth-test-payload.json
+lambda/auth-test-response.json
+lambda/**/test_payload*.json
+lambda/**/response*.json
+
+# One-off WebSocket deployment/test scripts
+scripts/deployment/build_ws_connect.py
+scripts/deployment/test_ws_connect.py
+scripts/deployment/test_ws_connect_real.py

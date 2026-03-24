@@ -133,10 +133,26 @@ class AutoTechnicianAssignmentService:
                 raise ValueError(f'Order {order_id} not found')
             
             # Extract service location from order
-            service_location = order.get('deliveryAddress', {}).get('coordinates')
+            # deliveryAddress may be stored as a JSON string (from create_order.py) or as a dict
+            delivery_address_raw = order.get('deliveryAddress', {})
+            if isinstance(delivery_address_raw, str):
+                try:
+                    import json as _json
+                    delivery_address_raw = _json.loads(delivery_address_raw)
+                except Exception:
+                    delivery_address_raw = {}
+
+            service_location = delivery_address_raw.get('coordinates')
+
+            # If no nested coordinates, try top-level lat/lng fields on the address itself
             if not service_location:
-                logger.warning('No service location in order, using default', order_id=order_id)
-                # Use a default location or skip assignment
+                lat = delivery_address_raw.get('latitude') or delivery_address_raw.get('lat')
+                lng = delivery_address_raw.get('longitude') or delivery_address_raw.get('lng')
+                if lat and lng:
+                    service_location = {'latitude': lat, 'longitude': lng}
+
+            if not service_location:
+                logger.warning('No service location in order, skipping assignment', order_id=order_id)
                 return {
                     'success': False,
                     'message': 'No service location available for technician assignment'
@@ -353,23 +369,33 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info('Auto technician assignment triggered', event=event)
         
         # Extract event detail
+        # Supports both SNS-wrapped events and direct EventBridge events
         event_detail = event.get('detail', {})
+
+        # SNS wraps the message inside Records[0].Sns.Message
+        if not event_detail and 'Records' in event:
+            try:
+                sns_message = json.loads(event['Records'][0]['Sns']['Message'])
+                event_detail = sns_message
+            except Exception:
+                pass
+
         event_type = event_detail.get('eventType')
-        
-        if event_type != 'ORDER_STATUS_UPDATED':
-            logger.warning('Unexpected event type', event_type=event_type)
+
+        # Accept both ORDER_PLACED (from create_order.py SNS) and
+        # ORDER_STATUS_UPDATED with status=ORDER_PLACED (from enhanced_order_management.py)
+        is_order_placed_event = (
+            event_type == 'ORDER_PLACED' or
+            (event_type == 'ORDER_STATUS_UPDATED' and event_detail.get('status') == 'ORDER_PLACED') or
+            (event_type == 'ORDER_STATUS_UPDATED' and event_detail.get('newStatus') == 'ORDER_PLACED')
+        )
+
+        if not is_order_placed_event:
+            logger.info('Event not an ORDER_PLACED event, skipping assignment',
+                        event_type=event_type, status=event_detail.get('status'))
             return {
                 'statusCode': 200,
                 'body': json.dumps({'message': 'Event type not handled'})
-            }
-        
-        # Check if status is ORDER_PLACED
-        new_status = event_detail.get('status')
-        if new_status != 'ORDER_PLACED':
-            logger.info('Order status not ORDER_PLACED, skipping assignment', status=new_status)
-            return {
-                'statusCode': 200,
-                'body': json.dumps({'message': 'Status not ORDER_PLACED, skipping'})
             }
         
         # Process assignment

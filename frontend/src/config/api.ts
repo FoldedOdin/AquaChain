@@ -5,7 +5,7 @@
 
 export const API_CONFIG = {
   BASE_URL: process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev',
-  WEBSOCKET_URL: process.env.REACT_APP_WEBSOCKET_ENDPOINT || 'wss://p2lgfqqy50.execute-api.ap-south-1.amazonaws.com/dev',
+  WEBSOCKET_URL: process.env.REACT_APP_WEBSOCKET_ENDPOINT || 'wss://nnznduptme.execute-api.ap-south-1.amazonaws.com/dev',
   TIMEOUT: 30000, // 30 seconds
 };
 

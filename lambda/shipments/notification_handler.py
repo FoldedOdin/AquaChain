@@ -26,7 +26,8 @@ from structured_logger import get_logger
 dynamodb = boto3.resource('dynamodb')
 sns = boto3.client('sns')
 ses = boto3.client('ses')
-apigateway_client = boto3.client('apigatewaymanagementapi')
+# NOTE: apigatewaymanagementapi client is created per-call in broadcast_to_connections()
+# because endpoint_url must be set at creation time and cannot be mutated afterwards.
 
 # Environment variables
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE', 'DeviceOrders')
@@ -784,22 +785,28 @@ def broadcast_to_connections(connections: List[Dict[str, Any]],
     failed = 0
     stale_connections = []
     
-    # Configure API Gateway Management API endpoint
-    if WEBSOCKET_ENDPOINT:
-        apigateway_client.meta.client.meta.endpoint_url = WEBSOCKET_ENDPOINT
-    
+    successful = 0
+    failed = 0
+    stale_connections = []
+
+    if not WEBSOCKET_ENDPOINT:
+        logger.error("WEBSOCKET_ENDPOINT not configured — cannot broadcast WebSocket messages")
+        return {'successful': 0, 'failed': len(connections)}
+
+    # Create client with the correct endpoint at call time — never use a global client
+    apigw = boto3.client('apigatewaymanagementapi', endpoint_url=WEBSOCKET_ENDPOINT)
+
     for connection in connections:
         connection_id = connection['connectionId']
         
         try:
-            apigateway_client.post_to_connection(
+            apigw.post_to_connection(
                 ConnectionId=connection_id,
                 Data=json.dumps(message)
             )
             successful += 1
             
-        except apigateway_client.exceptions.GoneException:
-            # Connection is stale, mark for removal
+        except apigw.exceptions.GoneException:
             logger.info(f"Connection {connection_id} is gone, marking for removal")
             stale_connections.append(connection_id)
             failed += 1

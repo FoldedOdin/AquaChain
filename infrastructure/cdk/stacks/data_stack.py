@@ -134,7 +134,37 @@ class AquaChainDataStack(Stack):
             self, "SystemConfigTable",
             table_name="AquaChain-SystemConfig"
         )
-        
+
+        # Create Alerts table if it doesn't exist yet
+        # This table is required by the alert_detection Lambda (/alerts endpoint)
+        self.alerts_table = dynamodb.Table(
+            self, "AlertsTable",
+            table_name="AquaChain-Alerts",
+            partition_key=dynamodb.Attribute(
+                name="alertId",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
+            time_to_live_attribute="ttl"
+        )
+
+        # GSI: query alerts by device + time (used by alert_detection and gdpr_service)
+        self.alerts_table.add_global_secondary_index(
+            index_name="DeviceAlerts",
+            partition_key=dynamodb.Attribute(
+                name="deviceId",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="createdAt",
+                type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL
+        )
+
         self.data_resources.update({
             "readings_table": self.readings_table,
             "ledger_table": self.ledger_table,
@@ -145,7 +175,8 @@ class AquaChainDataStack(Stack):
             "pluggable_devices_table": self.pluggable_devices_table,
             "notifications_table": self.notifications_table,
             "audit_logs_table": self.audit_logs_table,
-            "system_config_table": self.system_config_table
+            "system_config_table": self.system_config_table,
+            "alerts_table": self.alerts_table
         })
     
     def _create_s3_buckets(self) -> None:

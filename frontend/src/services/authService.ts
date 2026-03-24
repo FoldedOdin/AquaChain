@@ -151,7 +151,7 @@ class AuthService {
         const result = await response.json();
         
         if (!response.ok) {
-          throw new AuthError(result.error || 'Sign in failed', 'SIGNIN_FAILED');
+          throw new AuthError(result.error || 'Sign in failed', result.code || 'SIGNIN_FAILED');
         }
 
         // Handle the response format from the auth service

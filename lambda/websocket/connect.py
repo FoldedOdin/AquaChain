@@ -42,36 +42,28 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Calculate TTL (24 hours from now)
         ttl = int((datetime.utcnow() + timedelta(hours=24)).timestamp())
         
-        # Store connection in DynamoDB
-        connections_table.put_item(
-            Item={
-                'connectionId': connection_id,
-                'topic': topic,
-                'userId': user_id,
-                'domainName': domain_name,
-                'stage': stage,
-                'connectedAt': datetime.utcnow().isoformat(),
-                'ttl': ttl
-            }
-        )
+        # Store connection in DynamoDB — non-fatal if it fails
+        try:
+            connections_table.put_item(
+                Item={
+                    'connectionId': connection_id,
+                    'topic': topic,
+                    'userId': user_id,
+                    'domainName': domain_name,
+                    'stage': stage,
+                    'connectedAt': datetime.utcnow().isoformat(),
+                    'ttl': ttl
+                }
+            )
+            logger.info(f"Connection {connection_id} stored successfully")
+        except Exception as db_err:
+            # Log but don't reject the connection — client should still connect
+            logger.error(f"DynamoDB write failed for connection {connection_id}: {str(db_err)}")
         
-        logger.info(f"Connection {connection_id} stored successfully")
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'Connected successfully',
-                'connectionId': connection_id
-            })
-        }
-        
+        # WebSocket $connect MUST return exactly {"statusCode": 200} — no body
+        return {'statusCode': 200}
+
     except Exception as e:
         logger.error(f"Error handling connection: {str(e)}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'message': 'Failed to connect',
-                'error': str(e)
-            })
-        }
+        return {'statusCode': 200}
 

@@ -171,6 +171,39 @@ class AuditLogger:
             }
         )
     
+    def log_authentication_event(
+        self,
+        event_type: str,
+        user_id: str,
+        success: bool,
+        request_context: Dict[str, Any],
+        details: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Log authentication events (login, logout, token validation, etc.)
+
+        Args:
+            event_type: Type of auth event (TOKEN_VALIDATION, TOKEN_REFRESH, etc.)
+            user_id: ID of the user
+            success: Whether the authentication was successful
+            request_context: Dict with ip_address, user_agent, request_id, source
+            details: Additional event details
+
+        Returns:
+            True if logged successfully, False otherwise
+        """
+        metadata = details or {}
+        metadata['success'] = success
+
+        return self.log_event(
+            email=user_id,  # user_id used as identifier; email not always available here
+            event_type=event_type,
+            status='SUCCESS' if success else 'FAILURE',
+            ip_address=request_context.get('ip_address', 'unknown'),
+            user_agent=request_context.get('user_agent', 'unknown'),
+            metadata=metadata
+        )
+
     def get_recent_events(
         self,
         email: str,

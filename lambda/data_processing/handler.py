@@ -108,7 +108,7 @@ DATA_LAKE_BUCKET = os.environ.get('DATA_LAKE_BUCKET', None)  # Optional
 SAGEMAKER_ENDPOINT_NAME = os.environ.get('SAGEMAKER_ENDPOINT_NAME', 'aquachain-wqi-endpoint-dev')
 DLQ_URL = os.environ.get('DLQ_URL', None)  # Optional
 WEBSOCKET_CONNECTIONS_TABLE = os.environ.get('WEBSOCKET_CONNECTIONS_TABLE', 'AquaChain-WebSocketConnections-dev')
-WEBSOCKET_ENDPOINT = os.environ.get('WEBSOCKET_ENDPOINT', 'https://p2lgfqqy50.execute-api.ap-south-1.amazonaws.com/dev')
+WEBSOCKET_ENDPOINT = os.environ.get('WEBSOCKET_ENDPOINT', 'https://nnznduptme.execute-api.ap-south-1.amazonaws.com/dev')
 
 # Simplified validation - use basic Python checks instead of strict JSON schema
 # This is more reliable and doesn't depend on jsonschema library
@@ -883,6 +883,10 @@ def push_reading_to_websocket_subscribers(validated_data: Dict[str, Any], ml_res
     """
     try:
         from decimal import Decimal
+
+        if not WEBSOCKET_ENDPOINT:
+            logger.warning("WEBSOCKET_ENDPOINT not configured — skipping WebSocket push")
+            return
 
         connections_table = dynamodb.Table(WEBSOCKET_CONNECTIONS_TABLE)
         apigw = boto3.client('apigatewaymanagementapi', endpoint_url=WEBSOCKET_ENDPOINT)

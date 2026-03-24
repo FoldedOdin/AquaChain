@@ -11,28 +11,20 @@ from typing import Dict, Any, List, Optional
 import logging
 from botocore.exceptions import ClientError
 
-# Add shared utilities to path
-import sys
 import os
-sys.path.append('/opt/python')  # Lambda layer path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'shared'))
-
-# Import structured logging
 from structured_logger import get_logger
 
 # Configure structured logging
 logger = get_logger(__name__, service='websocket-api')
 
-# Initialize AWS clients
+# Initialize AWS clients (no apigatewaymanagementapi here — endpoint must come from event)
 dynamodb = boto3.resource('dynamodb')
-apigateway_client = boto3.client('apigatewaymanagementapi')
 cognito_client = boto3.client('cognito-idp')
 ssm_client = boto3.client('ssm')
 
 # Environment variables
-CONNECTIONS_TABLE = os.environ.get('CONNECTIONS_TABLE', 'AquaChain-WebSocketConnections-dev')
+CONNECTIONS_TABLE = os.environ.get('WEBSOCKET_CONNECTIONS_TABLE', os.environ.get('CONNECTIONS_TABLE', 'AquaChain-WebSocketConnections-dev'))
 USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
-WEBSOCKET_ENDPOINT = None  # Will be set dynamically
 COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID', 'ap-south-1_QUDl7hG8u')
 
 # Module-level cache for Cognito public keys (avoids repeated JWKS fetches)
@@ -49,6 +41,19 @@ class WebSocketError(Exception):
     """Custom exception for WebSocket errors"""
     pass
 
+def get_ws_client(event: Dict[str, Any]):
+    """
+    Build an apigatewaymanagementapi client whose endpoint is derived
+    directly from the current invocation's requestContext.
+    This is the only correct approach — never use a global endpoint.
+    """
+    domain = event['requestContext']['domainName']
+    stage = event['requestContext']['stage']
+    return boto3.client(
+        'apigatewaymanagementapi',
+        endpoint_url=f"https://{domain}/{stage}"
+    )
+
 def lambda_handler(event, context):
     """
     Main Lambda handler for WebSocket API
@@ -57,13 +62,6 @@ def lambda_handler(event, context):
     try:
         route_key = event.get('requestContext', {}).get('routeKey')
         connection_id = event.get('requestContext', {}).get('connectionId')
-        domain_name = event.get('requestContext', {}).get('domainName')
-        stage = event.get('requestContext', {}).get('stage')
-        
-        # Set API Gateway Management API endpoint
-        global WEBSOCKET_ENDPOINT
-        WEBSOCKET_ENDPOINT = f"https://{domain_name}/{stage}"
-        apigateway_client.meta.config.endpoint_url = WEBSOCKET_ENDPOINT
         
         logger.info(f"WebSocket event: {route_key} for connection {connection_id}")
         
@@ -94,10 +92,14 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
     try:
         # Extract authentication token from query parameters
         query_params = event.get('queryStringParameters') or {}
-        auth_token = query_params.get('authToken') or query_params.get('token')  # support both for backward compat
+        auth_token = query_params.get('authToken') or query_params.get('token')
         connection_type = query_params.get('type', 'dashboard')
-        topic = query_params.get('topic', 'consumer-updates')
-        
+        # Accept both 'topic' (frontend) and 'subscriptionType' (direct API callers)
+        topic = query_params.get('topic') or query_params.get('subscriptionType') or 'consumer-updates'
+
+        logger.info(f"$connect: connectionId={connection_id} type={connection_type} topic={topic} "
+                    f"hasToken={bool(auth_token)}")
+
         if not auth_token:
             logger.warning(f"Connection {connection_id} rejected: No auth token")
             return {'statusCode': 401}
@@ -110,40 +112,54 @@ def handle_connect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
         
         # Validate connection type against user role
         if not validate_connection_type(user_info, connection_type):
-            logger.warning(f"Connection {connection_id} rejected: Invalid connection type for role")
+            logger.warning(f"Connection {connection_id} rejected: Invalid connection type '{connection_type}' for role")
             return {'statusCode': 403}
-        
+
+        # Normalise role from Cognito group (plural → singular)
+        user_groups = user_info.get('cognito:groups', ['consumers'])
+        raw_role = user_groups[0] if user_groups else 'consumers'
+        role_map = {
+            'consumers': 'consumer', 'consumer': 'consumer',
+            'technicians': 'technician', 'technician': 'technician',
+            'administrators': 'administrator', 'administrator': 'administrator',
+            'admins': 'administrator', 'admin': 'administrator',
+        }
+        normalised_role = role_map.get(raw_role.lower(), 'consumer')
+
+        # Pre-register the topic as an initial subscription so the connection
+        # is immediately queryable by broadcast logic — no separate subscribe
+        # message required from the client.
+        initial_subscription = {
+            'type': topic,
+            'filters': {},
+            'subscribedAt': datetime.utcnow().isoformat()
+        }
+
         # Store connection information
         connection_record = {
             'connectionId': connection_id,
             'userId': user_info['sub'],
-            'userRole': user_info.get('cognito:groups', ['consumer'])[0],
+            'userRole': normalised_role,
             'connectionType': connection_type,
             'topic': topic,
             'connectedAt': datetime.utcnow().isoformat(),
             'lastPing': datetime.utcnow().isoformat(),
-            'subscriptions': [],
+            'subscriptions': [initial_subscription],
             'ttl': int((datetime.utcnow() + timedelta(hours=24)).timestamp())
         }
-        
-        store_connection(connection_record)
-        
-        # Send welcome message
-        welcome_message = {
-            'type': 'connection_established',
-            'connectionId': connection_id,
-            'userId': user_info['sub'],
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        send_message_to_connection(connection_id, welcome_message)
-        
-        logger.info(f"Connection established: {connection_id} for user {user_info['sub']}")
-        
+
+        try:
+            store_connection(connection_record)
+            logger.info(f"Connection stored: {connection_id} userId={user_info['sub']} "
+                        f"role={normalised_role} topic={topic}")
+        except WebSocketError as e:
+            logger.error(f"DynamoDB write failed for {connection_id}: {e}")
+            return {'statusCode': 500}
+
         return {'statusCode': 200}
         
     except Exception as e:
-        logger.error(f"Error handling connect: {e}")
+        logger.error(f"Error handling connect for {connection_id}: {e}", exc_info=True)
         return {'statusCode': 500}
 
 def handle_disconnect(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
@@ -168,12 +184,14 @@ def handle_subscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, Any
     """
     try:
         body = json.loads(event.get('body', '{}'))
-        subscription_type = body.get('subscriptionType')
+        # Accept both 'subscriptionType' (new) and 'topic' (legacy) field names
+        subscription_type = body.get('subscriptionType') or body.get('topic')
         filters = body.get('filters', {})
         
         if not subscription_type:
-            send_error_message(connection_id, "Missing subscription type")
-            return {'statusCode': 400}
+            logger.warning(f"Subscribe from {connection_id} missing subscriptionType: {body}")
+            # Don't crash — just return 200 so the connection stays alive
+            return {'statusCode': 200}
         
         # Get connection info
         connection = get_connection(connection_id)
@@ -182,7 +200,7 @@ def handle_subscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, Any
         
         # Validate subscription permissions
         if not validate_subscription_permissions(connection, subscription_type, filters):
-            send_error_message(connection_id, "Insufficient permissions for subscription")
+            send_error_message(connection_id, "Insufficient permissions for subscription", event)
             return {'statusCode': 403}
         
         # Add subscription
@@ -202,7 +220,7 @@ def handle_subscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, Any
             'timestamp': datetime.utcnow().isoformat()
         }
         
-        send_message_to_connection(connection_id, confirmation_message)
+        send_message_to_connection(connection_id, confirmation_message, event)
         
         logger.info(f"Subscription added: {subscription_type} for connection {connection_id}")
         
@@ -210,7 +228,7 @@ def handle_subscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, Any
         
     except Exception as e:
         logger.error(f"Error handling subscribe: {e}")
-        send_error_message(connection_id, f"Subscription error: {str(e)}")
+        send_error_message(connection_id, f"Subscription error: {str(e)}", event)
         return {'statusCode': 500}
 
 def handle_unsubscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
@@ -222,7 +240,7 @@ def handle_unsubscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, A
         subscription_type = body.get('subscriptionType')
         
         if not subscription_type:
-            send_error_message(connection_id, "Missing subscription type")
+            send_error_message(connection_id, "Missing subscription type", event)
             return {'statusCode': 400}
         
         # Remove subscription
@@ -235,7 +253,7 @@ def handle_unsubscribe(event: Dict[str, Any], connection_id: str) -> Dict[str, A
             'timestamp': datetime.utcnow().isoformat()
         }
         
-        send_message_to_connection(connection_id, confirmation_message)
+        send_message_to_connection(connection_id, confirmation_message, event)
         
         logger.info(f"Unsubscribed: {subscription_type} for connection {connection_id}")
         
@@ -259,7 +277,7 @@ def handle_ping(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
             'timestamp': datetime.utcnow().isoformat()
         }
         
-        send_message_to_connection(connection_id, pong_message)
+        send_message_to_connection(connection_id, pong_message, event)
         
         return {'statusCode': 200}
         
@@ -269,55 +287,62 @@ def handle_ping(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
 
 def handle_default_message(event: Dict[str, Any], connection_id: str) -> Dict[str, Any]:
     """
-    Handle unknown message types
+    Handle unknown message types — log and ignore rather than trying to reply,
+    which avoids crashing if WEBSOCKET_ENDPOINT is not set in this invocation.
     """
     try:
-        error_message = {
-            'type': 'error',
-            'message': 'Unknown message type',
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        send_message_to_connection(connection_id, error_message)
-        
-        return {'statusCode': 400}
-        
+        body = event.get('body', '{}')
+        logger.warning(f"Unhandled message from {connection_id}: {body[:200]}")
+        return {'statusCode': 200}
     except Exception as e:
         logger.error(f"Error handling default message: {e}")
-        return {'statusCode': 500}
+        return {'statusCode': 200}
 
 def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
     """
-    Validate JWT token and extract user information
+    Validate JWT token and extract user information.
+
+    Cognito access tokens do NOT include an 'aud' claim, so we must skip
+    audience validation.  ID tokens carry 'aud', but the WebSocket service
+    requires access tokens (token_use == 'access').
     """
     try:
-        # Get Cognito public keys (in production, cache these)
+        # Fast-path: decode without verification to check token_use
+        unverified = jwt.decode(token, options={"verify_signature": False})
+        if unverified.get('token_use') != 'access':
+            logger.warning("Token rejected: not an access token (token_use != 'access')")
+            return None
+
+        # Get Cognito public keys (module-level cache avoids repeated JWKS fetches)
         public_keys = get_cognito_public_keys()
-        
+        if not public_keys:
+            logger.error("No Cognito public keys available — cannot validate token")
+            return None
+
         # Decode token header to get key ID
         header = jwt.get_unverified_header(token)
         kid = header.get('kid')
-        
+
         if kid not in public_keys:
             logger.warning(f"Unknown key ID: {kid}")
             return None
-        
-        # Verify and decode token
+
+        # Verify and decode — access tokens have no 'aud', so skip audience check
         public_key = public_keys[kid]
         decoded_token = jwt.decode(
             token,
             public_key,
             algorithms=['RS256'],
-            audience=get_cognito_client_id()
+            options={"verify_aud": False}
         )
-        
-        # Check token expiration
+
+        # Explicit expiration check (belt-and-suspenders)
         if decoded_token.get('exp', 0) < datetime.utcnow().timestamp():
             logger.warning("Token expired")
             return None
-        
+
         return decoded_token
-        
+
     except jwt.InvalidTokenError as e:
         logger.warning(f"Invalid JWT token: {e}")
         return None
@@ -327,63 +352,89 @@ def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
 
 def validate_connection_type(user_info: Dict[str, Any], connection_type: str) -> bool:
     """
-    Validate that user role can use the requested connection type
+    Validate that user role can use the requested connection type.
+
+    Cognito groups use plural names (consumers, technicians, administrators).
+    We normalise to singular for the permission map.
     """
-    user_groups = user_info.get('cognito:groups', ['consumer'])
-    user_role = user_groups[0] if user_groups else 'consumer'
-    
+    user_groups = user_info.get('cognito:groups', ['consumers'])
+    raw_role = user_groups[0] if user_groups else 'consumers'
+
+    # Normalise plural Cognito group names → singular role key
+    role_map = {
+        'consumers': 'consumer',
+        'consumer': 'consumer',
+        'technicians': 'technician',
+        'technician': 'technician',
+        'administrators': 'administrator',
+        'administrator': 'administrator',
+        'admins': 'administrator',
+        'admin': 'administrator',
+    }
+    user_role = role_map.get(raw_role.lower(), 'consumer')
+
     allowed_types = {
         'consumer': ['dashboard'],
         'technician': ['dashboard', 'technician'],
         'administrator': ['dashboard', 'technician', 'admin']
     }
-    
+
     return connection_type in allowed_types.get(user_role, [])
 
 def validate_subscription_permissions(connection: Dict[str, Any], 
                                     subscription_type: str, 
                                     filters: Dict[str, Any]) -> bool:
     """
-    Validate that user has permission to subscribe to specific data streams
+    Validate that user has permission to subscribe to specific data streams.
+    Handles both semantic types (water_quality_readings, alerts, ...) and
+    topic-style names used by the frontend (consumer-updates, technician-updates, etc.).
     """
     user_role = connection['userRole']
     user_id = connection['userId']
-    
-    # Define subscription permissions by role
+
+    # Topic-style names: map directly to role permissions
+    topic_role_map = {
+        'consumer-updates': ['consumer', 'technician', 'administrator'],
+        'technician-updates': ['technician', 'administrator'],
+        'admin-updates': ['administrator'],
+        'admin-dashboard': ['administrator'],
+        'system-updates': ['administrator'],
+    }
+    if subscription_type in topic_role_map:
+        return user_role in topic_role_map[subscription_type]
+
+    # Semantic subscription types with filter-level checks
     if subscription_type == 'water_quality_readings':
         if user_role == 'consumer':
-            # Consumers can only subscribe to their own devices
             device_ids = filters.get('deviceIds', [])
+            if not device_ids:
+                return True  # no filter = subscribe to own devices (broadcast will scope it)
             user_devices = get_user_devices(user_id)
             return all(device_id in user_devices for device_id in device_ids)
-        elif user_role in ['technician', 'administrator']:
-            # Technicians and admins can subscribe to any devices
-            return True
+        return user_role in ['technician', 'administrator']
     
     elif subscription_type == 'alerts':
         if user_role == 'consumer':
-            # Consumers can only subscribe to alerts for their devices
             device_ids = filters.get('deviceIds', [])
+            if not device_ids:
+                return True
             user_devices = get_user_devices(user_id)
             return all(device_id in user_devices for device_id in device_ids)
-        elif user_role in ['technician', 'administrator']:
-            return True
+        return user_role in ['technician', 'administrator']
     
     elif subscription_type == 'service_requests':
         if user_role == 'consumer':
-            # Consumers can only subscribe to their own service requests
-            return filters.get('userId') == user_id
+            return not filters.get('userId') or filters.get('userId') == user_id
         elif user_role == 'technician':
-            # Technicians can subscribe to their assigned requests
-            return filters.get('technicianId') == user_id
-        elif user_role == 'administrator':
-            return True
-    
-    elif subscription_type == 'system_status':
-        # Only administrators can subscribe to system status
+            return not filters.get('technicianId') or filters.get('technicianId') == user_id
         return user_role == 'administrator'
     
-    return False
+    elif subscription_type == 'system_status':
+        return user_role == 'administrator'
+
+    # Unknown subscription type — allow it but log for visibility
+    logger.warning(f"Unknown subscription type '{subscription_type}' for role '{user_role}' — allowing")
+    return True
 
 def store_connection(connection: Dict[str, Any]) -> None:
     """
@@ -484,12 +535,14 @@ def update_connection_ping(connection_id: str) -> None:
     except Exception as e:
         logger.warning(f"Error updating connection ping: {e}")
 
-def send_message_to_connection(connection_id: str, message: Dict[str, Any]) -> bool:
+def send_message_to_connection(connection_id: str, message: Dict[str, Any], event: Dict[str, Any]) -> bool:
     """
-    Send message to specific WebSocket connection
+    Send message to specific WebSocket connection.
+    Derives the management API endpoint from the event's requestContext — never from global state.
     """
     try:
-        apigateway_client.post_to_connection(
+        mgmt_client = get_ws_client(event)
+        mgmt_client.post_to_connection(
             ConnectionId=connection_id,
             Data=json.dumps(message)
         )
@@ -498,7 +551,6 @@ def send_message_to_connection(connection_id: str, message: Dict[str, Any]) -> b
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == 'GoneException':
-            # Connection is closed, remove it
             logger.info(f"Connection {connection_id} is gone, removing")
             remove_connection(connection_id)
         else:
@@ -508,7 +560,7 @@ def send_message_to_connection(connection_id: str, message: Dict[str, Any]) -> b
         logger.error(f"Error sending message to connection {connection_id}: {e}")
         return False
 
-def send_error_message(connection_id: str, error_message: str) -> None:
+def send_error_message(connection_id: str, error_message: str, event: Dict[str, Any]) -> None:
     """
     Send error message to connection
     """
@@ -517,7 +569,7 @@ def send_error_message(connection_id: str, error_message: str) -> None:
         'message': error_message,
         'timestamp': datetime.utcnow().isoformat()
     }
-    send_message_to_connection(connection_id, error_msg)
+    send_message_to_connection(connection_id, error_msg, event)
 
 def get_user_devices(user_id: str) -> List[str]:
     """
@@ -583,11 +635,17 @@ def get_cognito_client_id() -> str:
 
 def broadcast_water_quality_update(device_id: str, reading_data: Dict[str, Any]) -> None:
     """
-    Broadcast water quality update to subscribed connections
-    This function would be called from the data processing pipeline
+def broadcast_water_quality_update(device_id: str, reading_data: Dict[str, Any]) -> None:
     """
+    Broadcast water quality update to subscribed connections.
+    Called from the data processing pipeline (no WebSocket event available),
+    so uses WEBSOCKET_ENDPOINT env var for the management client.
+    """
+    endpoint = os.environ.get('WEBSOCKET_ENDPOINT')
+    if not endpoint:
+        logger.error("WEBSOCKET_ENDPOINT env var not set — cannot broadcast water quality update")
+        return
     try:
-        # Get connections subscribed to water quality readings for this device
         connections = get_subscribed_connections('water_quality_readings', {'deviceIds': [device_id]})
         
         message = {
@@ -597,13 +655,20 @@ def broadcast_water_quality_update(device_id: str, reading_data: Dict[str, Any])
             'timestamp': datetime.utcnow().isoformat()
         }
         
+        mgmt_client = boto3.client('apigatewaymanagementapi', endpoint_url=endpoint)
         successful_sends = 0
         failed_sends = 0
         
         for connection in connections:
-            if send_message_to_connection(connection['connectionId'], message):
+            try:
+                mgmt_client.post_to_connection(
+                    ConnectionId=connection['connectionId'],
+                    Data=json.dumps(message)
+                )
                 successful_sends += 1
-            else:
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'GoneException':
+                    remove_connection(connection['connectionId'])
                 failed_sends += 1
         
         logger.info(f"Broadcasted water quality update for device {device_id}: "
@@ -614,12 +679,15 @@ def broadcast_water_quality_update(device_id: str, reading_data: Dict[str, Any])
 
 def broadcast_alert(alert_data: Dict[str, Any]) -> None:
     """
-    Broadcast alert to subscribed connections
+    Broadcast alert to subscribed connections.
+    Uses WEBSOCKET_ENDPOINT env var (pipeline context, no WebSocket event).
     """
+    endpoint = os.environ.get('WEBSOCKET_ENDPOINT')
+    if not endpoint:
+        logger.error("WEBSOCKET_ENDPOINT env var not set — cannot broadcast alert")
+        return
     try:
         device_id = alert_data['deviceId']
-        
-        # Get connections subscribed to alerts for this device
         connections = get_subscribed_connections('alerts', {'deviceIds': [device_id]})
         
         message = {
@@ -628,13 +696,20 @@ def broadcast_alert(alert_data: Dict[str, Any]) -> None:
             'timestamp': datetime.utcnow().isoformat()
         }
         
+        mgmt_client = boto3.client('apigatewaymanagementapi', endpoint_url=endpoint)
         successful_sends = 0
         failed_sends = 0
         
         for connection in connections:
-            if send_message_to_connection(connection['connectionId'], message):
+            try:
+                mgmt_client.post_to_connection(
+                    ConnectionId=connection['connectionId'],
+                    Data=json.dumps(message)
+                )
                 successful_sends += 1
-            else:
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'GoneException':
+                    remove_connection(connection['connectionId'])
                 failed_sends += 1
         
         logger.info(f"Broadcasted alert for device {device_id}: "
@@ -645,16 +720,18 @@ def broadcast_alert(alert_data: Dict[str, Any]) -> None:
 
 def broadcast_service_request_update(service_request: Dict[str, Any]) -> None:
     """
-    Broadcast service request update to relevant connections
+    Broadcast service request update to relevant connections.
+    Uses WEBSOCKET_ENDPOINT env var (pipeline context, no WebSocket event).
     """
+    endpoint = os.environ.get('WEBSOCKET_ENDPOINT')
+    if not endpoint:
+        logger.error("WEBSOCKET_ENDPOINT env var not set — cannot broadcast service request update")
+        return
     try:
         consumer_id = service_request['consumerId']
         technician_id = service_request.get('technicianId')
         
-        # Get connections for consumer
         consumer_connections = get_subscribed_connections('service_requests', {'userId': consumer_id})
-        
-        # Get connections for technician if assigned
         technician_connections = []
         if technician_id:
             technician_connections = get_subscribed_connections('service_requests', {'technicianId': technician_id})
@@ -667,13 +744,20 @@ def broadcast_service_request_update(service_request: Dict[str, Any]) -> None:
             'timestamp': datetime.utcnow().isoformat()
         }
         
+        mgmt_client = boto3.client('apigatewaymanagementapi', endpoint_url=endpoint)
         successful_sends = 0
         failed_sends = 0
         
         for connection in all_connections:
-            if send_message_to_connection(connection['connectionId'], message):
+            try:
+                mgmt_client.post_to_connection(
+                    ConnectionId=connection['connectionId'],
+                    Data=json.dumps(message)
+                )
                 successful_sends += 1
-            else:
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'GoneException':
+                    remove_connection(connection['connectionId'])
                 failed_sends += 1
         
         logger.info(f"Broadcasted service request update: "

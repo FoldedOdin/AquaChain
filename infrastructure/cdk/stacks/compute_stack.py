@@ -79,7 +79,7 @@ class AquaChainComputeStack(Stack):
                 "SIGNING_KEY_ID": self.security_resources["ledger_signing_key"].key_id,
                 "REDIS_ENDPOINT": os.environ.get("REDIS_ENDPOINT", ""),  # Will be set after cache stack deployment
                 "WEBSOCKET_CONNECTIONS_TABLE": "AquaChain-WebSocketConnections-dev",
-                "WEBSOCKET_ENDPOINT": "https://p2lgfqqy50.execute-api.ap-south-1.amazonaws.com/dev",
+                "WEBSOCKET_ENDPOINT": "https://nnznduptme.execute-api.ap-south-1.amazonaws.com/dev",
                 "COGNITO_USER_POOL_ID": os.environ.get("COGNITO_USER_POOL_ID", "ap-south-1_QUDl7hG8u")
             },
             "tracing": lambda_.Tracing.ACTIVE if self.config["enable_xray_tracing"] else lambda_.Tracing.DISABLED,
@@ -142,7 +142,7 @@ class AquaChainComputeStack(Stack):
                 effect=iam.Effect.ALLOW,
                 actions=["execute-api:ManageConnections"],
                 resources=[
-                    f"arn:aws:execute-api:{self.region}:{self.account}:p2lgfqqy50/dev/POST/@connections/*"
+                    f"arn:aws:execute-api:{self.region}:{self.account}:nnznduptme/dev/POST/@connections/*"
                 ]
             )
         )
@@ -196,10 +196,30 @@ class AquaChainComputeStack(Stack):
             **{k: v for k, v in common_lambda_config.items() if k != "environment"},
             environment={
                 **common_lambda_config.get("environment", {}),
+                "ALERTS_TABLE": get_resource_name(self.config, "table", "alerts"),
+                "DEVICES_TABLE": get_resource_name(self.config, "table", "devices"),
                 "CRITICAL_ALERTS_TOPIC_ARN": self.security_resources["critical_alerts_topic"].topic_arn,
                 "WARNING_ALERTS_TOPIC_ARN": self.security_resources["notifications_topic"].topic_arn,
                 "NOTIFICATION_LAMBDA_NAME": get_resource_name(self.config, "function", "notification"),
             }
+        )
+
+        # Grant alert_detection Lambda read/write access to the Alerts table
+        self.alert_detection_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'alerts')}",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{get_resource_name(self.config, 'table', 'alerts')}/index/*",
+                ]
+            )
         )
         
         # User Management Lambda

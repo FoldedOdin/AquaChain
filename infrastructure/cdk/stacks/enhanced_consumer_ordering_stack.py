@@ -640,7 +640,7 @@ class EnhancedConsumerOrderingStack(Stack):
         # Update Lambda environment variables with WebSocket API details
         websocket_endpoint = f"https://{self.websocket_api.api_id}.execute-api.{self.region}.amazonaws.com/{self.config['environment']}"
         for function in [self.websocket_connect_function, self.websocket_disconnect_function, self.websocket_broadcast_function]:
-            function.add_environment("WEBSOCKET_API_ENDPOINT", websocket_endpoint)
+            function.add_environment("WEBSOCKET_ENDPOINT", websocket_endpoint)
         
         self.ordering_resources.update({
             "websocket_api": self.websocket_api,

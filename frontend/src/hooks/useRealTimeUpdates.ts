@@ -39,6 +39,16 @@ export function useRealTimeUpdates(
   
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isDevelopment = process.env.NODE_ENV === 'development';
+  const isMountedRef = useRef(false);
+  // Latest handler ref — updated every render so stableHandler always delegates
+  // to the most current closure without changing its own identity.
+  const handleMessageRef = useRef<(data: any) => void>(null as any);
+  // Stable subscriber — same object reference for the lifetime of this hook instance.
+  // Registered once with websocketService; StrictMode unmount/remount won't create
+  // a mismatched reference that bypasses the subscriber removal check.
+  const stableHandler = useRef<(data: any) => void>((data) => {
+    handleMessageRef.current?.(data);
+  }).current;
 
   // Message handler for WebSocket updates
   const handleMessage = useCallback((data: any) => {
@@ -95,6 +105,10 @@ export function useRealTimeUpdates(
     }
   }, [topic, isDevelopment]);
 
+  // Keep the ref in sync with the latest handler — but the ref itself is stable
+  // so websocketService always holds the same function reference.
+  handleMessageRef.current = handleMessage;
+
   // Connect to WebSocket
   const connect = useCallback(() => {
     if (!enableInDevelopment && isDevelopment) {
@@ -108,10 +122,11 @@ export function useRealTimeUpdates(
       setConnectionStatus('connecting');
       setError(null);
       
-      websocketService.connect(topic, handleMessage);
+      websocketService.connect(topic, stableHandler);
       
       // Check connection status after a delay
       setTimeout(() => {
+        if (!isMountedRef.current) return;
         const status = websocketService.getConnectionStatus(topic);
         if (status) {
           setIsConnected(status.isConnected);
@@ -132,7 +147,7 @@ export function useRealTimeUpdates(
   // Disconnect from WebSocket
   const disconnect = useCallback(() => {
     try {
-      websocketService.disconnect(topic, handleMessage);
+      websocketService.disconnect(topic, stableHandler);
       setIsConnected(false);
       setConnectionStatus('disconnected');
       setError(null);
@@ -149,15 +164,22 @@ export function useRealTimeUpdates(
 
   // Auto-connect on mount
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (autoConnect && enabled) {
       connect();
     }
 
     // Cleanup on unmount
     return () => {
+      isMountedRef.current = false;
       disconnect();
     };
-  }, [autoConnect, enabled, connect, disconnect]);
+    // connect/disconnect are intentionally excluded: including them causes
+    // StrictMode to disconnect immediately after connecting on the first render.
+    // autoConnect and enabled are the only values that should re-trigger this effect.
+    // eslint-disable-next-line
+  }, [autoConnect, enabled]);
 
   // Development mode fallback - simulate updates
   useEffect(() => {

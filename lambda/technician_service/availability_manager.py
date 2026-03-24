@@ -170,20 +170,26 @@ class TechnicianAvailabilityManager:
                 'details': f'Error checking schedule: {str(e)}'
             }
     
+    # Maximum concurrent active tasks a technician can have at once.
+    # Set to 1 to restore the original single-task behaviour.
+    MAX_CONCURRENT_TASKS = 3
+
     def check_active_service_requests(self, technician_id: str) -> Dict:
         """
-        Check if technician has any active service requests
-        
+        Check if technician has reached their maximum concurrent active service requests.
+
+        A technician is considered unavailable only when they already have
+        MAX_CONCURRENT_TASKS or more tasks in an active state
+        (accepted, en_route, or in_progress).
+
         Args:
             technician_id: Technician's user ID
-            
+
         Returns:
             Dict with active request check results
         """
         try:
             # Query service requests for this technician with active statuses
-            active_statuses = ['accepted', 'en_route', 'in_progress']
-            
             response = self.service_requests_table.scan(
                 FilterExpression='technicianId = :tid AND #status IN (:accepted, :en_route, :in_progress)',
                 ExpressionAttributeNames={'#status': 'status'},
@@ -194,31 +200,38 @@ class TechnicianAvailabilityManager:
                     ':in_progress': 'in_progress'
                 }
             )
-            
+
             active_requests = response['Items']
-            
-            if active_requests:
-                request_details = []
-                for request in active_requests:
-                    request_details.append({
-                        'requestId': request['requestId'],
-                        'status': request['status'],
-                        'createdAt': request['createdAt']
-                    })
-                
+            active_count = len(active_requests)
+
+            if active_count >= self.MAX_CONCURRENT_TASKS:
+                request_details = [
+                    {
+                        'requestId': r['requestId'],
+                        'status': r['status'],
+                        'createdAt': r['createdAt']
+                    }
+                    for r in active_requests
+                ]
                 return {
                     'has_active': True,
-                    'count': len(active_requests),
-                    'details': f'Technician has {len(active_requests)} active service request(s)',
+                    'count': active_count,
+                    'details': (
+                        f'Technician has {active_count} active service request(s) '
+                        f'(max {self.MAX_CONCURRENT_TASKS})'
+                    ),
                     'requests': request_details
                 }
-            else:
-                return {
-                    'has_active': False,
-                    'count': 0,
-                    'details': 'No active service requests'
-                }
-                
+
+            return {
+                'has_active': False,
+                'count': active_count,
+                'details': (
+                    f'Technician has {active_count} active task(s), '
+                    f'below the limit of {self.MAX_CONCURRENT_TASKS}'
+                )
+            }
+
         except Exception as e:
             logger.error(f"Error checking active service requests: {str(e)}")
             return {
