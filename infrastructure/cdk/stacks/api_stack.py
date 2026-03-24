@@ -1070,6 +1070,40 @@ class AquaChainApiStack(Stack):
                     )
                 ]
             )
+
+            # /api/admin/audit/auth-stats - Authentication activity stats
+            admin_audit_auth_stats_resource = admin_audit_resource.add_resource(
+                "auth-stats",
+                default_cors_preflight_options=apigateway.CorsOptions(
+                    allow_origins=apigateway.Cors.ALL_ORIGINS,
+                    allow_methods=["GET", "OPTIONS"],
+                    allow_headers=[
+                        "Content-Type",
+                        "Authorization",
+                        "X-Amz-Date",
+                        "X-Api-Key",
+                        "X-Amz-Security-Token",
+                        "X-Requested-With",
+                    ],
+                    allow_credentials=False,
+                )
+            )
+            admin_audit_auth_stats_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True
+                        }
+                    )
+                ]
+            )
             
             # /api/admin/devices - Device management
             admin_devices_resource = api_admin.add_resource("devices")
@@ -1437,28 +1471,16 @@ class AquaChainApiStack(Stack):
             )
 
             # /api/notifications/broadcast (must be before {notificationId} wildcard)
-            broadcast_resource = notifications_resource.add_resource(
-                "broadcast",
-                default_cors_preflight_options=notification_cors_options
-            )
-            broadcast_resource.add_method(
-                "POST",
-                notification_integration,
-                authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
-            )
+            # NOTE: This resource and its POST method already exist in API Gateway (resource id: kyoa4w)
+            # as orphaned resources not tracked by CloudFormation. They are fully functional.
+            # We do NOT define them here to avoid CREATE_FAILED 409 conflicts.
+            # To bring them under IaC management, a CloudFormation import operation is required.
 
             # /api/notifications/announcements (must be before {notificationId} wildcard)
-            announcements_resource = notifications_resource.add_resource(
-                "announcements",
-                default_cors_preflight_options=notification_cors_options
-            )
-            announcements_resource.add_method(
-                "GET",
-                notification_integration,
-                authorizer=self.cognito_authorizer,
-                authorization_type=apigateway.AuthorizationType.COGNITO
-            )
+            # NOTE: This resource and its GET method already exist in API Gateway (resource id: 8gqmr2)
+            # as orphaned resources not tracked by CloudFormation. They are fully functional.
+            # We do NOT define them here to avoid CREATE_FAILED 409 conflicts.
+            # To bring them under IaC management, a CloudFormation import operation is required.
 
             # /api/notifications/{notificationId}
             notification_id_resource = notifications_resource.add_resource(

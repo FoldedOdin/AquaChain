@@ -1539,18 +1539,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
-            {/* SIMULATED DATA Warning Banner */}
-            <div className="mb-6 p-4 bg-gradient-to-r from-yellow-50 to-amber-50 border-l-4 border-yellow-400 rounded-lg">
-              <div className="flex items-center gap-3">
-                <span className="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-full font-semibold">
-                  ⚠️ SIMULATED DATA FOR DEMO
-                </span>
-                <p className="text-sm text-gray-700">
-                  Security, audit trail, and compliance data shown below is mock data for demonstration purposes.
-                </p>
-              </div>
-            </div>
-
             {/* Authentication Activity - Full Width */}
             <div className="mb-6">
               <AuthenticationActivity />

@@ -7,7 +7,7 @@ import json
 import os
 import boto3
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Any, Optional
 from botocore.exceptions import ClientError
@@ -19,11 +19,13 @@ s3_client = boto3.client('s3')
 # Environment variables
 AUDIT_LOGS_TABLE = os.environ.get('AUDIT_LOGS_TABLE', 'AquaChain-SecurityAuditLogs')
 INTEGRITY_HASHES_TABLE = os.environ.get('INTEGRITY_HASHES_TABLE', 'AquaChain-IntegrityHashes')
+AUTH_EVENTS_TABLE = os.environ.get('AUTH_EVENTS_TABLE', 'AquaChain-AuthEvents')
 EXPORT_BUCKET = os.environ.get('EXPORT_BUCKET', 'aquachain-audit-exports')
 
 # DynamoDB tables
 audit_logs_table = dynamodb.Table(AUDIT_LOGS_TABLE)
 integrity_hashes_table = dynamodb.Table(INTEGRITY_HASHES_TABLE)
+auth_events_table = dynamodb.Table(AUTH_EVENTS_TABLE)
 
 
 def lambda_handler(event, context):
@@ -38,7 +40,11 @@ def lambda_handler(event, context):
         path_params = event.get('pathParameters') or {}
         
         # Route to appropriate handler
-        if '/admin/security/audit' in path:
+        if '/admin/audit/auth-stats' in path:
+            if http_method == 'GET':
+                return _get_auth_stats(query_params)
+
+        elif '/admin/security/audit' in path:
             if http_method == 'GET' and path == '/admin/security/audit':
                 return _get_audit_logs(query_params)
             elif http_method == 'POST' and '/export' in path:
@@ -55,6 +61,122 @@ def lambda_handler(event, context):
     except Exception as e:
         print(f"Error in lambda_handler: {str(e)}")
         return _create_response(500, {'error': 'Internal server error', 'details': str(e)})
+
+
+def _get_auth_stats(query_params: Dict) -> Dict:
+    """
+    Return authentication activity stats for the last N hours.
+    Reads from AquaChain-AuthEvents table written by auth_service/audit_logger.py.
+    Schema: PK=email (str), SK=timestamp (ISO str), eventType, status, ipAddress, userAgent
+    """
+    try:
+        hours = int(query_params.get('hours', '24'))
+        limit = int(query_params.get('limit', '20'))
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+        # Scan for events within the time window
+        scan_kwargs: Dict[str, Any] = {
+            'FilterExpression': '#ts >= :cutoff',
+            'ExpressionAttributeNames': {'#ts': 'timestamp'},
+            'ExpressionAttributeValues': {':cutoff': cutoff},
+        }
+
+        items: List[Dict] = []
+        response = auth_events_table.scan(**scan_kwargs)
+        items.extend(response.get('Items', []))
+        while 'LastEvaluatedKey' in response and len(items) < 5000:
+            response = auth_events_table.scan(
+                **scan_kwargs,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response.get('Items', []))
+
+        # Aggregate summary
+        successful = 0
+        failed = 0
+        blocked = 0
+        mfa_enabled_users: set = set()
+        total_users: set = set()
+
+        # Timeline buckets keyed by hour string (YYYY-MM-DDTHH)
+        timeline_buckets: Dict[str, Dict[str, int]] = {}
+
+        for item in items:
+            status = item.get('status', '')
+            email = item.get('email', '')
+            ts = item.get('timestamp', '')
+            event_type = item.get('eventType', '')
+
+            if email:
+                total_users.add(email)
+
+            if status == 'SUCCESS':
+                successful += 1
+            elif status in ('FAILURE', 'FAILED'):
+                failed += 1
+            elif status in ('LOCKED', 'RATE_LIMITED'):
+                blocked += 1
+
+            # MFA: count users who have MFA-related success events
+            if 'MFA' in event_type and status == 'SUCCESS' and email:
+                mfa_enabled_users.add(email)
+
+            # Build hourly timeline bucket
+            if ts:
+                hour_key = ts[:13]  # YYYY-MM-DDTHH
+                if hour_key not in timeline_buckets:
+                    timeline_buckets[hour_key] = {'success': 0, 'failed': 0}
+                if status == 'SUCCESS':
+                    timeline_buckets[hour_key]['success'] += 1
+                elif status in ('FAILURE', 'FAILED'):
+                    timeline_buckets[hour_key]['failed'] += 1
+
+        mfa_pct = (
+            round(len(mfa_enabled_users) / len(total_users) * 100)
+            if total_users else 0
+        )
+
+        # Build sorted timeline list
+        timeline = [
+            {'hour': k, 'success': v['success'], 'failed': v['failed']}
+            for k, v in sorted(timeline_buckets.items())
+        ]
+
+        # Build recent events list (newest first, capped at limit)
+        items_sorted = sorted(items, key=lambda x: x.get('timestamp', ''), reverse=True)
+        recent_events = []
+        for idx, item in enumerate(items_sorted[:limit]):
+            status = item.get('status', 'UNKNOWN')
+            event_type = item.get('eventType', 'LOGIN')
+            recent_events.append({
+                'id': f"{item.get('email', '')}#{item.get('timestamp', '')}#{idx}",
+                'user': item.get('email', 'unknown'),
+                'action': event_type,
+                'status': status,
+                'ip': item.get('ipAddress', 'unknown'),
+                'timestamp': item.get('timestamp', ''),
+                'userAgent': item.get('userAgent', ''),
+            })
+
+        result = {
+            'summary': {
+                'successfulLogins': successful,
+                'failedLogins': failed,
+                'blockedAccounts': blocked,
+                'mfaEnabledPercentage': mfa_pct,
+                'periodHours': hours,
+                'totalEvents': len(items),
+            },
+            'recentEvents': recent_events,
+            'timeline': timeline,
+        }
+
+        return _create_response(200, result)
+
+    except Exception as e:
+        print(f"Error in _get_auth_stats: {str(e)}")
+        return _create_response(500, {'error': 'Failed to retrieve auth stats', 'details': str(e)})
 
 
 def _get_audit_logs(query_params: Dict) -> Dict:

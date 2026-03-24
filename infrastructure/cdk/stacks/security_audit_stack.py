@@ -214,6 +214,7 @@ class SecurityAuditStack(Stack):
                 "SESSIONS_TABLE": self.sessions_table.table_name,
                 "SESSION_BLACKLIST_TABLE": self.session_blacklist_table.table_name,
                 "EXPORT_BUCKET": self.export_bucket.bucket_name,
+                "AUTH_EVENTS_TABLE": f"AquaChain-AuthEvents",
                 "ENVIRONMENT": self.config['environment']
             }
         )
@@ -225,6 +226,17 @@ class SecurityAuditStack(Stack):
         self.session_blacklist_table.grant_read_write_data(self.security_audit_lambda)
         self.export_bucket.grant_read_write(self.security_audit_lambda)
         self.kms_key.grant_encrypt_decrypt(self.security_audit_lambda)
+
+        # Grant read access to the auth events table (created by auth stack)
+        self.security_audit_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:Scan", "dynamodb:Query", "dynamodb:GetItem"],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/AquaChain-AuthEvents",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/AquaChain-AuthEvents/index/*",
+                ]
+            )
+        )
     
     @property
     def outputs(self) -> Dict[str, Any]:

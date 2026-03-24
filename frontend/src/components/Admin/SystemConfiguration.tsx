@@ -8,6 +8,7 @@ import {
   getConfigurationHistory,
   rollbackConfiguration
 } from '../../services/adminService';
+import { notificationService } from '../../services/notificationService';
 import ConfigurationConfirmModal from './ConfigurationConfirmModal';
 import SeverityThresholdSection from './SeverityThresholdSection';
 import MLSettingsSection from './MLSettingsSection';
@@ -177,6 +178,20 @@ const SystemConfiguration = () => {
       setFormData(JSON.parse(JSON.stringify(updated)));
       setEditMode(false);
       setValidationErrors([]);
+
+      // Notify all users that alert thresholds have been updated
+      try {
+        await notificationService.broadcastAnnouncement({
+          title: 'Alert Thresholds Updated',
+          message: 'Water quality warning and critical threshold levels have been updated by an administrator. Your alerts will now reflect the new limits.',
+          type: 'info',
+          audience: 'all',
+        });
+      } catch (notifyErr) {
+        // Non-fatal — config was saved successfully; log and continue
+        console.warn('Could not broadcast threshold update notification:', notifyErr);
+      }
+
       alert('Configuration updated successfully');
     } catch (error) {
       console.error('Error updating configuration:', error);

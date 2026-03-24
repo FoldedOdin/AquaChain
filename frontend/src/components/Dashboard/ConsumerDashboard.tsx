@@ -53,6 +53,7 @@ import DemoDeviceModal from './DemoDeviceModal';
 import PluggableDeviceManager from './PluggableDeviceManager';
 import DataSourceIndicator from '../common/DataSourceIndicator';
 import { ReadingHistoryModal } from './ReadingHistoryModal';
+import { getSystemConfiguration } from '../../services/adminService';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -114,6 +115,10 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const [issueSubmitted, setIssueSubmitted] = useState(false);
   const [showReadingHistory, setShowReadingHistory] = useState(false);
   const [showDataExport, setShowDataExport] = useState(false);
+
+  // Alert thresholds — loaded lazily when the user opens Settings
+  const [alertThresholds, setAlertThresholds] = useState<any>(null);
+  const [thresholdsLoading, setThresholdsLoading] = useState(false);
 
   // ✅ Fetch real data from API using proper hooks
   const { data: devices, isLoading: devicesLoading, error: devicesError, refetch: refetchDevices } = useDevices();
@@ -318,6 +323,17 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const toggleSettings = useCallback(() => {
     setShowSettings(prev => !prev);
   }, []);
+
+  // Load thresholds when settings panel opens (lazy — only once)
+  useEffect(() => {
+    if (showSettings && !alertThresholds && !thresholdsLoading) {
+      setThresholdsLoading(true);
+      getSystemConfiguration()
+        .then(cfg => setAlertThresholds(cfg?.alertThresholds?.global ?? null))
+        .catch(() => setAlertThresholds(null))
+        .finally(() => setThresholdsLoading(false));
+    }
+  }, [showSettings]); // eslint-disable-line
 
   const toggleFullReport = useCallback(() => {
     setShowFullReport(prev => !prev);
@@ -980,6 +996,108 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                   📊 <strong>Complete data access:</strong> View your water quality history and export data in CSV, PDF, or JSON formats.
                 </p>
               </div>
+            </div>
+
+            {/* Water Quality Alert Thresholds */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Water Quality Alert Thresholds</h2>
+              <p className="text-sm text-gray-500 mb-4">Current warning and critical levels set by your administrator.</p>
+
+              {thresholdsLoading && (
+                <div className="flex items-center gap-2 text-gray-500 text-sm py-4">
+                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                  <span>Loading thresholds…</span>
+                </div>
+              )}
+
+              {!thresholdsLoading && !alertThresholds && (
+                <p className="text-sm text-gray-400 italic">Threshold data unavailable.</p>
+              )}
+
+              {!thresholdsLoading && alertThresholds && (() => {
+                const params = [
+                  {
+                    label: 'pH',
+                    icon: '🧪',
+                    warning: alertThresholds.pH?.warning,
+                    critical: alertThresholds.pH?.critical,
+                    format: (v: number) => v.toFixed(1),
+                    rangeLabel: (w: any, c: any) =>
+                      `Warning: ${w?.min ?? '—'} – ${w?.max ?? '—'} | Critical: ${c?.min ?? '—'} – ${c?.max ?? '—'}`,
+                  },
+                  {
+                    label: 'Turbidity',
+                    icon: '💧',
+                    warning: alertThresholds.turbidity?.warning,
+                    critical: alertThresholds.turbidity?.critical,
+                    format: (v: number) => `${v} NTU`,
+                    rangeLabel: (w: any, c: any) =>
+                      `Warning: ≤ ${w?.max ?? '—'} NTU | Critical: ≤ ${c?.max ?? '—'} NTU`,
+                  },
+                  {
+                    label: 'TDS',
+                    icon: '⚗️',
+                    warning: alertThresholds.tds?.warning,
+                    critical: alertThresholds.tds?.critical,
+                    format: (v: number) => `${v} ppm`,
+                    rangeLabel: (w: any, c: any) =>
+                      `Warning: ≤ ${w?.max ?? '—'} ppm | Critical: ≤ ${c?.max ?? '—'} ppm`,
+                  },
+                  {
+                    label: 'Temperature',
+                    icon: '🌡️',
+                    warning: alertThresholds.temperature?.warning,
+                    critical: alertThresholds.temperature?.critical,
+                    format: (v: number) => `${v}°C`,
+                    rangeLabel: (w: any, c: any) =>
+                      `Warning: ${w?.min ?? '—'}°C – ${w?.max ?? '—'}°C | Critical: ${c?.min ?? '—'}°C – ${c?.max ?? '—'}°C`,
+                  },
+                ];
+
+                return (
+                  <div className="space-y-3">
+                    {params.map(p => (
+                      <div key={p.label} className="border border-gray-100 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-base">{p.icon}</span>
+                          <span className="font-medium text-gray-800 text-sm">{p.label}</span>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <div className="flex-1 flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-md px-3 py-2">
+                            <ExclamationTriangleIcon className="w-4 h-4 text-yellow-600 flex-shrink-0" />
+                            <div>
+                              <p className="text-xs font-medium text-yellow-700">Warning</p>
+                              <p className="text-xs text-yellow-800">
+                                {p.warning
+                                  ? p.label === 'Turbidity' || p.label === 'TDS'
+                                    ? `≤ ${p.warning.max ?? '—'}`
+                                    : `${p.warning.min ?? '—'} – ${p.warning.max ?? '—'}`
+                                  : '—'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex-1 flex items-center gap-2 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                            <XMarkIcon className="w-4 h-4 text-red-600 flex-shrink-0" />
+                            <div>
+                              <p className="text-xs font-medium text-red-700">Critical</p>
+                              <p className="text-xs text-red-800">
+                                {p.critical
+                                  ? p.label === 'Turbidity' || p.label === 'TDS'
+                                    ? `≤ ${p.critical.max ?? '—'}`
+                                    : `${p.critical.min ?? '—'} – ${p.critical.max ?? '—'}`
+                                  : '—'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-400 mt-2">
+                      Thresholds are configured by your administrator and may change over time.
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
           </motion.div>
         </main>

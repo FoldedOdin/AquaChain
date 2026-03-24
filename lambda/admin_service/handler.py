@@ -47,6 +47,7 @@ DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
 AUDIT_TABLE = os.environ.get('AUDIT_TABLE', 'AquaChain-AuditLogs')
 CONFIG_TABLE = os.environ.get('CONFIG_TABLE', 'AquaChain-SystemConfig')
 CONFIG_HISTORY_TABLE = os.environ.get('CONFIG_HISTORY_TABLE', 'AquaChain-ConfigHistory')
+AUTH_EVENTS_TABLE = os.environ.get('AUTH_EVENTS_TABLE', 'AquaChain-AuthEvents')
 
 # ============================================================================
 # PII MASKING UTILITIES (Security Layer)
@@ -991,6 +992,8 @@ def _handle_audit_management(method: str, path: str, query_params: Dict):
     """
     if method == 'GET' and path == '/api/admin/audit/trail':
         return _get_audit_trail(query_params)
+    elif method == 'GET' and path == '/api/admin/audit/auth-stats':
+        return _get_auth_stats(query_params)
     else:
         return _create_response(404, {'error': 'Audit management endpoint not found'})
 
@@ -1027,6 +1030,140 @@ def _get_audit_trail(query_params: Dict):
     except Exception as e:
         logger.error(f"Error fetching audit trail: {str(e)}")
         return _create_response(500, {'error': 'Failed to fetch audit trail'})
+
+
+def _get_auth_stats(query_params: Dict):
+    """
+    Get authentication activity stats for the last 24 hours from AquaChain-AuthEvents table.
+    Returns summary counts and recent login events for the Security & Audit dashboard.
+    """
+    try:
+        from boto3.dynamodb.conditions import Attr
+        from datetime import timezone
+
+        hours = int(query_params.get('hours', 24))
+        limit = int(query_params.get('limit', 20))
+
+        cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+
+        auth_table = dynamodb.Table(AUTH_EVENTS_TABLE)
+
+        # Scan with filter — AuthEvents table uses email as PK so a full scan is needed
+        # for cross-user stats. Limit is applied after filtering.
+        try:
+            scan_resp = auth_table.scan(
+                FilterExpression=Attr('timestamp').gte(cutoff),
+            )
+            items = scan_resp.get('Items', [])
+
+            # Paginate if needed (up to 500 items for stats accuracy)
+            while 'LastEvaluatedKey' in scan_resp and len(items) < 500:
+                scan_resp = auth_table.scan(
+                    FilterExpression=Attr('timestamp').gte(cutoff),
+                    ExclusiveStartKey=scan_resp['LastEvaluatedKey'],
+                )
+                items.extend(scan_resp.get('Items', []))
+        except dynamodb.meta.client.exceptions.ResourceNotFoundException:
+            # AuthEvents table not yet provisioned — return empty stats gracefully
+            logger.info(f"Auth events table '{AUTH_EVENTS_TABLE}' not found, returning empty stats")
+            items = []
+
+        # Compute summary counts
+        successful = sum(1 for i in items if i.get('status') == 'SUCCESS')
+        failed = sum(1 for i in items if i.get('status') == 'FAILURE')
+        locked = sum(1 for i in items if i.get('eventType') == 'ACCOUNT_LOCKED')
+
+        # MFA enabled: query Cognito user pool for MFA stats
+        mfa_percentage = None
+        try:
+            cognito = boto3.client('cognito-idp', region_name=REGION)
+            paginator = cognito.get_paginator('list_users')
+            total_users = 0
+            mfa_users = 0
+            for page in paginator.paginate(UserPoolId=USER_POOL_ID, Limit=60):
+                for u in page.get('Users', []):
+                    total_users += 1
+                    prefs = u.get('MFAOptions') or []
+                    # Also check UserMFASettingList
+                    mfa_settings = u.get('UserMFASettingList') or []
+                    if prefs or mfa_settings:
+                        mfa_users += 1
+            if total_users > 0:
+                mfa_percentage = round((mfa_users / total_users) * 100)
+        except Exception as mfa_err:
+            logger.warning(f"Could not fetch MFA stats: {mfa_err}")
+
+        # Build recent login events (most recent first, capped at limit)
+        login_events = sorted(
+            [i for i in items if i.get('eventType') in (
+                'SIGNIN', 'LOGIN', 'TOKEN_VALIDATION', 'TOKEN_REFRESH',
+                'OTP_VERIFIED', 'USER_REGISTERED', 'ACCOUNT_LOCKED'
+            )],
+            key=lambda x: x.get('timestamp', ''),
+            reverse=True
+        )[:limit]
+
+        recent_events = []
+        for ev in login_events:
+            status = ev.get('status', '')
+            event_type = ev.get('eventType', '')
+            if status == 'SUCCESS':
+                action_label = 'Login Success'
+            elif status == 'FAILURE':
+                action_label = 'Login Failed'
+            elif status == 'LOCKED' or event_type == 'ACCOUNT_LOCKED':
+                action_label = 'Account Locked'
+            elif status == 'RATE_LIMITED':
+                action_label = 'Rate Limited'
+            else:
+                action_label = event_type.replace('_', ' ').title()
+
+            recent_events.append({
+                'id': f"{ev.get('email', '')}#{ev.get('timestamp', '')}",
+                'user': ev.get('email', 'unknown'),
+                'action': action_label,
+                'status': status,
+                'ip': ev.get('ipAddress', 'unknown'),
+                'timestamp': ev.get('timestamp', ''),
+                'userAgent': ev.get('userAgent', ''),
+            })
+
+        # Hourly breakdown for timeline chart (last 24 hours)
+        from collections import defaultdict
+        hourly = defaultdict(lambda: {'success': 0, 'failed': 0})
+        for ev in items:
+            ts = ev.get('timestamp', '')
+            if ts:
+                try:
+                    hour_key = ts[:13]  # "YYYY-MM-DDTHH"
+                    if ev.get('status') == 'SUCCESS':
+                        hourly[hour_key]['success'] += 1
+                    elif ev.get('status') == 'FAILURE':
+                        hourly[hour_key]['failed'] += 1
+                except Exception:
+                    pass
+
+        timeline = [
+            {'hour': k, 'success': v['success'], 'failed': v['failed']}
+            for k, v in sorted(hourly.items())
+        ]
+
+        return _create_response(200, {
+            'summary': {
+                'successfulLogins': successful,
+                'failedLogins': failed,
+                'blockedAccounts': locked,
+                'mfaEnabledPercentage': mfa_percentage,
+                'periodHours': hours,
+                'totalEvents': len(items),
+            },
+            'recentEvents': recent_events,
+            'timeline': timeline,
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching auth stats: {str(e)}")
+        return _create_response(500, {'error': 'Failed to fetch authentication statistics'})
 
 def _handle_device_management(method: str, path: str, query_params: Dict):
     """
