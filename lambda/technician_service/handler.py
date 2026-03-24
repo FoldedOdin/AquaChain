@@ -32,9 +32,10 @@ logger = get_logger(__name__, service='technician-service')
 dynamodb = boto3.resource('dynamodb')
 location_client = boto3.client('location')
 sns = boto3.client('sns')
+ses = boto3.client('ses', region_name='ap-south-1')
 
 # Environment variables
-USERS_TABLE = os.environ.get('USERS_TABLE', 'aquachain-users')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
 SERVICE_REQUESTS_TABLE = os.environ.get('SERVICE_REQUESTS_TABLE', 'aquachain-service-requests')
 LOCATION_MAP_NAME = os.environ.get('LOCATION_MAP_NAME', 'aquachain-map')
 LOCATION_ROUTE_CALCULATOR = os.environ.get('LOCATION_ROUTE_CALCULATOR', 'aquachain-routes')
@@ -42,6 +43,7 @@ LOCATION_PLACE_INDEX = os.environ.get('LOCATION_PLACE_INDEX', 'aquachain-places'
 ADMIN_TOPIC_ARN = os.environ.get('ADMIN_TOPIC_ARN')
 NOTIFICATION_TOPIC_ARN = os.environ.get('NOTIFICATION_TOPIC_ARN')
 WEBSOCKET_API_ENDPOINT = os.environ.get('WEBSOCKET_API_ENDPOINT')
+SES_FROM_EMAIL = os.environ.get('SES_FROM_EMAIL', 'contact.aquachain@gmail.com')
 
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE', 'aquachain-orders')
 
@@ -827,6 +829,71 @@ def request_inventory_restock(restock_data: dict, user_info: dict):
 
 
 
+def _send_technician_accepted_email(
+    consumer_email: str,
+    consumer_name: str,
+    technician_name: str,
+    order_id: str,
+    technician_phone: str
+) -> None:
+    """Send SES email to consumer when a technician accepts their order."""
+    try:
+        if not consumer_email or not SES_FROM_EMAIL:
+            logger.warning("Skipping acceptance email: missing consumer_email or SES_FROM_EMAIL")
+            return
+
+        subject = 'A Technician Has Accepted Your Installation Request'
+        body_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #0066cc;">Technician Assigned ✅</h2>
+                <p>Hi {consumer_name},</p>
+                <p>Great news! A technician has accepted your installation request and will be in touch with you shortly.</p>
+
+                <div style="background-color: #f0f9ff; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #0066cc;">
+                    <p style="margin: 5px 0;"><strong>Order ID:</strong> {order_id}</p>
+                    <p style="margin: 5px 0;"><strong>Technician:</strong> {technician_name}</p>
+                    <p style="margin: 5px 0;"><strong>Contact:</strong> {technician_phone or 'Will be provided soon'}</p>
+                </div>
+
+                <h3 style="color: #0066cc;">What Happens Next?</h3>
+                <ul>
+                    <li>Your technician will contact you to confirm the installation time</li>
+                    <li>The installation typically takes 30–45 minutes</li>
+                    <li>Please ensure someone is available at the delivery address</li>
+                </ul>
+
+                <p>You can track the status of your order in the AquaChain dashboard at any time.</p>
+                <p style="margin-top: 30px;">Best regards,<br>The AquaChain Team</p>
+            </div>
+        </body>
+        </html>
+        """
+        body_text = (
+            f"Hi {consumer_name}, a technician ({technician_name}) has accepted your "
+            f"installation request for order {order_id}. "
+            f"They will contact you shortly. Phone: {technician_phone or 'TBD'}."
+        )
+
+        ses.send_email(
+            Source=SES_FROM_EMAIL,
+            Destination={'ToAddresses': [consumer_email]},
+            Message={
+                'Subject': {'Data': subject},
+                'Body': {
+                    'Html': {'Data': body_html},
+                    'Text': {'Data': body_text}
+                }
+            }
+        )
+        logger.info(f"Technician-accepted email sent to {consumer_email} for order {order_id}")
+
+    except Exception as e:
+        # Non-fatal — log and continue; don't fail the accept flow
+        logger.error(f"Failed to send technician-accepted email to {consumer_email}: {str(e)}")
+
+
 def accept_technician_task(task_id: str, user_info: dict):
     """Accept a task assignment.
 
@@ -906,6 +973,38 @@ def accept_technician_task(task_id: str, user_info: dict):
                     )
                 except Exception as notify_err:
                     logger.error(f"Failed to send acceptance notification for order {task_id}: {str(notify_err)}")
+
+            # Send SES email directly to the consumer
+            try:
+                # Fetch consumer profile
+                consumer_resp = users_table.get_item(Key={'userId': consumer_id}) if consumer_id else {}
+                consumer_record = consumer_resp.get('Item', {})
+                consumer_email = consumer_record.get('email', order.get('consumerEmail', ''))
+                consumer_profile = consumer_record.get('profile', {})
+                consumer_name = (
+                    f"{consumer_profile.get('firstName', '')} {consumer_profile.get('lastName', '')}".strip()
+                    or order.get('consumerName', 'Customer')
+                )
+
+                # Fetch technician profile
+                tech_resp = users_table.get_item(Key={'userId': technician_id}) if technician_id else {}
+                tech_record = tech_resp.get('Item', {})
+                tech_profile = tech_record.get('profile', {})
+                technician_name = (
+                    f"{tech_profile.get('firstName', '')} {tech_profile.get('lastName', '')}".strip()
+                    or 'Your Technician'
+                )
+                technician_phone = tech_profile.get('phone', '')
+
+                _send_technician_accepted_email(
+                    consumer_email=consumer_email,
+                    consumer_name=consumer_name,
+                    technician_name=technician_name,
+                    order_id=task_id,
+                    technician_phone=technician_phone
+                )
+            except Exception as email_err:
+                logger.error(f"Error preparing acceptance email for order {task_id}: {str(email_err)}")
 
             return create_response(200, {
                 'success': True,
