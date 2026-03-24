@@ -49,26 +49,60 @@ def handler(event, context):
                 })
             }
         
+        # Also check for consumerId query param as a fallback
+        query_params = event.get('queryStringParameters') or {}
+        param_consumer_id = query_params.get('consumerId') or query_params.get('userId')
+        
+        print(f"JWT sub (consumer_id): {consumer_id}")
+        print(f"Query param consumerId: {param_consumer_id}")
+        
         # Query orders table for this user
         orders_table = dynamodb.Table(ORDERS_TABLE)
         
         # Query by consumerId using userId-createdAt-index
-        try:
-            response = orders_table.query(
-                IndexName='userId-createdAt-index',
-                KeyConditionExpression='userId = :consumer_id',
-                ExpressionAttributeValues={
-                    ':consumer_id': consumer_id
-                },
-                ScanIndexForward=False  # Sort by createdAt descending (most recent first)
-            )
-            orders = response.get('Items', [])
-        except Exception as query_error:
-            # Log error and return empty list
-            print(f"Query failed: {str(query_error)}")
-            import traceback
-            traceback.print_exc()
-            orders = []
+        def query_orders_by_user_id(uid):
+            try:
+                response = orders_table.query(
+                    IndexName='userId-createdAt-index',
+                    KeyConditionExpression='userId = :consumer_id',
+                    ExpressionAttributeValues={
+                        ':consumer_id': uid
+                    },
+                    ScanIndexForward=False  # Sort by createdAt descending (most recent first)
+                )
+                return response.get('Items', [])
+            except Exception as query_error:
+                print(f"Query failed for userId={uid}: {str(query_error)}")
+                import traceback
+                traceback.print_exc()
+                return []
+        
+        orders = query_orders_by_user_id(consumer_id)
+        print(f"Found {len(orders)} orders for JWT sub: {consumer_id}")
+        
+        # Fallback: if no orders found via JWT sub, try the consumerId query param
+        if not orders and param_consumer_id and param_consumer_id != consumer_id:
+            print(f"No orders found via JWT sub, trying query param consumerId: {param_consumer_id}")
+            orders = query_orders_by_user_id(param_consumer_id)
+            print(f"Found {len(orders)} orders for query param consumerId: {param_consumer_id}")
+        
+        # Second fallback: scan by consumerId field (some orders may use consumerId instead of userId)
+        if not orders:
+            try:
+                from boto3.dynamodb.conditions import Attr
+                ids_to_try = list({consumer_id, param_consumer_id} - {None})
+                for uid in ids_to_try:
+                    scan_response = orders_table.scan(
+                        FilterExpression=Attr('consumerId').eq(uid),
+                        Limit=100
+                    )
+                    scan_orders = scan_response.get('Items', [])
+                    if scan_orders:
+                        print(f"Found {len(scan_orders)} orders via consumerId scan for: {uid}")
+                        orders = scan_orders
+                        break
+            except Exception as scan_err:
+                print(f"consumerId scan fallback failed: {str(scan_err)}")
         
         # Transform orders to match frontend expectations
         transformed_orders = []

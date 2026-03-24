@@ -38,18 +38,32 @@ const AdminDashboard = () => {
 
   // Use shared hooks
   const dashboardData = useDashboardData();
-  const [hasAccessToken, setHasAccessToken] = useState(!!localStorage.getItem('aquachain_access_token'));
+
+  // Delay WebSocket connection to avoid Firefox aborting the handshake mid-navigation.
+  // wsReady gates the connection until after the initial render settles (1500ms),
+  // then polls every 500ms until the access token is available in localStorage.
+  const [wsReady, setWsReady] = useState(false);
+  const [hasAccessToken, setHasAccessToken] = useState(false);
   useEffect(() => {
-    if (hasAccessToken) return;
-    const interval = setInterval(() => {
+    const delayTimer = setTimeout(() => {
+      // After initial delay, check token immediately then poll if not yet available
       if (localStorage.getItem('aquachain_access_token')) {
         setHasAccessToken(true);
-        clearInterval(interval);
+        setWsReady(true);
+      } else {
+        setWsReady(true);
+        const interval = setInterval(() => {
+          if (localStorage.getItem('aquachain_access_token')) {
+            setHasAccessToken(true);
+            clearInterval(interval);
+          }
+        }, 500);
+        return () => clearInterval(interval);
       }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [hasAccessToken]);
-  const { latestUpdate } = useRealTimeUpdates('admin-alerts', { autoConnect: hasAccessToken });
+    }, 1500);
+    return () => clearTimeout(delayTimer);
+  }, []);
+  const { latestUpdate } = useRealTimeUpdates('admin-alerts', { autoConnect: wsReady && hasAccessToken });
   const { exportData, exporting } = useDataExport();
 
   // Extract data from the hook with memoization

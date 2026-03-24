@@ -401,17 +401,35 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     OrderStatus.DELIVERED
   ], []);
 
+  // Normalize raw status strings to the canonical progression enum value
+  // e.g. 'accepted' and 'assigned' both map to TECHNICIAN_ASSIGNED
+  const normalizeStatusForProgression = useCallback((status: string | OrderStatus): string => {
+    const s = String(status);
+    const map: Record<string, string> = {
+      'accepted': String(OrderStatus.TECHNICIAN_ASSIGNED),
+      'assigned': String(OrderStatus.TECHNICIAN_ASSIGNED),
+      'provisioned': String(OrderStatus.DEVICE_READY),
+      'shipped': String(OrderStatus.SHIPPED),
+      'out_for_delivery': String(OrderStatus.OUT_FOR_DELIVERY),
+      'in_progress': String(OrderStatus.OUT_FOR_DELIVERY),
+      'installing': String(OrderStatus.DELIVERED),
+      'completed': String(OrderStatus.DELIVERED),
+      'delivered': String(OrderStatus.DELIVERED),
+    };
+    return map[s] ?? s;
+  }, []);
+
   // Demo mode: Auto-progression of order status
   useEffect(() => {
     if (!demoMode) return;
 
-    const currentStatusStr = String(localCurrentStatus);
+    const currentStatusStr = normalizeStatusForProgression(localCurrentStatus);
     const currentIndex = statusProgression.findIndex(s => String(s) === currentStatusStr);
     
     // Don't progress if already at final status or cancelled/failed
     if (currentIndex === -1 || 
         currentIndex >= statusProgression.length - 1 || 
-        ['CANCELLED', 'FAILED', 'cancelled', 'failed'].includes(currentStatusStr)) {
+        ['CANCELLED', 'FAILED', 'cancelled', 'failed'].includes(String(localCurrentStatus))) {
       return;
     }
 
@@ -433,13 +451,13 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     }, progressInterval * 1000);
 
     return () => clearTimeout(timer);
-  }, [demoMode, progressInterval, localCurrentStatus, statusProgression, getStatusConfig]);
+  }, [demoMode, progressInterval, localCurrentStatus, statusProgression, getStatusConfig, normalizeStatusForProgression]);
 
   const getCurrentProgressPercentage = useCallback(() => {
     // Convert to string for comparison to handle both enum and string values
-    const currentStatusStr = String(localCurrentStatus);
+    const currentStatusStr = normalizeStatusForProgression(localCurrentStatus);
     
-    if (['CANCELLED', 'FAILED', 'cancelled', 'failed'].includes(currentStatusStr)) {
+    if (['CANCELLED', 'FAILED', 'cancelled', 'failed'].includes(String(localCurrentStatus))) {
       return 0;
     }
     
@@ -456,6 +474,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
         'confirmed': OrderStatus.ORDER_PLACED, // Both placed and confirmed count as ORDER_PLACED
         'device_ready': OrderStatus.DEVICE_READY,
         'assigned': OrderStatus.TECHNICIAN_ASSIGNED,
+        'accepted': OrderStatus.TECHNICIAN_ASSIGNED,
         'shipped': OrderStatus.SHIPPED,
         'out_for_delivery': OrderStatus.OUT_FOR_DELIVERY,
         'delivered': OrderStatus.DELIVERED
@@ -488,7 +507,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
     if (currentIndex === -1) return 0;
     
     return ((currentIndex + 1) / statusProgression.length) * 100;
-  }, [localCurrentStatus, statusProgression, order]);
+  }, [localCurrentStatus, statusProgression, order, normalizeStatusForProgression]);
 
   // Format timestamp for display
   const formatTimestamp = useCallback((timestamp: Date) => {
@@ -647,7 +666,8 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
               {/* Show technician details when assigned */}
               {(localCurrentStatus === OrderStatus.TECHNICIAN_ASSIGNED || 
                 localCurrentStatus === 'TECHNICIAN_ASSIGNED' ||
-                localCurrentStatus === 'assigned') && 
+                localCurrentStatus === 'assigned' ||
+                localCurrentStatus === 'accepted') && 
                 (order?.technician || order?.assignedTechnicianName || order?.assignedTechnician) && (
                 <div className="mt-3 p-3 bg-white rounded-lg border border-indigo-200">
                   <div className="flex items-center justify-between">
@@ -800,7 +820,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
             {statusProgression.map((status, index) => {
               const config = getStatusConfig(status);
               const progressionStrings = statusProgression.map(s => String(s));
-              const currentStatusStr = String(localCurrentStatus);
+              const currentStatusStr = normalizeStatusForProgression(localCurrentStatus);
               
               // Enhanced completion logic using timeline data
               let isCompleted = false;
@@ -812,6 +832,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
                   'confirmed': OrderStatus.ORDER_PLACED,
                   'device_ready': OrderStatus.DEVICE_READY,
                   'assigned': OrderStatus.TECHNICIAN_ASSIGNED,
+                  'accepted': OrderStatus.TECHNICIAN_ASSIGNED,
                   'shipped': OrderStatus.SHIPPED,
                   'out_for_delivery': OrderStatus.OUT_FOR_DELIVERY,
                   'delivered': OrderStatus.DELIVERED

@@ -524,8 +524,28 @@ def _handle_request(event, context):
                 }
             )
             
-            # Extract tokens from response
-            auth_result = response['AuthenticationResult']
+            # Handle NEW_PASSWORD_REQUIRED challenge (admin-created users must set a new password)
+            if response.get('ChallengeName') == 'NEW_PASSWORD_REQUIRED':
+                session_token = response.get('Session')
+                # Auto-confirm by responding to the challenge with the same password
+                challenge_response = cognito_client.respond_to_auth_challenge(
+                    ClientId=client_id,
+                    ChallengeName='NEW_PASSWORD_REQUIRED',
+                    Session=session_token,
+                    ChallengeResponses={
+                        'USERNAME': email,
+                        'NEW_PASSWORD': password,
+                    }
+                )
+                auth_result = challenge_response.get('AuthenticationResult')
+                if not auth_result:
+                    raise ValidationError(
+                        'Password change required. Please contact your administrator.',
+                        error_code='PASSWORD_CHANGE_REQUIRED'
+                    )
+            else:
+                auth_result = response['AuthenticationResult']
+
             access_token = auth_result['AccessToken']
             id_token = auth_result['IdToken']
             refresh_token = auth_result['RefreshToken']

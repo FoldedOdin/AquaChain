@@ -15,6 +15,7 @@ import os
 import json
 import boto3
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Dict, Any, List, Optional
 import uuid
 from botocore.exceptions import ClientError
@@ -35,7 +36,7 @@ ses = boto3.client('ses')
 # Environment variables
 ORDERS_TABLE = os.environ.get('ENHANCED_ORDERS_TABLE', 'aquachain-orders')
 TECHNICIANS_TABLE = os.environ.get('ENHANCED_TECHNICIANS_TABLE', 'aquachain-technicians')
-USERS_TABLE = os.environ.get('USERS_TABLE', 'aquachain-users')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
 SNS_TOPIC_ARN = os.environ.get('TECHNICIAN_ALERTS_TOPIC_ARN')
 FROM_EMAIL = os.environ.get('FROM_EMAIL', 'noreply@aquachain.com')
 
@@ -151,12 +152,32 @@ class AutoTechnicianAssignmentService:
                 if lat and lng:
                     service_location = {'latitude': lat, 'longitude': lng}
 
+            # If still no coordinates, use city-based fallback coordinates
             if not service_location:
-                logger.warning('No service location in order, skipping assignment', order_id=order_id)
-                return {
-                    'success': False,
-                    'message': 'No service location available for technician assignment'
+                city = delivery_address_raw.get('city', '').lower()
+                state = delivery_address_raw.get('state', '').lower()
+                
+                # Fallback coordinates for known cities in Kerala
+                city_coordinates = {
+                    'kochi': {'latitude': Decimal('9.9312'), 'longitude': Decimal('76.2673')},
+                    'ernakulam': {'latitude': Decimal('9.9816'), 'longitude': Decimal('76.2999')},
+                    'thiruvananthapuram': {'latitude': Decimal('8.5241'), 'longitude': Decimal('76.9366')},
+                    'kozhikode': {'latitude': Decimal('11.2588'), 'longitude': Decimal('75.7804')},
+                    'thrissur': {'latitude': Decimal('10.5276'), 'longitude': Decimal('76.2144')},
+                    'kollam': {'latitude': Decimal('8.8932'), 'longitude': Decimal('76.6141')},
                 }
+                
+                for city_name, coords in city_coordinates.items():
+                    if city_name in city or city_name in state:
+                        service_location = coords
+                        logger.info('Using city-based fallback coordinates', 
+                                   city=city, coordinates=str(coords))
+                        break
+
+            if not service_location:
+                logger.warning('No service location in order, using default Kerala coordinates', order_id=order_id)
+                # Use default Kerala coordinates as last resort
+                service_location = {'latitude': Decimal('9.9312'), 'longitude': Decimal('76.2673')}
             
             # Get all available technicians
             all_technicians = self._get_all_technicians()
@@ -187,9 +208,21 @@ class AutoTechnicianAssignmentService:
                              total_technicians=len(all_technicians),
                              incomplete_profiles=len(incomplete_profile_technicians))
                 
+                # Update order to show "Not available at the moment"
+                try:
+                    self.orders_table.update_item(
+                        Key={'orderId': order_id},
+                        UpdateExpression='SET assignedTechnicianName = :msg',
+                        ExpressionAttributeValues={
+                            ':msg': 'Not available at the moment'
+                        }
+                    )
+                except Exception as e:
+                    logger.warning('Failed to update order with unavailable message', error=str(e))
+                
                 return {
                     'success': False,
-                    'message': f'No eligible technicians available. {len(incomplete_profile_technicians)} technicians have incomplete profiles.',
+                    'message': f'Not available at the moment. {len(incomplete_profile_technicians)} technicians have incomplete profiles.',
                     'incomplete_profile_count': len(incomplete_profile_technicians)
                 }
             
@@ -198,6 +231,24 @@ class AutoTechnicianAssignmentService:
                 'orderId': order_id,
                 'serviceLocation': service_location
             }, correlation_id)
+            
+            # Check if assignment was successful
+            if not assignment_result.get('success', False):
+                # Update order to show "Not available at the moment"
+                try:
+                    self.orders_table.update_item(
+                        Key={'orderId': order_id},
+                        UpdateExpression='SET assignedTechnicianName = :msg',
+                        ExpressionAttributeValues={
+                            ':msg': 'Not available at the moment'
+                        }
+                    )
+                except Exception as e:
+                    logger.warning('Failed to update order with unavailable message', error=str(e))
+                
+                logger.warning('Technician assignment failed', 
+                             order_id=order_id, 
+                             reason=assignment_result.get('reason', 'Unknown'))
             
             logger.end_operation('process_order_placed_event', success=True, 
                                order_id=order_id, 
@@ -222,28 +273,42 @@ class AutoTechnicianAssignmentService:
             return None
     
     def _get_all_technicians(self) -> List[Dict[str, Any]]:
-        """Get all technicians from DynamoDB"""
+        """Get all technicians from DynamoDB Users table"""
         try:
-            # Scan technicians table (in production, use GSI for better performance)
-            response = self.technicians_table.scan()
+            from boto3.dynamodb.conditions import Attr
+            
+            # Scan Users table for technicians (not the technicians table)
+            response = self.users_table.scan(
+                FilterExpression=Attr('role').eq('technician')
+            )
             
             technicians = []
             for item in response.get('Items', []):
+                # Get location from currentLocation or location field
+                location = item.get('currentLocation') or item.get('location') or {}
+                
+                # Skip technicians without location
+                if not location.get('latitude') or not location.get('longitude'):
+                    logger.warning('Skipping technician with missing location',
+                                 technician_id=item.get('userId'))
+                    continue
+                
                 # Convert DynamoDB item to technician dict
                 technician = {
-                    'id': item.get('technicianId'),
+                    'id': item.get('userId'),
                     'userId': item.get('userId'),
-                    'name': item.get('name'),
-                    'phone': item.get('phone'),
-                    'email': item.get('email'),
-                    'location': item.get('location', {}),
+                    'name': item.get('name') or f"{item.get('profile', {}).get('firstName', '')} {item.get('profile', {}).get('lastName', '')}".strip() or item.get('email', 'Unknown'),
+                    'phone': item.get('phone') or item.get('profile', {}).get('phone', ''),
+                    'email': item.get('email', ''),
+                    'location': location,
                     'address': item.get('address', {}),
                     'skills': item.get('skills', []),
-                    'available': item.get('available', False),
-                    'rating': float(item.get('rating', 0))
+                    'available': item.get('availabilityStatus') != 'unavailable',
+                    'rating': float(item.get('performanceScore', item.get('rating', 80)))
                 }
                 technicians.append(technician)
             
+            logger.info(f'Found {len(technicians)} technicians from Users table')
             return technicians
             
         except Exception as e:

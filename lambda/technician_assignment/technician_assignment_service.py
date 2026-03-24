@@ -66,10 +66,10 @@ class TechnicianAssignmentService:
     def _register_validation_schemas(self):
         """Register validation schemas for technician assignment operations"""
         
-        # Assign technician schema
+        # Assign technician schema - orderId can be UUID or ord_ prefixed string
         assign_technician_schema = {
             'orderId': ValidationRule(
-                field_type=FieldType.UUID,
+                field_type=FieldType.STRING,
                 required=True
             ),
             'serviceLocation': ValidationRule(
@@ -501,6 +501,7 @@ class TechnicianAssignmentService:
                                     service_location: Dict[str, Any], 
                                     correlation_id: Optional[str] = None) -> Dict[str, Any]:
         """Create technician assignment record"""
+        from decimal import Decimal
         timestamp = datetime.now(timezone.utc).isoformat()
         estimated_arrival = datetime.now(timezone.utc) + timedelta(
             minutes=technician.get('estimated_travel_time_minutes', 30)
@@ -513,8 +514,8 @@ class TechnicianAssignmentService:
             'technicianPhone': technician['phone'],
             'assignedAt': timestamp,
             'estimatedArrival': estimated_arrival.isoformat(),
-            'distance': technician['distance_km'],
-            'estimatedTravelTime': technician.get('estimated_travel_time_minutes', 30),
+            'distance': Decimal(str(round(technician['distance_km'], 2))),
+            'estimatedTravelTime': Decimal(str(technician.get('estimated_travel_time_minutes', 30))),
             'status': 'assigned',
             'serviceLocation': service_location
         }
@@ -640,11 +641,13 @@ class TechnicianAssignmentService:
             'reason': 'No technicians currently available'
         }, correlation_id)
         
-        raise BusinessRuleViolationError(
-            'No technicians are currently available for assignment. The order will be queued and assigned when a technician becomes available.',
-            'no_technicians_available',
-            correlation_id
-        )
+        # Return a proper response instead of raising an exception
+        return {
+            'success': False,
+            'message': 'Not available at the moment',
+            'reason': 'No technicians are currently available for assignment',
+            'orderId': order_id
+        }
     
     def _handle_no_technicians_in_area(self, order_id: str, all_technicians: List[Dict[str, Any]], 
                                      correlation_id: Optional[str] = None) -> Dict[str, Any]:
@@ -662,16 +665,26 @@ class TechnicianAssignmentService:
             'nearestTechnicianDistance': nearest_distance
         }, correlation_id)
         
-        raise BusinessRuleViolationError(
-            f'No technicians available within {self.MAX_ASSIGNMENT_DISTANCE_KM}km service area. The nearest technician is {nearest_distance:.1f}km away.',
-            'no_technicians_in_area',
-            correlation_id
-        )
+        # Return a proper response instead of raising an exception
+        return {
+            'success': False,
+            'message': 'Not available at the moment',
+            'reason': f'No technicians available within {self.MAX_ASSIGNMENT_DISTANCE_KM}km service area',
+            'nearestTechnicianDistance': nearest_distance,
+            'orderId': order_id
+        }
     
     def _publish_assignment_event(self, event_type: str, event_data: Dict[str, Any], 
                                 correlation_id: Optional[str] = None):
         """Publish assignment event to SNS and EventBridge"""
         try:
+            from decimal import Decimal
+            
+            def decimal_default(obj):
+                if isinstance(obj, Decimal):
+                    return float(obj)
+                raise TypeError(f'Object of type {type(obj)} is not JSON serializable')
+            
             event_payload = {
                 'eventType': event_type,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -683,7 +696,7 @@ class TechnicianAssignmentService:
             if SNS_TOPIC_ARN:
                 sns.publish(
                     TopicArn=SNS_TOPIC_ARN,
-                    Message=json.dumps(event_payload),
+                    Message=json.dumps(event_payload, default=decimal_default),
                     Subject=f'Technician Assignment Event: {event_type}'
                 )
             
@@ -693,7 +706,7 @@ class TechnicianAssignmentService:
                     {
                         'Source': 'aquachain.technician-assignment',
                         'DetailType': event_type,
-                        'Detail': json.dumps(event_payload),
+                        'Detail': json.dumps(event_payload, default=decimal_default),
                         'EventBusName': EVENTBRIDGE_BUS
                     }
                 ]

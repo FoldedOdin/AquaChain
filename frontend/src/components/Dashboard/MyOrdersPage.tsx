@@ -110,13 +110,13 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     visible: false
   });
 
-  const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
     setToast({ message, type, visible: true });
-  };
+  }, []);
 
-  const hideToast = () => {
+  const hideToast = useCallback(() => {
     setToast(prev => ({ ...prev, visible: false }));
-  };
+  }, []);
 
   // Helper functions for bulk operations
   const toggleOrderSelection = (orderId: string) => {
@@ -345,8 +345,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
     }, 10000);
     
     return () => clearInterval(pollInterval);
-    // eslint-disable-next-line
-  }, []); // Empty deps - fetchOrders is stable with useCallback
+  }, [fetchOrders]); // fetchOrders is stable because showToast is now useCallback
 
   // Get status info
   const getStatusInfo = (status: string) => {
@@ -359,7 +358,10 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
         return { icon: Package, color: 'text-purple-600', bg: 'bg-purple-100', label: 'Device Ready' };
       case 'TECHNICIAN_ASSIGNED':
       case 'assigned':
+      case 'accepted':
         return { icon: Wrench, color: 'text-indigo-600', bg: 'bg-indigo-100', label: 'Technician Assigned' };
+      case 'in_progress':
+        return { icon: Wrench, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Work In Progress' };
       case 'shipped':
       case 'SHIPPED':
         return { icon: Truck, color: 'text-cyan-600', bg: 'bg-cyan-100', label: 'Shipped' };
@@ -574,25 +576,25 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
         status: 'DEVICE_READY', 
         label: 'Device Ready', 
         description: 'Assembly & calibration (1–2 days)',
-        completed: ['DEVICE_READY', 'provisioned', 'assigned', 'TECHNICIAN_ASSIGNED', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+        completed: ['DEVICE_READY', 'provisioned', 'assigned', 'accepted', 'TECHNICIAN_ASSIGNED', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'in_progress', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
       },
       { 
         status: 'TECHNICIAN_ASSIGNED', 
         label: 'Technician Assigned', 
         description: 'Dedicated technician assigned for installation',
-        completed: order.assignedTechnicianName || order.assignedTechnician || ['TECHNICIAN_ASSIGNED', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status)
+        completed: order.assignedTechnicianName || order.assignedTechnician || ['TECHNICIAN_ASSIGNED', 'accepted', 'assigned', 'shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'in_progress', 'installing', 'completed', 'DELIVERED'].includes(order.status)
       },
       { 
         status: 'SHIPPED', 
         label: 'Shipped', 
         description: 'Device dispatched • Tracking ID will be shared',
-        completed: ['shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+        completed: ['shipped', 'SHIPPED', 'OUT_FOR_DELIVERY', 'in_progress', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
       },
       { 
         status: 'OUT_FOR_DELIVERY', 
         label: 'Out for Delivery', 
         description: 'Device is on the way to your location',
-        completed: ['OUT_FOR_DELIVERY', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
+        completed: ['OUT_FOR_DELIVERY', 'in_progress', 'installing', 'completed', 'DELIVERED'].includes(order.status) 
       },
       { 
         status: 'DELIVERED', 
@@ -613,9 +615,11 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
       'provisioned': 1,
       'TECHNICIAN_ASSIGNED': 2,
       'assigned': 2,
+      'accepted': 2,
       'shipped': 3,
       'SHIPPED': 3,
       'OUT_FOR_DELIVERY': 4,
+      'in_progress': 4,
       'installing': 5,
       'completed': 5,
       'DELIVERED': 5,

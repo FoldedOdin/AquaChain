@@ -49,6 +49,26 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
     'FAILED': 'FAILED'
   };
 
+  // Normalize raw status strings to their canonical enum equivalent
+  // so the progression map always gets a valid key
+  const normalizeStatus = (status: string): string => {
+    const aliases: Record<string, string> = {
+      'accepted': OrderStatus.TECHNICIAN_ASSIGNED,
+      'assigned': OrderStatus.TECHNICIAN_ASSIGNED,
+      'provisioned': OrderStatus.DEVICE_READY,
+      'shipped': OrderStatus.SHIPPED,
+      'out_for_delivery': OrderStatus.OUT_FOR_DELIVERY,
+      'in_progress': OrderStatus.OUT_FOR_DELIVERY,  // technician started work = device is out for delivery
+      'installing': OrderStatus.DELIVERED,
+      'completed': OrderStatus.DELIVERED,
+      'delivered': OrderStatus.DELIVERED,
+      'pending': OrderStatus.ORDER_PLACED,
+    };
+    return aliases[status] ?? status;
+  };
+
+  const normalizedStatus = normalizeStatus(currentStatus as string);
+
   // Define status progression map
   const statusProgressionMap: Record<string, OrderStatus | null> = {
     [OrderStatus.PENDING_PAYMENT]: OrderStatus.ORDER_PLACED,
@@ -58,9 +78,9 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
     [OrderStatus.TECHNICIAN_ASSIGNED]: OrderStatus.SHIPPED,
     [OrderStatus.SHIPPED]: OrderStatus.OUT_FOR_DELIVERY,
     [OrderStatus.OUT_FOR_DELIVERY]: OrderStatus.DELIVERED,
-    [OrderStatus.DELIVERED]: null, // Terminal state
-    [OrderStatus.CANCELLED]: null, // Terminal state
-    [OrderStatus.FAILED]: null, // Terminal state
+    [OrderStatus.DELIVERED]: null,
+    [OrderStatus.CANCELLED]: null,
+    [OrderStatus.FAILED]: null,
   };
 
   // Get button labels for each status
@@ -78,7 +98,7 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
   };
 
   // Get next status
-  const nextStatus = statusProgressionMap[currentStatus as string];
+  const nextStatus = statusProgressionMap[normalizedStatus];
 
   // Check if order can be progressed
   const canProgress = nextStatus !== null && nextStatus !== undefined;
@@ -88,7 +108,7 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
     OrderStatus.DELIVERED,
     OrderStatus.CANCELLED,
     OrderStatus.FAILED
-  ].includes(currentStatus as OrderStatus);
+  ].includes(normalizedStatus as OrderStatus);
 
   // Handle status progression
   const handleProgressStatus = async () => {
@@ -192,7 +212,7 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
             ) : (
               <>
                 <CheckCircleIcon className="h-5 w-5" />
-                <span>{getButtonLabel(currentStatus as string)}</span>
+                <span>{getButtonLabel(normalizedStatus)}</span>
                 <ArrowRightIcon className="h-4 w-4" />
               </>
             )}

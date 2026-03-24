@@ -145,7 +145,31 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const isLoading = techOrdersLoading;
   const error = techOrdersError ? new Error(techOrdersError) : null;
   const refetch = useCallback(() => { fetchTechnicianOrders(); }, [fetchTechnicianOrders]);
-  const { isConnected, latestUpdate } = useRealTimeUpdates('technician-updates', { autoConnect: true });
+
+  // Delay WebSocket connection to avoid Firefox aborting the handshake mid-navigation.
+  // wsReady gates the connection until after the initial render settles (1500ms),
+  // then polls every 500ms until the access token is available in localStorage.
+  const [wsReady, setWsReady] = useState(false);
+  const [hasAccessToken, setHasAccessToken] = useState(false);
+  useEffect(() => {
+    const delayTimer = setTimeout(() => {
+      if (localStorage.getItem('aquachain_access_token')) {
+        setHasAccessToken(true);
+        setWsReady(true);
+      } else {
+        setWsReady(true);
+        const interval = setInterval(() => {
+          if (localStorage.getItem('aquachain_access_token')) {
+            setHasAccessToken(true);
+            clearInterval(interval);
+          }
+        }, 500);
+        return () => clearInterval(interval);
+      }
+    }, 1500);
+    return () => clearTimeout(delayTimer);
+  }, []);
+  const { isConnected, latestUpdate } = useRealTimeUpdates('technician-updates', { autoConnect: wsReady && hasAccessToken });
 
   // Listen for shipment delivery notifications
   useEffect(() => {

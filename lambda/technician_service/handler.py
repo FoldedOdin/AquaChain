@@ -950,6 +950,22 @@ def update_technician_task_status(task_id: str, update_data: dict, user_info: di
         # Order-based tasks — update orders table directly
         if task_id.startswith('ord_') or task_id.startswith('ord-'):
             orders_table = dynamodb.Table(ORDERS_TABLE)
+
+            # Guard: prevent starting work before device is shipped/out for delivery
+            if status == 'in_progress':
+                order_resp = orders_table.get_item(Key={'orderId': task_id})
+                if 'Item' in order_resp:
+                    current_status = order_resp['Item'].get('status', '')
+                    allowed_to_start = current_status in (
+                        'SHIPPED', 'shipped', 'OUT_FOR_DELIVERY', 'out_for_delivery',
+                        'accepted', 'TECHNICIAN_ASSIGNED', 'assigned'
+                    )
+                    if not allowed_to_start:
+                        return create_response(400, {
+                            'error': 'Cannot start work before the device has been shipped',
+                            'currentStatus': current_status
+                        })
+
             now = datetime.utcnow().isoformat()
             audit_entry = {'action': f'STATUS_UPDATED_{status.upper()}', 'by': user_info['userId'], 'at': now}
             orders_table.update_item(

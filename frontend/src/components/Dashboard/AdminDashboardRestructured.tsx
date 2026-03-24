@@ -315,22 +315,31 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const isLoading = dashboardData.loading;
   const error = dashboardData.error;
 
-  // Delay WebSocket connection until the access token is available in localStorage.
-  // AuthContext fetches it asynchronously on load; connecting before it's ready
-  // causes the "ID token cannot be used for WebSocket auth" error loop.
-  const [hasAccessToken, setHasAccessToken] = useState(!!localStorage.getItem('aquachain_access_token'));
+  // Delay WebSocket connection to avoid Firefox aborting the handshake mid-navigation.
+  // wsReady gates the connection until after the initial render settles (1500ms),
+  // then polls every 500ms until the access token is available in localStorage.
+  const [wsReady, setWsReady] = useState(false);
+  const [hasAccessToken, setHasAccessToken] = useState(false);
   useEffect(() => {
-    if (hasAccessToken) return;
-    const interval = setInterval(() => {
+    const delayTimer = setTimeout(() => {
       if (localStorage.getItem('aquachain_access_token')) {
         setHasAccessToken(true);
-        clearInterval(interval);
+        setWsReady(true);
+      } else {
+        setWsReady(true);
+        const interval = setInterval(() => {
+          if (localStorage.getItem('aquachain_access_token')) {
+            setHasAccessToken(true);
+            clearInterval(interval);
+          }
+        }, 500);
+        return () => clearInterval(interval);
       }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [hasAccessToken]);
+    }, 1500);
+    return () => clearTimeout(delayTimer);
+  }, []);
 
-  const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: hasAccessToken });
+  const { isConnected } = useRealTimeUpdates('admin-updates', { autoConnect: wsReady && hasAccessToken });
   const { notifications } = useNotifications();
 
   // Fetch users and system configuration
