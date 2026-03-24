@@ -457,6 +457,10 @@ internal-docs/
 *private*
 *confidential*
 
+# Exceptions — React/TS source files that legitimately have these words in their name
+!frontend/src/components/LandingPage/PasswordResetModal.tsx
+!frontend/src/components/LandingPage/ChangeTemporaryPasswordModal.tsx
+
 # Documentation with real AWS account info (should be sanitized before commit)
 # docs/KMS_INCIDENT_RESOLUTION.md - contains real account ID
 # infrastructure/setup-iam-permissions.md - contains real account ID
