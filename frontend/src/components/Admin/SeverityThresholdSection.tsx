@@ -10,6 +10,13 @@ interface SeverityThresholdSectionProps {
   setShowTooltip: (field: string | null) => void;
 }
 
+/** Parse a number input value safely — returns the number if valid, or '' to keep the field editable */
+const safeNum = (raw: string): number | '' => {
+  if (raw === '' || raw === '-') return '';
+  const n = parseFloat(raw);
+  return isNaN(n) ? '' : n;
+};
+
 const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
   thresholds,
   onChange,
@@ -88,8 +95,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 5.5"
-                  value={thresholds?.pH?.warning?.min ?? ''}
-                  onChange={(e) => onChange('pH.warning.min', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.pH?.warning?.min; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('pH.warning.min', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -103,8 +110,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 8.5"
-                  value={thresholds?.pH?.warning?.max ?? ''}
-                  onChange={(e) => onChange('pH.warning.max', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.pH?.warning?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('pH.warning.max', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -127,8 +134,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 6.0"
-                  value={thresholds?.pH?.critical?.min ?? ''}
-                  onChange={(e) => onChange('pH.critical.min', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.pH?.critical?.min; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('pH.critical.min', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -142,8 +149,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 8.0"
-                  value={thresholds?.pH?.critical?.max ?? ''}
-                  onChange={(e) => onChange('pH.critical.max', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.pH?.critical?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('pH.critical.max', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -208,8 +215,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                 type="number"
                 step="0.1"
                 placeholder="e.g., 5.0"
-                value={thresholds?.turbidity?.warning?.max ?? ''}
-                onChange={(e) => onChange('turbidity.warning.max', parseFloat(e.target.value))}
+                value={(() => { const v = thresholds?.turbidity?.warning?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                onChange={(e) => onChange('turbidity.warning.max', safeNum(e.target.value))}
                 disabled={!editMode}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
@@ -230,8 +237,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                 type="number"
                 step="0.1"
                 placeholder="e.g., 4.0"
-                value={thresholds?.turbidity?.critical?.max ?? ''}
-                onChange={(e) => onChange('turbidity.critical.max', parseFloat(e.target.value))}
+                value={(() => { const v = thresholds?.turbidity?.critical?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                onChange={(e) => onChange('turbidity.critical.max', safeNum(e.target.value))}
                 disabled={!editMode}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
@@ -278,8 +285,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                 type="number"
                 step="1"
                 placeholder="e.g., 500"
-                value={thresholds?.tds?.warning?.max ?? ''}
-                onChange={(e) => onChange('tds.warning.max', parseFloat(e.target.value))}
+                value={(() => { const v = thresholds?.tds?.warning?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                onChange={(e) => onChange('tds.warning.max', safeNum(e.target.value))}
                 disabled={!editMode}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
@@ -300,8 +307,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                 type="number"
                 step="1"
                 placeholder="e.g., 400"
-                value={thresholds?.tds?.critical?.max ?? ''}
-                onChange={(e) => onChange('tds.critical.max', parseFloat(e.target.value))}
+                value={(() => { const v = thresholds?.tds?.critical?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                onChange={(e) => onChange('tds.critical.max', safeNum(e.target.value))}
                 disabled={!editMode}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
@@ -349,8 +356,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 0"
-                  value={thresholds?.temperature?.warning?.min ?? ''}
-                  onChange={(e) => onChange('temperature.warning.min', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.temperature?.warning?.min; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('temperature.warning.min', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -364,8 +371,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 40"
-                  value={thresholds?.temperature?.warning?.max ?? ''}
-                  onChange={(e) => onChange('temperature.warning.max', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.temperature?.warning?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('temperature.warning.max', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -388,8 +395,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 5"
-                  value={thresholds?.temperature?.critical?.min ?? ''}
-                  onChange={(e) => onChange('temperature.critical.min', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.temperature?.critical?.min; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('temperature.critical.min', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -403,8 +410,8 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
                   type="number"
                   step="0.1"
                   placeholder="e.g., 35"
-                  value={thresholds?.temperature?.critical?.max ?? ''}
-                  onChange={(e) => onChange('temperature.critical.max', parseFloat(e.target.value))}
+                  value={(() => { const v = thresholds?.temperature?.critical?.max; return (v === undefined || v === null || (typeof v === "number" && isNaN(v))) ? "" : v; })()}
+                  onChange={(e) => onChange('temperature.critical.max', safeNum(e.target.value))}
                   disabled={!editMode}
                   className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
@@ -432,3 +439,4 @@ const SeverityThresholdSection: React.FC<SeverityThresholdSectionProps> = ({
 };
 
 export default SeverityThresholdSection;
+

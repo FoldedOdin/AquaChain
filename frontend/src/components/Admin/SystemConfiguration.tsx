@@ -676,14 +676,14 @@ const SystemConfiguration = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">SMS Rate Limit (per hour)</label>
                 <input
                   type="number"
-                  value={formData.notificationSettings.rateLimits.smsPerHour}
+                  value={isNaN(formData.notificationSettings.rateLimits.smsPerHour) ? '' : formData.notificationSettings.rateLimits.smsPerHour}
                   onChange={(e) => setFormData({
                     ...formData,
                     notificationSettings: {
                       ...formData.notificationSettings,
                       rateLimits: {
                         ...formData.notificationSettings.rateLimits,
-                        smsPerHour: parseInt(e.target.value)
+                        smsPerHour: e.target.value === '' ? '' as any : parseInt(e.target.value)
                       }
                     }
                   })}
@@ -695,14 +695,14 @@ const SystemConfiguration = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email Rate Limit (per hour)</label>
                 <input
                   type="number"
-                  value={formData.notificationSettings.rateLimits.emailPerHour}
+                  value={isNaN(formData.notificationSettings.rateLimits.emailPerHour) ? '' : formData.notificationSettings.rateLimits.emailPerHour}
                   onChange={(e) => setFormData({
                     ...formData,
                     notificationSettings: {
                       ...formData.notificationSettings,
                       rateLimits: {
                         ...formData.notificationSettings.rateLimits,
-                        emailPerHour: parseInt(e.target.value)
+                        emailPerHour: e.target.value === '' ? '' as any : parseInt(e.target.value)
                       }
                     }
                   })}
@@ -725,12 +725,12 @@ const SystemConfiguration = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Max Devices Per User</label>
               <input
                 type="number"
-                value={formData.systemLimits.maxDevicesPerUser}
+                value={isNaN(formData.systemLimits.maxDevicesPerUser) ? '' : formData.systemLimits.maxDevicesPerUser}
                 onChange={(e) => setFormData({
                   ...formData,
                   systemLimits: {
                     ...formData.systemLimits,
-                    maxDevicesPerUser: parseInt(e.target.value)
+                    maxDevicesPerUser: e.target.value === '' ? '' as any : parseInt(e.target.value)
                   }
                 })}
                 disabled={!editMode}
@@ -741,12 +741,12 @@ const SystemConfiguration = () => {
               <label className="block text-sm font-medium text-gray-700 mb-1">Max Concurrent Devices</label>
               <input
                 type="number"
-                value={formData.systemLimits.maxConcurrentDevices}
+                value={isNaN(formData.systemLimits.maxConcurrentDevices) ? '' : formData.systemLimits.maxConcurrentDevices}
                 onChange={(e) => setFormData({
                   ...formData,
                   systemLimits: {
                     ...formData.systemLimits,
-                    maxConcurrentDevices: parseInt(e.target.value)
+                    maxConcurrentDevices: e.target.value === '' ? '' as any : parseInt(e.target.value)
                   }
                 })}
                 disabled={!editMode}
