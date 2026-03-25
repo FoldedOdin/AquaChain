@@ -13,51 +13,48 @@ if exist shared rmdir /s /q shared
 
 echo Step 1: Copying shared dependencies...
 xcopy /E /I /Y ..\shared shared
+echo.
 
 echo Step 2: Creating deployment package...
-REM Use Python to create zip (more reliable than PowerShell)
-python -c "import zipfile, os; z = zipfile.ZipFile('function.zip', 'w', zipfile.ZIP_DEFLATED); z.write('enhanced_order_management.py'); [z.write(os.path.join('shared', f), os.path.join('shared', f)) for f in os.listdir('shared') if f.endswith('.py')]; z.close(); print('✓ ZIP created')"
+python create_zip.py
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Failed to create deployment package
+    rmdir /s /q shared
+    exit /b 1
+)
 
 REM Cleanup shared directory
 rmdir /s /q shared
 
 if not exist function.zip (
-    echo ERROR: Failed to create deployment package
+    echo ERROR: function.zip not found
     exit /b 1
 )
 
-echo ✓ Package created successfully
+echo Package created:
 dir function.zip
-
 echo.
+
 echo Step 3: Deploying to Lambda...
 aws lambda update-function-code ^
     --function-name aquachain-function-order-management-dev ^
-    --zip-file fileb://function.zip
+    --zip-file fileb://function.zip ^
+    --region ap-south-1
 
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: Deployment failed
+    del function.zip
     exit /b 1
 )
 
 echo.
-echo ✓ Deployment complete!
-echo.
-echo Step 4: Waiting for Lambda to initialize...
-timeout /t 5 /nobreak >nul
+echo Waiting for Lambda to be active...
+aws lambda wait function-updated ^
+    --function-name aquachain-function-order-management-dev ^
+    --region ap-south-1
 
 echo.
-echo Step 5: Testing the deployment...
-echo Run this command to test:
-echo.
-echo curl -X PUT https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev/api/orders/YOUR_ORDER_ID/cancel ^
-echo   -H "Authorization: Bearer YOUR_TOKEN" ^
-echo   -H "Content-Type: application/json" ^
-echo   -d "{\"reason\": \"Test cancellation\"}"
-echo.
+echo Deployment complete!
 
-REM Cleanup
 del function.zip
-
-echo Done!
 pause

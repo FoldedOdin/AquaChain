@@ -73,8 +73,8 @@ class NotificationService {
 
       return result.notifications || [];
     } catch (error: any) {
-      // Network errors or CORS issues - fail silently
-      console.warn('Notification service unavailable:', error.message);
+      // Network errors or CORS issues on initial load - fail silently
+      // This is expected when the service is temporarily unreachable
       return [];
     }
   }

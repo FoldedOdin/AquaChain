@@ -10,6 +10,8 @@ interface AssignTechnicianModalProps {
   onSuccess: () => void;
 }
 
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
+
 const AssignTechnicianModal: React.FC<AssignTechnicianModalProps> = ({ isOpen, onClose, order, onSuccess }) => {
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [selectedTechId, setSelectedTechId] = useState('');
@@ -26,7 +28,7 @@ const AssignTechnicianModal: React.FC<AssignTechnicianModalProps> = ({ isOpen, o
     setIsLoading(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch('http://localhost:3002/api/admin/users', {
+      const response = await fetch(`${API_BASE_URL}/api/technicians`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -35,8 +37,12 @@ const AssignTechnicianModal: React.FC<AssignTechnicianModalProps> = ({ isOpen, o
 
       if (response.ok) {
         const data = await response.json();
-        const techs = data.users.filter((u: any) => u.role === 'technician');
+        const techs: any[] = data.technicians || [];
+        console.log(`🔧 Technicians loaded: ${techs.length}`);
         setTechnicians(techs);
+      } else {
+        const errText = await response.text();
+        console.error('Failed to fetch technicians:', response.status, errText);
       }
     } catch (error) {
       console.error('Failed to fetch technicians:', error);
@@ -55,18 +61,40 @@ const AssignTechnicianModal: React.FC<AssignTechnicianModalProps> = ({ isOpen, o
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      const response = await fetch(`http://localhost:3002/api/admin/orders/${order.orderId}/assign`, {
+      const selectedTech = technicians.find(t => t.userId === selectedTechId);
+      const technicianName = selectedTech
+        ? (
+            `${selectedTech.firstName || selectedTech.profile?.firstName || ''} ${selectedTech.lastName || selectedTech.profile?.lastName || ''}`.trim()
+            || selectedTech.email
+          )
+        : '';
+
+      // Use the existing update-order-status endpoint with TECHNICIAN_ASSIGNED status
+      // and pass full technician details in metadata so the backend stores them
+      const response = await fetch(`${API_BASE_URL}/api/orders/${order.orderId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ technicianId: selectedTechId })
+        body: JSON.stringify({
+          status: 'TECHNICIAN_ASSIGNED',
+          metadata: {
+            technicianId: selectedTechId,
+            technicianName,
+            technicianPhone: selectedTech?.phone || '',
+            technicianEmail: selectedTech?.email || '',
+            technicianAddress: selectedTech?.address || '',
+            technicianExperience: selectedTech?.experience || '',
+            technicianRating: selectedTech?.rating || 0,
+            manualAssignment: true,
+          }
+        })
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to assign technician');
+        throw new Error(errorData.error || errorData.message || 'Failed to assign technician');
       }
 
       onSuccess();
@@ -137,7 +165,7 @@ const AssignTechnicianModal: React.FC<AssignTechnicianModalProps> = ({ isOpen, o
                       <option value="">Choose a technician...</option>
                       {technicians.map((tech) => (
                         <option key={tech.userId} value={tech.userId}>
-                          {tech.profile?.firstName} {tech.profile?.lastName} ({tech.email})
+                          {(tech.firstName || tech.profile?.firstName || '')} {(tech.lastName || tech.profile?.lastName || '')} ({tech.email})
                         </option>
                       ))}
                     </select>

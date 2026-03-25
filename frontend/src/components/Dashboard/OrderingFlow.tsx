@@ -17,6 +17,7 @@ type OrderFlowStep =
   | 'payment-method'
   | 'cod-confirmation'
   | 'online-payment'
+  | 'order-placed'
   | 'order-tracking'
   | 'order-complete';
 
@@ -47,6 +48,7 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
   const [orderAmount, setOrderAmount] = useState<number>(0);
   const [showProfileIncompleteModal, setShowProfileIncompleteModal] = useState(false);
   const [missingProfileFields, setMissingProfileFields] = useState<string[]>([]);
+  const [confirmedPaymentMethod, setConfirmedPaymentMethod] = useState<PaymentMethod | null>(null);
 
   // Device and service options
   const deviceTypes = [
@@ -207,36 +209,31 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
       }
 
       // Step 1: Create device order
-      await createOrder(orderRequest);
+      const createdOrderId = await createOrder(orderRequest);
       
-      // Step 2: Create COD payment record (if order was created successfully)
-      if (state.currentOrder?.id) {
+      // Step 2: Create COD payment record using the returned order ID
+      if (createdOrderId) {
         try {
           const { paymentService } = await import('../../services/paymentService');
-          await paymentService.createCODPayment({
-            orderId: state.currentOrder.id,
-            amount: orderAmount
-          });
+          await paymentService.createCODPayment({ orderId: createdOrderId, amount: orderAmount });
           console.log('✅ COD payment record created');
         } catch (paymentError) {
-          console.warn('Failed to create COD payment record:', paymentError);
-          // Don't fail the order if payment record creation fails
+          console.warn('Failed to create COD payment record (non-blocking):', paymentError);
         }
       }
       
-      setCurrentStep('order-tracking');
+      setConfirmedPaymentMethod('COD');
+      setCurrentStep('order-placed');
     } catch (error) {
       console.error('Failed to create COD order:', error);
-      // Show user-friendly error
       const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
       if (errorMessage.includes('phone') || errorMessage.includes('address')) {
-        // Profile validation error - show modal
         setMissingProfileFields(errorMessage.includes('phone') ? ['Phone Number'] : ['Delivery Address']);
         setShowProfileIncompleteModal(true);
         setCurrentStep('device-selection');
       } else {
-        // Other error - let the OrderingContext handle it
-        throw error;
+        // Stay on cod-confirmation step and show error via context state
+        setCurrentStep('payment-method');
       }
     }
   }, [user, selectedDeviceType, selectedServiceType, orderAmount, createOrder, validateProfileComplete]);
@@ -247,31 +244,18 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
   }, []);
 
   // Handle online payment success
+  // Note: RazorpayCheckout already verified the payment before calling this.
+  // We just need to create the device order with the payment reference.
   const handlePaymentSuccess = useCallback(async (paymentId: string, razorpayPaymentId: string, razorpayOrderId: string, razorpaySignature: string) => {
     try {
-      console.log('💳 Payment success, verifying...', { paymentId, razorpayPaymentId, razorpayOrderId });
-      
-      // Step 1: Verify payment with backend
-      const { paymentService } = await import('../../services/paymentService');
-      const verifyResult = await paymentService.verifyPayment({
-        paymentId: razorpayPaymentId,
-        orderId: razorpayOrderId,
-        signature: razorpaySignature,
-      });
+      console.log('💳 Payment verified by Razorpay component, creating order...', { paymentId, razorpayOrderId });
 
-      if (!verifyResult.success || !verifyResult.data.verified) {
-        throw new Error('Payment verification failed. Please contact support.');
-      }
-
-      console.log('✅ Payment verified successfully');
-
-      // Step 2: Create device order with payment reference
-      // Re-validate profile before creating order (in case data changed)
+      // Validate profile before creating order
       const validation = validateProfileComplete();
       if (!validation.isValid) {
         setMissingProfileFields(validation.missingFields);
         setShowProfileIncompleteModal(true);
-        setCurrentStep('device-selection'); // Go back to start
+        setCurrentStep('device-selection');
         return;
       }
 
@@ -280,7 +264,6 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
       let deliveryAddress: Address;
       
       if (typeof userAddress === 'string') {
-        // If address is a string, create a basic Address object
         deliveryAddress = {
           street: userAddress,
           city: '',
@@ -289,9 +272,7 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
           country: 'India',
         };
       } else if (userAddress && typeof userAddress === 'object') {
-        // If address is an object, map it to Address format
         const addr = userAddress as any;
-        // Combine flatHouse + areaStreet so neither is lost
         const streetParts = [addr.flatHouse, addr.areaStreet || addr.street]
           .filter((p: any) => p && typeof p === 'string' && p.trim());
         deliveryAddress = {
@@ -305,7 +286,6 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
           longitude: addr.longitude ?? addr.lng ?? undefined,
         };
       } else {
-        // Fallback if no address
         deliveryAddress = {
           street: '',
           city: '',
@@ -327,28 +307,25 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
           email: user?.email || '',
         },
         amount: orderAmount,
-        paymentId,
+        paymentId: razorpayPaymentId,
       };
 
-      // Validate required fields before submitting
       if (!orderRequest.contactInfo.phone) {
         throw new Error('Phone number is required. Please update your profile with a valid phone number.');
       }
 
       await createOrder(orderRequest);
-      setCurrentStep('order-tracking');
+      setConfirmedPaymentMethod('ONLINE');
+      setCurrentStep('order-placed');
     } catch (error) {
       console.error('Failed to create online order:', error);
-      // Show user-friendly error
       const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
       if (errorMessage.includes('phone') || errorMessage.includes('address')) {
-        // Profile validation error - show modal
         setMissingProfileFields(errorMessage.includes('phone') ? ['Phone Number'] : ['Delivery Address']);
         setShowProfileIncompleteModal(true);
         setCurrentStep('device-selection');
       } else {
-        // Other error - let the OrderingContext handle it
-        throw error;
+        setCurrentStep('payment-method');
       }
     }
   }, [user, selectedDeviceType, selectedServiceType, orderAmount, createOrder, validateProfileComplete]);
@@ -404,6 +381,8 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
         return 'Confirm Cash on Delivery';
       case 'online-payment':
         return 'Complete Payment';
+      case 'order-placed':
+        return 'Order Confirmed';
       case 'order-tracking':
         return 'Track Your Order';
       case 'order-complete':
@@ -444,7 +423,7 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
               <h2 className="text-2xl font-bold text-white">{getStepTitle(currentStep)}</h2>
             </div>
             <div className="flex items-center space-x-2">
-              {currentStep !== 'order-tracking' && currentStep !== 'order-complete' && (
+              {currentStep !== 'order-tracking' && currentStep !== 'order-complete' && currentStep !== 'order-placed' && (
                 <button
                   onClick={handleBack}
                   className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
@@ -646,6 +625,75 @@ const OrderingFlow: React.FC<OrderingFlowProps> = ({ onClose, onOrderComplete })
                       phone: user?.profile?.phone || '',
                     }}
                   />
+                </motion.div>
+              )}
+
+              {/* Order Placed Success Step */}
+              {currentStep === 'order-placed' && (
+                <motion.div
+                  key="order-placed"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="text-center py-8"
+                >
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.1 }}
+                    className="flex items-center justify-center mb-6"
+                  >
+                    <div className="p-5 bg-green-100 rounded-full">
+                      <CheckCircle className="w-16 h-16 text-green-600" />
+                    </div>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                  >
+                    <h3 className="text-3xl font-bold text-green-700 mb-2">
+                      Order Placed Successfully!
+                    </h3>
+                    <p className="text-gray-600 mb-2">
+                      {confirmedPaymentMethod === 'COD'
+                        ? 'Your Cash on Delivery order has been confirmed.'
+                        : 'Your payment was successful and your order has been confirmed.'}
+                    </p>
+                    {state.currentOrder?.id && (
+                      <p className="text-sm text-gray-500 mb-6">
+                        Order ID: <span className="font-mono font-medium text-gray-700">#{state.currentOrder.id}</span>
+                      </p>
+                    )}
+
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 text-left max-w-sm mx-auto">
+                      <p className="text-sm text-green-800 font-medium mb-1">What happens next?</p>
+                      <ul className="text-sm text-green-700 space-y-1 list-disc list-inside">
+                        <li>Our team will process your order</li>
+                        <li>A technician will be assigned to you</li>
+                        <li>You'll receive updates on delivery</li>
+                        {confirmedPaymentMethod === 'COD' && (
+                          <li>Pay when the device is delivered</li>
+                        )}
+                      </ul>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                      <button
+                        onClick={() => setCurrentStep('order-tracking')}
+                        className="bg-cyan-500 text-white px-6 py-3 rounded-lg hover:bg-cyan-600 transition-colors font-medium"
+                      >
+                        Track My Order
+                      </button>
+                      <button
+                        onClick={handleClose}
+                        className="border border-gray-300 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </motion.div>
                 </motion.div>
               )}
 

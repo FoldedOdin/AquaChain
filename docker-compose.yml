@@ -1,0 +1,51 @@
+services:
+  # React frontend dev server
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - REACT_APP_ENV=development
+    env_file:
+      - frontend/.env.local
+    stdin_open: true
+    tty: true
+
+  # Python Lambda dev/test environment
+  lambda:
+    build:
+      context: .
+      dockerfile: Dockerfile.lambda
+    volumes:
+      - ./lambda:/app/lambda
+    environment:
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=DEBUG
+      - AWS_DEFAULT_REGION=ap-south-1
+    env_file:
+      - .env.example
+    # Override with: docker-compose run lambda pytest lambda/device_management/tests/ -v
+
+  # CDK infrastructure environment
+  cdk:
+    build:
+      context: .
+      dockerfile: Dockerfile.cdk
+    volumes:
+      - ./infrastructure:/app/infrastructure
+      - ~/.aws:/root/.aws:ro   # Mount AWS credentials (read-only)
+    environment:
+      - AWS_DEFAULT_REGION=ap-south-1
+      - CDK_DISABLE_VERSION_CHECK=1
+      - CI=true
+    # Override with: docker-compose run cdk cdk synth
+
+volumes:
+  node_modules:

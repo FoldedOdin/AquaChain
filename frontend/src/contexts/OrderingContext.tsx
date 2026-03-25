@@ -132,7 +132,7 @@ const orderingReducer = (state: OrderingState, action: OrderingAction): Ordering
 interface OrderingContextType {
   state: OrderingState;
   setPaymentMethod: (method: PaymentMethod) => void;
-  createOrder: (orderRequest: CreateOrderRequest) => Promise<void>;
+  createOrder: (orderRequest: CreateOrderRequest) => Promise<string>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   cancelOrder: (orderId: string, reason: string) => Promise<void>;
   clearError: () => void;
@@ -283,15 +283,15 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
     dispatch({ type: 'SET_PAYMENT_METHOD', payload: method });
   }, []);
 
-  // Create order
-  const createOrder = useCallback(async (orderRequest: CreateOrderRequest) => {
+  // Create order — returns the created order's ID
+  const createOrder = useCallback(async (orderRequest: CreateOrderRequest): Promise<string> => {
     // Check feature flag
     if (!ORDERS_FEATURE_ENABLED) {
       dispatch({ 
         type: 'SET_ERROR', 
         payload: 'Device ordering feature is currently being configured. Please contact support@aquachain.com to place an order.' 
       });
-      return;
+      throw new Error('Orders feature not enabled');
     }
 
     try {
@@ -321,6 +321,7 @@ export const OrderingProvider: React.FC<OrderingProviderProps> = ({ children }) 
       }
 
       dispatch({ type: 'ORDER_CREATED', payload: normalizedOrder });
+      return normalizedOrder.id;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create order';
       console.error('Failed to create COD order:', error);

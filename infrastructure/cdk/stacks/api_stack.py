@@ -582,32 +582,109 @@ class AquaChainApiStack(Stack):
         
         # /api/alerts - Alerts endpoint (consumer-facing)
         if "alert_detection" in self.lambda_functions:
-            # Import existing alerts resource or create new one
             try:
-                # Try to find existing resource first
+                alert_cors = apigateway.CorsOptions(
+                    allow_origins=apigateway.Cors.ALL_ORIGINS,
+                    allow_methods=["GET", "PUT", "OPTIONS"],
+                    allow_headers=["Content-Type", "Authorization",
+                                   "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+                )
+
                 alerts_resource = api_root.node.try_find_child("alerts")
                 if not alerts_resource:
-                    alerts_resource = api_root.add_resource("alerts")
-                
+                    alerts_resource = api_root.add_resource(
+                        "alerts",
+                        default_cors_preflight_options=alert_cors,
+                    )
+
                 alert_integration = apigateway.LambdaIntegration(
                     self.lambda_functions["alert_detection"],
-                    proxy=True
+                    proxy=True,
                 )
-                
-                # Only add method if it doesn't exist
+
+                # GET /api/alerts
                 try:
                     alerts_resource.add_method(
                         "GET",
                         alert_integration,
                         authorizer=self.cognito_authorizer,
-                        authorization_type=apigateway.AuthorizationType.COGNITO
+                        authorization_type=apigateway.AuthorizationType.COGNITO,
                     )
                 except Exception:
-                    # Method already exists, skip
+                    pass  # already exists
+
+                # /api/alerts/{alertId}
+                alert_id_resource = alerts_resource.node.try_find_child("{alertId}")
+                if not alert_id_resource:
+                    alert_id_resource = alerts_resource.add_resource(
+                        "{alertId}",
+                        default_cors_preflight_options=alert_cors,
+                    )
+
+                # GET /api/alerts/{alertId}
+                try:
+                    alert_id_resource.add_method(
+                        "GET",
+                        alert_integration,
+                        authorizer=self.cognito_authorizer,
+                        authorization_type=apigateway.AuthorizationType.COGNITO,
+                    )
+                except Exception:
                     pass
+
+                # /api/alerts/{alertId}/acknowledge
+                ack_resource = alert_id_resource.node.try_find_child("acknowledge")
+                if not ack_resource:
+                    ack_resource = alert_id_resource.add_resource(
+                        "acknowledge",
+                        default_cors_preflight_options=alert_cors,
+                    )
+                try:
+                    ack_resource.add_method(
+                        "PUT",
+                        alert_integration,
+                        authorizer=self.cognito_authorizer,
+                        authorization_type=apigateway.AuthorizationType.COGNITO,
+                    )
+                except Exception:
+                    pass
+
+                # /api/alerts/{alertId}/mute
+                mute_resource = alert_id_resource.node.try_find_child("mute")
+                if not mute_resource:
+                    mute_resource = alert_id_resource.add_resource(
+                        "mute",
+                        default_cors_preflight_options=alert_cors,
+                    )
+                try:
+                    mute_resource.add_method(
+                        "PUT",
+                        alert_integration,
+                        authorizer=self.cognito_authorizer,
+                        authorization_type=apigateway.AuthorizationType.COGNITO,
+                    )
+                except Exception:
+                    pass
+
+                # /api/alerts/{alertId}/resolve
+                resolve_resource = alert_id_resource.node.try_find_child("resolve")
+                if not resolve_resource:
+                    resolve_resource = alert_id_resource.add_resource(
+                        "resolve",
+                        default_cors_preflight_options=alert_cors,
+                    )
+                try:
+                    resolve_resource.add_method(
+                        "PUT",
+                        alert_integration,
+                        authorizer=self.cognito_authorizer,
+                        authorization_type=apigateway.AuthorizationType.COGNITO,
+                    )
+                except Exception:
+                    pass
+
             except Exception as e:
                 print(f"[WARNING] Alerts endpoint configuration skipped: {e}")
-                pass
         
         # /api/devices - Device management endpoints (consumer-facing)
         if "device_management" in self.lambda_functions:
@@ -1251,6 +1328,16 @@ class AquaChainApiStack(Stack):
             print(f"Security audit Lambda not found, skipping API integration: {e}")
             pass
         
+        # /api/technicians - Public technician list (any authenticated user, used for order assignment)
+        if "admin_service" in self.lambda_functions:
+            api_technicians = api_root.add_resource("technicians")
+            api_technicians.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
         # /api/payments - Payment endpoints (authenticated)
         if "payment_service" in self.lambda_functions:
             api_payments = api_root.add_resource("payments")

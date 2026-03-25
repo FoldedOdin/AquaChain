@@ -131,6 +131,10 @@ def lambda_handler(event, context):
         # Allow login tracking for all authenticated users (not just admins)
         if path == '/api/admin/users/track-login' and http_method == 'POST':
             return _track_user_login(body)
+
+        # Allow fetching technician list for any authenticated user (needed for order assignment)
+        if path == '/api/technicians' and http_method == 'GET':
+            return _get_technicians_list()
         
         # Verify admin authorization for admin endpoints
         is_admin, debug_info = _verify_admin_access(event)
@@ -1445,6 +1449,62 @@ def _get_all_devices(query_params: Dict):
     except Exception as e:
         logger.error(f"Error fetching devices: {str(e)}")
         return _create_response(500, {'error': 'Failed to fetch devices'})
+
+def _get_technicians_list():
+    """
+    Return a minimal list of technicians (userId, name, email) from DynamoDB.
+    Accessible by any authenticated user — used for order technician assignment.
+    """
+    try:
+        from boto3.dynamodb.conditions import Attr
+        users_table = dynamodb.Table(USERS_TABLE)
+
+        # Scan for users with role = 'technician'
+        response = users_table.scan(
+            FilterExpression=Attr('role').eq('technician'),
+            ProjectionExpression='userId, email, #r, profile, firstName, lastName',
+            ExpressionAttributeNames={'#r': 'role'}
+        )
+        items = response.get('Items', [])
+
+        # Handle pagination
+        while 'LastEvaluatedKey' in response:
+            response = users_table.scan(
+                FilterExpression=Attr('role').eq('technician'),
+                ProjectionExpression='userId, email, #r, profile, firstName, lastName',
+                ExpressionAttributeNames={'#r': 'role'},
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response.get('Items', []))
+
+        technicians = []
+        for item in items:
+            profile = item.get('profile', {}) or {}
+            first_name = profile.get('firstName') or item.get('firstName', '')
+            last_name = profile.get('lastName') or item.get('lastName', '')
+            phone = profile.get('phone') or item.get('phone', '')
+            address = profile.get('address') or item.get('address', '')
+            experience = profile.get('experience') or item.get('experience', '')
+            rating = profile.get('rating') or item.get('rating', 0)
+            technicians.append({
+                'userId': item.get('userId'),
+                'email': item.get('email', ''),
+                'firstName': first_name,
+                'lastName': last_name,
+                'phone': phone,
+                'address': address,
+                'experience': experience,
+                'rating': float(rating) if rating else 0,
+                'role': 'technician',
+            })
+
+        logger.info(f"Returning {len(technicians)} technicians")
+        return _create_response(200, {'technicians': technicians, 'count': len(technicians)})
+
+    except Exception as e:
+        logger.error(f"Error fetching technicians: {str(e)}")
+        return _create_response(500, {'error': 'Failed to fetch technicians'})
+
 
 def _track_user_login(login_data: Dict):
     """

@@ -17,7 +17,9 @@ interface OrderProgressButtonsProps {
   orderId: string;
   currentStatus: OrderStatus | string;
   onStatusUpdate: (newStatus: OrderStatus) => Promise<void>;
+  onAssignTechnician?: () => void;
   disabled?: boolean;
+  order?: any;
 }
 
 /**
@@ -28,7 +30,9 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
   orderId,
   currentStatus,
   onStatusUpdate,
-  disabled = false
+  onAssignTechnician,
+  disabled = false,
+  order
 }) => {
   const [isUpdating, setIsUpdating] = useState(false);
   const { showErrorNotification } = useErrorNotification();
@@ -113,6 +117,12 @@ const OrderProgressButtons: React.FC<OrderProgressButtonsProps> = ({
   // Handle status progression
   const handleProgressStatus = async () => {
     if (!nextStatus || isUpdating) return;
+
+    // For DEVICE_READY → TECHNICIAN_ASSIGNED, open the assign technician modal
+    if (normalizedStatus === OrderStatus.DEVICE_READY && onAssignTechnician) {
+      onAssignTechnician();
+      return;
+    }
 
     setIsUpdating(true);
     try {

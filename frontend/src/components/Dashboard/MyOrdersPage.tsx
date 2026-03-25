@@ -26,6 +26,7 @@ import Toast from '../Toast/Toast';
 import ShipmentTracking from './ShipmentTracking';
 import TechnicianModal from './TechnicianModal';
 import OrderProgressButtons from './OrderProgressButtons';
+import AssignTechnicianModal from './AssignTechnicianModal';
 
 interface Order {
   orderId: string;
@@ -85,6 +86,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   const [selectedTechnician, setSelectedTechnician] = useState<any>(null);
   const [selectedTechnicianAssignment, setSelectedTechnicianAssignment] = useState<any>(null);
   const [loadingTechnician, setLoadingTechnician] = useState(false);
+  const [showAssignTechnicianModal, setShowAssignTechnicianModal] = useState(false);
   
   // Ref for auto-scrolling to current step
   const currentStepRef = useRef<HTMLDivElement>(null);
@@ -1249,6 +1251,7 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                   <OrderProgressButtons
                     orderId={selectedOrder.orderId}
                     currentStatus={selectedOrder.status}
+                    onAssignTechnician={() => setShowAssignTechnicianModal(true)}
                     onStatusUpdate={async (newStatus) => {
                       try {
                         const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
@@ -1621,6 +1624,26 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
           setSelectedTechnicianAssignment(null);
         }}
       />
+
+      {/* Assign Technician Modal */}
+      {selectedOrder && (
+        <AssignTechnicianModal
+          isOpen={showAssignTechnicianModal}
+          onClose={() => setShowAssignTechnicianModal(false)}
+          order={{
+            orderId: selectedOrder.orderId,
+            consumerName: (selectedOrder.contactInfo as any)?.name || selectedOrder.phone || 'Customer',
+            provisionedDeviceId: selectedOrder.provisionedDeviceId || selectedOrder.orderId,
+            address: selectedOrder.address || '',
+          }}
+          onSuccess={() => {
+            setShowAssignTechnicianModal(false);
+            setSelectedOrder(prev => prev ? { ...prev, status: 'TECHNICIAN_ASSIGNED' } : prev);
+            fetchOrders();
+            showToast('Technician assigned successfully', 'success');
+          }}
+        />
+      )}
 
       {/* Toast Notification */}
       <Toast

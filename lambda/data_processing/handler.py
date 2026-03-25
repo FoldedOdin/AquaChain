@@ -118,13 +118,17 @@ def validate_data_structure(data: Dict[str, Any]) -> None:
     More reliable than JSON schema validation.
     """
     # Check required top-level fields
-    required_fields = ["deviceId", "timestamp", "location", "readings", "diagnostics"]
+    required_fields = ["deviceId", "timestamp", "readings", "diagnostics"]
     for field in required_fields:
         if field not in data:
             raise AquaChainValidationError(
                 message=f"Missing required field: {field}",
                 details={'missing_field': field}
             )
+
+    # Default location if missing
+    if 'location' not in data:
+        data['location'] = {'latitude': 0, 'longitude': 0}
     
     # Validate deviceId format (DEV-XXXX or ESP32-XXX)
     device_id = data['deviceId']
@@ -1044,10 +1048,10 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             'deviceId': device_id,
             'deviceId_month': partition_key,
             'timestamp': timestamp,
-            'pH': Decimal(str(data['readings']['pH'])),
-            'turbidity': Decimal(str(data['readings']['turbidity'])),
-            'tds': Decimal(str(data['readings']['tds'])),
-            'temperature': Decimal(str(data['readings']['temperature'])),
+            'pH': Decimal(str(data['readings']['pH'] or 0)),
+            'turbidity': Decimal(str(data['readings']['turbidity'] or 0)),
+            'tds': Decimal(str(data['readings']['tds'] if data['readings']['tds'] is not None else 0)),
+            'temperature': Decimal(str(data['readings']['temperature'] or 0)),
             # Store None as null (omit key) for sensor_fault readings so the frontend
             # can distinguish "no WQI computed" from a genuine WQI of 0.
             'wqi': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else None,
@@ -1055,7 +1059,7 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
             'qualityScore': Decimal(str(ml_results['wqi'])) if ml_results['wqi'] is not None else None,
             'qualityStatus': ml_results['anomalyType'],
             'anomalyType': ml_results['anomalyType'],
-            'confidence': Decimal(str(ml_results.get('confidence', 0.0))),
+            'confidence': Decimal(str(ml_results.get('confidence') or 0.0)),
             'modelVersion': ml_results.get('modelVersion', 'unknown'),
             'metric_type': 'water_quality',
             # Persist sensor fault state so the API/frontend can correctly identify
@@ -1081,6 +1085,20 @@ def store_reading_dynamodb(data: Dict[str, Any], ml_results: Dict[str, Any],
         logger.info(
             f"Stored reading in DynamoDB - device_id={device_id}, wqi={ml_results['wqi']}"
         )
+
+        # Update device lastSeen and connectionStatus so the dashboard shows Online
+        try:
+            devices_table = dynamodb.Table(os.environ.get('DEVICES_TABLE', 'AquaChain-Devices'))
+            devices_table.update_item(
+                Key={'deviceId': device_id},
+                UpdateExpression='SET lastSeen = :ts, connectionStatus = :status',
+                ExpressionAttributeValues={
+                    ':ts': timestamp,
+                    ':status': 'online'
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Could not update device lastSeen for {device_id}: {e}")
         
         # Store in secure ledger with cryptographic integrity
         try:

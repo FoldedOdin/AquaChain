@@ -79,7 +79,14 @@ def lambda_handler(event, context):
             if not alert_id:
                 raise ValidationError('Alert ID required')
             return handle_acknowledge_alert(user_id, alert_id, body)
-        
+
+        elif http_method == 'PUT' and '/mute' in path:
+            # PUT /alerts/{alertId}/mute - Mute similar alerts for a cooldown period
+            alert_id = path_params.get('alertId')
+            if not alert_id:
+                raise ValidationError('Alert ID required')
+            return handle_mute_alert(user_id, alert_id, body)
+
         elif http_method == 'PUT' and '/resolve' in path:
             # PUT /alerts/{alertId}/resolve - Resolve alert
             alert_id = path_params.get('alertId')
@@ -240,7 +247,7 @@ def handle_acknowledge_alert(user_id: str, alert_id: str, body: Dict) -> Dict:
             UpdateExpression='SET #status = :status, acknowledgedBy = :user, acknowledgedAt = :time, notes = :notes',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
-                ':status': 'acknowledged',
+                ':status': 'ACKNOWLEDGED',
                 ':user': user_id,
                 ':time': update_time,
                 ':notes': notes
@@ -251,7 +258,7 @@ def handle_acknowledge_alert(user_id: str, alert_id: str, body: Dict) -> Dict:
         return success_response({
             'message': 'Alert acknowledged successfully',
             'alertId': alert_id,
-            'status': 'acknowledged',
+            'status': 'ACKNOWLEDGED',
             'acknowledgedAt': update_time
         })
         
@@ -260,6 +267,57 @@ def handle_acknowledge_alert(user_id: str, alert_id: str, body: Dict) -> Dict:
     except Exception as e:
         logger.error(f"Error acknowledging alert: {e}", user_id=user_id, alert_id=alert_id)
         raise DatabaseError(f"Failed to acknowledge alert: {str(e)}")
+
+
+def handle_mute_alert(user_id: str, alert_id: str, body: Dict) -> Dict:
+    """
+    Mute similar alerts for a device/parameter for a configurable cooldown period.
+    Stores a mute record with TTL so the alert detection Lambda can skip notifications.
+    """
+    try:
+        logger.info(f"Muting alert: {alert_id}", user_id=user_id)
+
+        table = dynamodb.Table(ALERTS_TABLE)
+        response = table.get_item(Key={'alertId': alert_id})
+        alert = response.get('Item')
+
+        if not alert:
+            raise ResourceNotFoundError(f'Alert not found: {alert_id}')
+
+        device_id = alert.get('deviceId')
+        if not _user_owns_device(user_id, device_id):
+            raise AuthenticationError('Access denied to this alert')
+
+        mute_minutes = int(body.get('muteMinutes', 120))
+        mute_until = (datetime.utcnow() + timedelta(minutes=mute_minutes)).isoformat()
+        update_time = datetime.utcnow().isoformat()
+
+        # Mark the alert as archived and record mute expiry
+        table.update_item(
+            Key={'alertId': alert_id},
+            UpdateExpression='SET #status = :status, mutedBy = :user, mutedAt = :time, muteUntil = :until',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'ARCHIVED',
+                ':user': user_id,
+                ':time': update_time,
+                ':until': mute_until,
+            }
+        )
+
+        logger.info(f"Alert muted until {mute_until}", user_id=user_id, alert_id=alert_id)
+        return success_response({
+            'message': f'Similar alerts muted for {mute_minutes} minutes',
+            'alertId': alert_id,
+            'status': 'ARCHIVED',
+            'muteUntil': mute_until,
+        })
+
+    except (AuthenticationError, ResourceNotFoundError) as e:
+        raise
+    except Exception as e:
+        logger.error(f"Error muting alert: {e}", user_id=user_id, alert_id=alert_id)
+        raise DatabaseError(f"Failed to mute alert: {str(e)}")
 
 
 def handle_resolve_alert(user_id: str, alert_id: str, body: Dict) -> Dict:

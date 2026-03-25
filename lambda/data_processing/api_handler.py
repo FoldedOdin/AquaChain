@@ -428,16 +428,33 @@ def _get_device_recent_readings(device_id: str, limit: int = 5) -> List[Dict]:
     """Get recent readings for a specific device"""
     try:
         table = dynamodb.Table(READINGS_TABLE)
+        now = datetime.utcnow()
         
-        # Use the DeviceIndex GSI which allows querying by deviceId directly
+        # Query current month first (partition key: deviceId_YYYY-MM)
+        device_month = f"{device_id}_{now.strftime('%Y-%m')}"
         response = table.query(
-            IndexName='DeviceIndex',
-            KeyConditionExpression='deviceId = :deviceId',
-            ExpressionAttributeValues={':deviceId': device_id},
-            ScanIndexForward=False,  # Most recent first
+            KeyConditionExpression='deviceId_month = :pk',
+            ExpressionAttributeValues={':pk': device_month},
+            ScanIndexForward=False,
             Limit=limit
         )
-        return response.get('Items', [])
+        items = response.get('Items', [])
+        
+        # If not enough results, also check previous month
+        if len(items) < limit:
+            prev = (now.replace(day=1) - timedelta(days=1))
+            prev_month = f"{device_id}_{prev.strftime('%Y-%m')}"
+            prev_response = table.query(
+                KeyConditionExpression='deviceId_month = :pk',
+                ExpressionAttributeValues={':pk': prev_month},
+                ScanIndexForward=False,
+                Limit=limit - len(items)
+            )
+            items.extend(prev_response.get('Items', []))
+        
+        # Sort by timestamp descending and return
+        items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        return items[:limit]
     except Exception as e:
         logger.error(f"Error getting device recent readings: {e}")
         return []
@@ -447,21 +464,28 @@ def _get_device_historical_readings(device_id: str, days: int = 7, limit: int = 
     """Get historical readings for a device within the specified time range"""
     try:
         table = dynamodb.Table(READINGS_TABLE)
-        cutoff_time = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        now = datetime.utcnow()
+        start_date = now - timedelta(days=days)
+        cutoff_time = start_date.isoformat()
         
-        # Use the DeviceIndex GSI which allows querying by deviceId directly
-        response = table.query(
-            IndexName='DeviceIndex',
-            KeyConditionExpression='deviceId = :deviceId AND #ts > :cutoff',
-            ExpressionAttributeNames={'#ts': 'timestamp'},
-            ExpressionAttributeValues={
-                ':deviceId': device_id,
-                ':cutoff': cutoff_time
-            },
-            ScanIndexForward=False,  # Most recent first
-            Limit=limit
-        )
-        return _convert_decimals(response.get('Items', []))
+        all_items = []
+        # Iterate over each month in the range
+        current = now
+        while current >= start_date and len(all_items) < limit:
+            device_month = f"{device_id}_{current.strftime('%Y-%m')}"
+            response = table.query(
+                KeyConditionExpression='deviceId_month = :pk AND #ts > :cutoff',
+                ExpressionAttributeNames={'#ts': 'timestamp'},
+                ExpressionAttributeValues={':pk': device_month, ':cutoff': cutoff_time},
+                ScanIndexForward=False,
+                Limit=limit - len(all_items)
+            )
+            all_items.extend(response.get('Items', []))
+            # Move to previous month
+            current = (current.replace(day=1) - timedelta(days=1))
+        
+        all_items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        return _convert_decimals(all_items[:limit])
     except Exception as e:
         logger.error(f"Error getting device historical readings: {e}")
         return []

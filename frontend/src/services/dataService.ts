@@ -52,6 +52,7 @@ class DataService {
       
       const response = await fetch(url, {
         ...options,
+        cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : '',
@@ -248,7 +249,9 @@ class DataService {
 
   async getLatestDeviceReading(deviceId: string): Promise<any | null> {
     console.log(`🔍 [dataService] Fetching latest reading for device ${deviceId}`);
-    const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/latest`);
+    const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/latest?_t=${Date.now()}`);
+    console.log('📦 [dataService] Latest reading RAW response:', JSON.stringify(data));
+    console.log('📦 [dataService] reading key:', data?.reading, 'pH direct:', data?.pH);
     console.log('📦 [dataService] Latest reading response:', data);
     
     // Handle different response formats
@@ -278,10 +281,12 @@ class DataService {
   async getDevices(): Promise<DeviceStatus[]> {
     try {
       console.log('🔍 [dataService] Fetching devices from /api/devices');
-      const data = await this.makeRequest<DeviceStatus[]>('/api/devices');
+      const data = await this.makeRequest<any>('/api/devices');
       console.log('📦 [dataService] Devices received:', data);
-      console.log('📊 [dataService] Device count:', data?.length || 0);
-      return data || [];
+      // makeRequest returns result.data when success:true; handle both array and wrapped responses
+      const devices = Array.isArray(data) ? data : (data?.devices || data?.data || []);
+      console.log('📊 [dataService] Device count:', devices.length);
+      return devices;
     } catch (error) {
       console.error('Failed to fetch devices:', error);
       return [];
@@ -363,6 +368,29 @@ class DataService {
         console.warn('🛑 [getCriticalAlerts] Authentication failed - stopping polling');
       }
       return [];
+    }
+  }
+
+  async acknowledgeAlert(alertId: string): Promise<boolean> {
+    try {
+      await this.makeRequest(`/api/alerts/${alertId}/acknowledge`, { method: 'PUT' });
+      return true;
+    } catch (error) {
+      console.error('Failed to acknowledge alert:', error);
+      return false;
+    }
+  }
+
+  async muteAlert(alertId: string, deviceId: string, parameter: string, minutes: number = 120): Promise<boolean> {
+    try {
+      await this.makeRequest(`/api/alerts/${alertId}/mute`, {
+        method: 'PUT',
+        body: JSON.stringify({ deviceId, parameter, muteMinutes: minutes }),
+      });
+      return true;
+    } catch (error) {
+      console.error('Failed to mute alert:', error);
+      return false;
     }
   }
 

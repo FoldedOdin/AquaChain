@@ -22,8 +22,11 @@ from enum import Enum
 import uuid
 from botocore.exceptions import ClientError
 
-# Add shared directory to path (it's in the same directory in Lambda deployment)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'shared'))
+# Add shared directory to path — handles both CDK-bundled and manual deploy layouts
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_base_dir, 'shared'))          # /var/task/shared (CDK bundle)
+sys.path.insert(0, os.path.join(_base_dir, '..', 'shared'))    # /var/task/../shared (fallback)
+sys.path.insert(0, '/opt/python')                               # Lambda layer path
 
 from structured_logger import get_logger
 from input_validator import InputValidator, ValidationRule, FieldType, ValidationError
@@ -82,7 +85,8 @@ class OrderManagementService:
         # Valid state transitions
         self.valid_transitions = {
             OrderStatus.PENDING_PAYMENT: [OrderStatus.ORDER_PLACED, OrderStatus.CANCELLED, OrderStatus.FAILED],
-            OrderStatus.ORDER_PLACED: [OrderStatus.DEVICE_READY, OrderStatus.CANCELLED],
+            OrderStatus.PENDING_CONFIRMATION: [OrderStatus.ORDER_PLACED, OrderStatus.DEVICE_READY, OrderStatus.TECHNICIAN_ASSIGNED, OrderStatus.CANCELLED],
+            OrderStatus.ORDER_PLACED: [OrderStatus.DEVICE_READY, OrderStatus.TECHNICIAN_ASSIGNED, OrderStatus.CANCELLED],
             OrderStatus.DEVICE_READY: [OrderStatus.TECHNICIAN_ASSIGNED, OrderStatus.CANCELLED],
             OrderStatus.TECHNICIAN_ASSIGNED: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
             OrderStatus.SHIPPED: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
@@ -157,9 +161,10 @@ class OrderManagementService:
             'orderId': ValidationRule(
                 field_type=FieldType.STRING,
                 required=True,
-                pattern=r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$',  # UUID format
-                min_length=36,
-                max_length=36
+                # Accept both UUID format and prefixed IDs like ord_1774430183946
+                pattern=r'^[a-zA-Z0-9_\-]{8,64}$',
+                min_length=8,
+                max_length=64
             ),
             'status': ValidationRule(
                 field_type=FieldType.ENUM,

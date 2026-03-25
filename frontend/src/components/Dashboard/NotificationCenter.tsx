@@ -33,9 +33,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ userRole }) => 
     }
   }, [isOpen]);
 
-  // Initial load
+  // Initial load — small delay to avoid race on mount
   useEffect(() => {
-    loadNotifications();
+    const timer = setTimeout(() => loadNotifications(), 500);
+    return () => clearTimeout(timer);
   }, []);
 
   const loadNotifications = useCallback(async () => {

@@ -54,6 +54,7 @@ import PluggableDeviceManager from './PluggableDeviceManager';
 import DataSourceIndicator from '../common/DataSourceIndicator';
 import { ReadingHistoryModal } from './ReadingHistoryModal';
 import { getSystemConfiguration } from '../../services/adminService';
+import RecentAlertsSection from './RecentAlertsSection';
 
 interface ConsumerDashboardProps {
   // Optional props for customization
@@ -185,14 +186,26 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
   // Derive online status from lastSeen timestamp — same 5-minute threshold the
   // device_status_monitor Lambda uses. WebSocket overrides take priority when present.
+  // Falls back to connectionStatus field if lastSeen is missing/stale.
   const isDeviceOnline = (device: any): boolean => {
     const deviceId = device?.device_id || device?.deviceId;
     const override = deviceId ? lastSeenOverrides[deviceId] : undefined;
 
-    // Use WebSocket-pushed timestamp if available (most up-to-date)
-    const lastSeenStr = override || device?.lastSeen;
-    const ms = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
-    return ms > 0 && (Date.now() - ms) < 5 * 60 * 1000;
+    // WebSocket-pushed timestamp is most up-to-date
+    if (override) {
+      const ms = new Date(override).getTime();
+      return ms > 0 && (Date.now() - ms) < 5 * 60 * 1000;
+    }
+
+    // Check lastSeen timestamp
+    const lastSeenStr = device?.lastSeen;
+    if (lastSeenStr) {
+      const ms = new Date(lastSeenStr).getTime();
+      if (ms > 0 && (Date.now() - ms) < 5 * 60 * 1000) return true;
+    }
+
+    // Fall back to connectionStatus set by device_status_monitor Lambda
+    return device?.connectionStatus === 'online';
   };
 
   // ✅ Get devices list from dashboard data
@@ -224,6 +237,27 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     }
   }, [devicesList.length]); // Only depend on length, not the entire array
 
+  // Normalize reading to flat shape regardless of whether it came from the REST API
+  // (DynamoDB flat: { pH, turbidity, ... }) or IoT/WebSocket payload
+  // (nested: { readings: { pH, turbidity, ... }, diagnostics: {...} })
+  const normalizeReading = useCallback((raw: any): any => {
+    if (!raw) return null;
+    const nested = raw.readings;
+    if (nested && typeof nested === 'object') {
+      return {
+        ...raw,
+        pH: nested.pH ?? raw.pH,
+        turbidity: nested.turbidity ?? raw.turbidity,
+        tds: nested.tds ?? raw.tds,
+        temperature: nested.temperature ?? raw.temperature,
+        // surface diagnostics fields for isDeviceOnline / sensorFault checks
+        sensorFault: raw.diagnostics?.sensorStatus === 'sensor_fault' || raw.sensorFault,
+        anomalyType: raw.diagnostics?.sensorStatus === 'sensor_fault' ? 'sensor_fault' : (raw.anomalyType ?? 'normal'),
+      };
+    }
+    return raw;
+  }, []);
+
   // ✅ Fetch current reading when selected device changes OR on auto-refresh tick
   useEffect(() => {
     const fetchCurrentReading = async () => {
@@ -243,16 +277,18 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
 
       try {
         const reading = await unifiedDataService.getLatestDeviceReading(deviceId);
-        console.log('📦 Current reading fetched:', reading);
+        console.log('📦 Current reading fetched:', JSON.stringify(reading));
+        console.log('📦 Reading pH:', reading?.pH, 'turbidity:', reading?.turbidity, 'tds:', reading?.tds, 'temp:', reading?.temperature);
+        console.log('📦 Reading nested:', reading?.readings);
         if (reading) {
+          const normalized = normalizeReading(reading);
           // Only apply REST result if it's newer than what WebSocket already delivered.
-          // Prevents a slow API response from overwriting a fresher real-time push.
           setCurrentReadingData((prev: any) => {
             const prevTs = prev?.timestamp ? new Date(prev.timestamp).getTime() : 0;
-            const newTs = reading.timestamp ? new Date(reading.timestamp).getTime() : 0;
+            const newTs = normalized.timestamp ? new Date(normalized.timestamp).getTime() : 0;
             if (newTs >= prevTs) {
               setLastRefreshTime(new Date());
-              return reading;
+              return normalized;
             }
             console.log('⏭️ Skipping stale REST reading — WebSocket data is newer');
             return prev;
@@ -272,7 +308,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   // ✅ Update reading from WebSocket real-time push (no polling needed)
   useEffect(() => {
     if (latestUpdate?.type === 'water_quality' && latestUpdate.data) {
-      const incoming = latestUpdate.data;
+      const incoming = normalizeReading(latestUpdate.data);
       // Only apply if it belongs to the currently selected device
       const currentDeviceId = currentDevice?.device_id || currentDevice?.deviceId;
       if (!currentDeviceId || !incoming.deviceId || incoming.deviceId === currentDeviceId) {
@@ -1640,56 +1676,26 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
         </div>
 
       {/* Recent Alerts - Enhanced */}
-      {recentAlerts.length > 0 ? (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Alerts</h2>
-            <span className="text-sm text-gray-600">{recentAlerts.length} active</span>
-          </div>
-          <div className="space-y-3">
-            <AnimatePresence>
-              {recentAlerts.map((alert: any, index: number) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-lg hover:bg-amber-100 transition-colors"
-                >
-                  <div className="flex items-start gap-3">
-                    <ExclamationTriangleIcon className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-amber-900">{alert.issue || 'Water quality alert'}</div>
-                      <div className="text-xs text-amber-700 mt-1">
-                        {alert.timestamp ? new Date(alert.timestamp).toLocaleString() : 'Just now'}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      ) : (
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6"
-        >
-          <div className="text-center py-8">
-            <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">All Clear!</h3>
-            <p className="text-sm text-gray-600">No active alerts. Your water quality is within normal parameters.</p>
-          </div>
-        </motion.div>
-      )}
+      <RecentAlertsSection
+        alerts={recentAlerts}
+        onRefresh={refetchAlerts}
+        onViewTrend={(deviceId, parameter) => {
+          setSelectedDeviceId(deviceId);
+          setShowReadingHistory(true);
+        }}
+        onServiceRequested={(alert) => {
+          setShowReportIssue(true);
+          setIssueType('iot');
+          setIssueTitle(`Alert: ${alert.issue}`);
+          setIssueDescription(
+            `Device ${alert.deviceId} triggered a ${alert.severity} alert.\n` +
+            (alert.parameter && alert.value !== undefined
+              ? `${alert.parameter}: ${alert.value}${alert.unit || ''} (threshold: ${alert.threshold ?? 'N/A'}${alert.unit || ''})`
+              : '')
+          );
+          setSelectedDevice(alert.deviceId);
+        }}
+      />
 
       {/* Quick Stats - Enhanced */}
         <motion.div 

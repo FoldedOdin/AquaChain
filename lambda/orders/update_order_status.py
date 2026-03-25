@@ -20,6 +20,20 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(obj)
 
 
+def sanitize_for_dynamodb(obj):
+    """
+    Recursively convert floats to Decimal and remove None values
+    so the object is safe to write to DynamoDB via the resource client.
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: sanitize_for_dynamodb(v) for k, v in obj.items() if v is not None}
+    if isinstance(obj, list):
+        return [sanitize_for_dynamodb(i) for i in obj]
+    return obj
+
+
 def handler(event, context):
     """
     Update order status
@@ -70,6 +84,7 @@ def handler(event, context):
             }
         
         new_status = body.get('status')
+        metadata = sanitize_for_dynamodb(body.get('metadata', {}))
         reason = body.get('reason', f'Status updated to {new_status}')
         
         if not new_status:
@@ -117,24 +132,57 @@ def handler(event, context):
             'status': new_status,
             'timestamp': timestamp,
             'message': reason,
-            'metadata': {}
+            'metadata': metadata
         }
         
+        # Build update expression — always update status + history,
+        # and conditionally write technician fields when provided in metadata
+        technician_id = metadata.get('technicianId') if metadata else None
+        technician_name = metadata.get('technicianName') if metadata else None
+
+        update_expression = (
+            'SET #status = :status, updatedAt = :timestamp, '
+            'statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :newEntry)'
+        )
+        expression_attribute_names = {'#status': 'status'}
+        expression_attribute_values = {
+            ':status': new_status,
+            ':timestamp': timestamp,
+            ':emptyList': [],
+            ':newEntry': [new_history_entry],
+        }
+
+        if technician_id:
+            update_expression += ', assignedTechnician = :technicianId'
+            expression_attribute_values[':technicianId'] = technician_id
+
+        if technician_name:
+            update_expression += ', assignedTechnicianName = :technicianName'
+            expression_attribute_values[':technicianName'] = technician_name
+
+        # Store full technician details so the consumer UI can display them
+        if technician_id and metadata:
+            technician_obj = {
+                'id': technician_id,
+                'name': technician_name or '',
+                'phone': metadata.get('technicianPhone', ''),
+                'email': metadata.get('technicianEmail', ''),
+                'address': metadata.get('technicianAddress', ''),
+                'experience': metadata.get('technicianExperience', ''),
+                'rating': metadata.get('technicianRating', 0),
+                'status': 'assigned',
+            }
+            update_expression += ', technician = :technicianObj'
+            expression_attribute_values[':technicianObj'] = technician_obj
+
         # Update order in DynamoDB using atomic list_append
         # This handles missing statusHistory gracefully
         try:
             update_response = orders_table.update_item(
                 Key={'orderId': order_id},
-                UpdateExpression='SET #status = :status, updatedAt = :timestamp, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :newEntry)',
-                ExpressionAttributeNames={
-                    '#status': 'status'
-                },
-                ExpressionAttributeValues={
-                    ':status': new_status,
-                    ':timestamp': timestamp,
-                    ':emptyList': [],
-                    ':newEntry': [new_history_entry]
-                },
+                UpdateExpression=update_expression,
+                ExpressionAttributeNames=expression_attribute_names,
+                ExpressionAttributeValues=expression_attribute_values,
                 ConditionExpression='attribute_exists(orderId)',
                 ReturnValues='ALL_NEW'
             )
@@ -185,23 +233,6 @@ def handler(event, context):
             'body': json.dumps({
                 'success': False,
                 'error': 'Order not found'
-            })
-        }
-    except dynamodb.meta.client.exceptions.ValidationException as e:
-        print(f"❌ DynamoDB validation error: {str(e)}")
-        return {
-            'statusCode': 400,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-                'Access-Control-Allow-Methods': 'PUT,OPTIONS',
-                'x-error-code': 'VALIDATION_ERROR'
-            },
-            'body': json.dumps({
-                'success': False,
-                'error': 'Invalid update expression or attribute',
-                'details': str(e) if os.environ.get('DEBUG') else None
             })
         }
     except dynamodb.meta.client.exceptions.ProvisionedThroughputExceededException:

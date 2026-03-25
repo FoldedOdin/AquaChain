@@ -213,7 +213,19 @@ def handle_api_request(event, context):
         # Handle GET /alerts
         if method == 'GET' and '/alerts' in path:
             return get_user_alerts(event, headers)
-        
+
+        # Handle PUT /api/alerts/{alertId}/acknowledge
+        if method == 'PUT' and '/acknowledge' in path:
+            return acknowledge_alert(event, headers)
+
+        # Handle PUT /api/alerts/{alertId}/mute
+        if method == 'PUT' and '/mute' in path:
+            return mute_alert(event, headers)
+
+        # Handle PUT /api/alerts/{alertId}/resolve
+        if method == 'PUT' and '/resolve' in path:
+            return resolve_alert(event, headers)
+
         return {
             'statusCode': 404,
             'headers': headers,
@@ -301,6 +313,128 @@ def get_user_alerts(event, headers):
             'headers': headers,
             'body': json.dumps({'error': str(e)})
         }
+
+
+def _get_alert_user_id(event):
+    """Extract user ID from Cognito JWT claims."""
+    claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+    return claims.get('sub') or claims.get('cognito:username')
+
+
+def _get_alert_id_from_path(path):
+    """Extract alertId from path like /api/alerts/{alertId}/acknowledge."""
+    parts = [p for p in path.split('/') if p]
+    # parts: ['api', 'alerts', '<alertId>', 'acknowledge']
+    try:
+        alerts_idx = parts.index('alerts')
+        return parts[alerts_idx + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def acknowledge_alert(event, headers):
+    """PUT /api/alerts/{alertId}/acknowledge"""
+    try:
+        user_id = _get_alert_user_id(event)
+        alert_id = (
+            (event.get('pathParameters') or {}).get('alertId')
+            or _get_alert_id_from_path(event.get('path', ''))
+        )
+        if not alert_id:
+            return {'statusCode': 400, 'headers': headers,
+                    'body': json.dumps({'error': 'Alert ID required'})}
+
+        table = dynamodb.Table(ALERTS_TABLE)
+        update_time = datetime.utcnow().isoformat()
+        table.update_item(
+            Key={'alertId': alert_id},
+            UpdateExpression='SET #s = :s, acknowledgedBy = :u, acknowledgedAt = :t',
+            ExpressionAttributeNames={'#s': 'status'},
+            ExpressionAttributeValues={':s': 'ACKNOWLEDGED', ':u': user_id or 'user', ':t': update_time},
+        )
+        logger.info(f"Alert acknowledged: {alert_id} by {user_id}")
+        return {
+            'statusCode': 200, 'headers': headers,
+            'body': json.dumps({'message': 'Alert acknowledged', 'alertId': alert_id,
+                                'status': 'ACKNOWLEDGED', 'acknowledgedAt': update_time})
+        }
+    except Exception as e:
+        logger.error(f"Error acknowledging alert: {e}")
+        return {'statusCode': 500, 'headers': headers, 'body': json.dumps({'error': str(e)})}
+
+
+def mute_alert(event, headers):
+    """PUT /api/alerts/{alertId}/mute"""
+    try:
+        user_id = _get_alert_user_id(event)
+        alert_id = (
+            (event.get('pathParameters') or {}).get('alertId')
+            or _get_alert_id_from_path(event.get('path', ''))
+        )
+        if not alert_id:
+            return {'statusCode': 400, 'headers': headers,
+                    'body': json.dumps({'error': 'Alert ID required'})}
+
+        body = {}
+        if event.get('body'):
+            try:
+                body = json.loads(event['body'])
+            except Exception:
+                pass
+
+        mute_minutes = int(body.get('muteMinutes', 120))
+        mute_until = (datetime.utcnow() + timedelta(minutes=mute_minutes)).isoformat()
+        update_time = datetime.utcnow().isoformat()
+
+        table = dynamodb.Table(ALERTS_TABLE)
+        table.update_item(
+            Key={'alertId': alert_id},
+            UpdateExpression='SET #s = :s, mutedBy = :u, mutedAt = :t, muteUntil = :until',
+            ExpressionAttributeNames={'#s': 'status'},
+            ExpressionAttributeValues={':s': 'ARCHIVED', ':u': user_id or 'user',
+                                       ':t': update_time, ':until': mute_until},
+        )
+        logger.info(f"Alert muted until {mute_until}: {alert_id} by {user_id}")
+        return {
+            'statusCode': 200, 'headers': headers,
+            'body': json.dumps({'message': f'Muted for {mute_minutes} minutes', 'alertId': alert_id,
+                                'status': 'ARCHIVED', 'muteUntil': mute_until})
+        }
+    except Exception as e:
+        logger.error(f"Error muting alert: {e}")
+        return {'statusCode': 500, 'headers': headers, 'body': json.dumps({'error': str(e)})}
+
+
+def resolve_alert(event, headers):
+    """PUT /api/alerts/{alertId}/resolve"""
+    try:
+        user_id = _get_alert_user_id(event)
+        alert_id = (
+            (event.get('pathParameters') or {}).get('alertId')
+            or _get_alert_id_from_path(event.get('path', ''))
+        )
+        if not alert_id:
+            return {'statusCode': 400, 'headers': headers,
+                    'body': json.dumps({'error': 'Alert ID required'})}
+
+        update_time = datetime.utcnow().isoformat()
+        table = dynamodb.Table(ALERTS_TABLE)
+        table.update_item(
+            Key={'alertId': alert_id},
+            UpdateExpression='SET #s = :s, resolvedBy = :u, resolvedAt = :t',
+            ExpressionAttributeNames={'#s': 'status'},
+            ExpressionAttributeValues={':s': 'RESOLVED', ':u': user_id or 'user', ':t': update_time},
+        )
+        logger.info(f"Alert resolved: {alert_id} by {user_id}")
+        return {
+            'statusCode': 200, 'headers': headers,
+            'body': json.dumps({'message': 'Alert resolved', 'alertId': alert_id,
+                                'status': 'RESOLVED', 'resolvedAt': update_time})
+        }
+    except Exception as e:
+        logger.error(f"Error resolving alert: {e}")
+        return {'statusCode': 500, 'headers': headers, 'body': json.dumps({'error': str(e)})}
+
 
 def convert_decimals_to_float(obj):
     """
@@ -476,12 +610,14 @@ def create_alert_record(reading: Dict[str, Any], alert_level: str) -> Dict[str, 
             'deviceId': reading['deviceId'],
             'timestamp': reading['timestamp'],
             'alertLevel': alert_level,
+            'severity': alert_level,          # frontend reads 'severity'
             'wqi': reading['wqi'],
             'anomalyType': reading['anomalyType'],
             'readings': reading['readings'],
             'location': reading['location'],
             'alertReasons': alert_reasons,
-            'status': 'active',
+            'issue': alert_reasons[0] if alert_reasons else 'Water quality alert',
+            'status': 'TRIGGERED',            # lifecycle: TRIGGERED → ACKNOWLEDGED → RESOLVED → ARCHIVED
             'createdAt': datetime.utcnow().isoformat(),
             'acknowledgedAt': None,
             'resolvedAt': None,
@@ -582,15 +718,19 @@ def store_alert(alert: Dict[str, Any]) -> None:
 def is_duplicate_alert(alert: Dict[str, Any]) -> bool:
     """
     Check if similar alert was recently sent to avoid spam.
-    Deduplication window: 5 minutes for same device and alert level.
+    Cooldown windows:
+      - warning:  2 minutes  (same device + same alert level)
+      - critical: 5 minutes  (same device + same alert level)
+    Deduplication is per-device per-level so a device can escalate from
+    warning → critical without being suppressed.
     """
     try:
         table = dynamodb.Table(ALERTS_TABLE)
 
+        cooldown_minutes = 5 if alert['alertLevel'] == 'critical' else 2
         current_time = datetime.fromisoformat(alert['timestamp'].replace('Z', '+00:00'))
-        window_start = current_time - timedelta(minutes=5)
+        window_start = current_time - timedelta(minutes=cooldown_minutes)
 
-        # createdAt is the GSI sort key — must be in KeyConditionExpression, not FilterExpression
         response = table.query(
             IndexName='DeviceAlerts',
             KeyConditionExpression=(
@@ -603,7 +743,10 @@ def is_duplicate_alert(alert: Dict[str, Any]) -> bool:
         recent_alerts = response.get('Items', [])
 
         if recent_alerts:
-            logger.info(f"Duplicate alert detected for device {alert['deviceId']} - skipping notification")
+            logger.info(
+                f"Duplicate alert suppressed for device {alert['deviceId']} "
+                f"(level={alert['alertLevel']}, cooldown={cooldown_minutes}m)"
+            )
             return True
 
         return False
@@ -680,20 +823,42 @@ def trigger_alert_notification(alert: Dict[str, Any]) -> None:
 
 def check_alert_escalation(alert: Dict[str, Any]) -> None:
     """
-    Check if alert should be escalated based on sustained issues
+    Severity escalation logic:
+    - If a WARNING has fired ≥3 times in the last 15 minutes → escalate to CRITICAL
+    - If a CRITICAL has fired ≥ESCALATION_THRESHOLD_COUNT times in ESCALATION_WINDOW_MINUTES → escalate to admin
     """
     try:
-        if alert['alertLevel'] != 'critical':
-            return  # Only escalate critical alerts
-        
-        # Check for sustained critical alerts in the last 30 minutes
-        current_time = datetime.fromisoformat(alert['timestamp'].replace('Z', '+00:00'))
-        window_start = current_time - timedelta(minutes=ESCALATION_WINDOW_MINUTES)
-        
         table = dynamodb.Table(ALERTS_TABLE)
-        
-        # Query recent critical alerts for same device
-        # createdAt is the GSI sort key — must be in KeyConditionExpression
+        current_time = datetime.fromisoformat(alert['timestamp'].replace('Z', '+00:00'))
+
+        # Warning → Critical escalation
+        if alert['alertLevel'] == 'warning':
+            window_start = current_time - timedelta(minutes=15)
+            response = table.query(
+                IndexName='DeviceAlerts',
+                KeyConditionExpression=(
+                    boto3.dynamodb.conditions.Key('deviceId').eq(alert['deviceId']) &
+                    boto3.dynamodb.conditions.Key('createdAt').gt(window_start.isoformat())
+                ),
+                FilterExpression=boto3.dynamodb.conditions.Attr('alertLevel').eq('warning')
+            )
+            warning_count = len(response.get('Items', []))
+            if warning_count >= 3:
+                logger.warning(
+                    f"Escalating device {alert['deviceId']} from warning to critical "
+                    f"({warning_count} warnings in 15 min)"
+                )
+                # Re-trigger notification at critical level
+                escalated = {**alert, 'alertLevel': 'critical', 'escalated': True,
+                             'escalationReason': f'{warning_count} warnings in 15 minutes'}
+                trigger_alert_notification(escalated)
+            return
+
+        # Critical → Admin escalation
+        if alert['alertLevel'] != 'critical':
+            return
+
+        window_start = current_time - timedelta(minutes=ESCALATION_WINDOW_MINUTES)
         response = table.query(
             IndexName='DeviceAlerts',
             KeyConditionExpression=(
@@ -702,13 +867,10 @@ def check_alert_escalation(alert: Dict[str, Any]) -> None:
             ),
             FilterExpression=boto3.dynamodb.conditions.Attr('alertLevel').eq('critical')
         )
-        
         critical_alerts = response.get('Items', [])
-        
-        # Check if escalation threshold is met
         if len(critical_alerts) >= ESCALATION_THRESHOLD_COUNT:
             escalate_alert(alert, len(critical_alerts))
-        
+
     except Exception as e:
         logger.error(f"Error checking alert escalation: {e}")
 

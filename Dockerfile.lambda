@@ -1,0 +1,28 @@
+FROM python:3.11.7-slim AS base
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dev dependencies FIRST (lower priority — layer deps will override)
+COPY config/requirements-dev.txt ./requirements-dev.txt
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# Install common layer dependencies (installs pydantic 2.x, overrides any 1.x from above)
+COPY lambda/layers/common/requirements.txt ./requirements-common.txt
+RUN pip install --no-cache-dir --upgrade -r requirements-common.txt
+
+# Install ML layer dependencies
+COPY lambda/layers/ml/requirements.txt ./requirements-ml.txt
+RUN pip install --no-cache-dir --upgrade -r requirements-ml.txt
+
+# Copy all lambda source
+COPY lambda/ ./lambda/
+
+ENV PYTHONPATH=/app/lambda/shared:/app/lambda
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "-m", "pytest", "lambda/", "-v"]

@@ -153,7 +153,7 @@ def handler(event, context):
             
             # Build technician object if assignment exists
             technician = None
-            if technician_assignment or assigned_technician:
+            if technician_assignment or assigned_technician or order.get('assignedTechnicianName'):
                 # Get technician data from the order directly if available
                 existing_technician = order.get('technician', {})
                 
@@ -163,7 +163,8 @@ def handler(event, context):
                           technician_assignment.get('technicianId') or 
                           assigned_technician or ''),
                     'name': (existing_technician.get('name') or 
-                            technician_assignment.get('technicianName') or ''),
+                            technician_assignment.get('technicianName') or
+                            order.get('assignedTechnicianName') or ''),
                     'phone': (existing_technician.get('phone') or 
                              technician_assignment.get('technicianPhone') or ''),
                     'email': (existing_technician.get('email') or 
@@ -180,7 +181,7 @@ def handler(event, context):
                               technician_assignment.get('status', 'assigned'))
                 }
                 # Only include technician object if we have meaningful data
-                if not technician['name'] and not technician['phone']:
+                if not technician['name'] and not technician['phone'] and not technician['id']:
                     technician = None
 
             transformed_order = {
@@ -205,7 +206,11 @@ def handler(event, context):
                 'specialInstructions': order.get('specialInstructions', ''),
                 # Technician assignment details
                 'assignedTechnician': assigned_technician,
-                'assignedTechnicianName': technician_assignment.get('technicianName', ''),
+                'assignedTechnicianName': (
+                    technician_assignment.get('technicianName') or
+                    order.get('assignedTechnicianName') or
+                    ''
+                ),
                 'technician': technician,
                 'technicianAssignment': technician_assignment
             }

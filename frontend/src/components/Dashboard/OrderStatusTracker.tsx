@@ -27,6 +27,7 @@ import {
 } from '../ErrorHandling';
 import OrderProgressButtons from './OrderProgressButtons';
 import TechnicianModal from './TechnicianModal';
+import AssignTechnicianModal from './AssignTechnicianModal';
 import { orderingService } from '../../services/orderingService';
 
 /**
@@ -70,6 +71,7 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
   const [connectionError, setConnectionError] = useState<Error | null>(null);
   const [showTechnicianModal, setShowTechnicianModal] = useState(false);
+  const [showAssignTechnicianModal, setShowAssignTechnicianModal] = useState(false);
 
   // Enhanced error notification
   const { showErrorNotification } = useErrorNotification();
@@ -925,6 +927,8 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
         orderId={orderId}
         currentStatus={localCurrentStatus}
         onStatusUpdate={handleStatusUpdate}
+        onAssignTechnician={() => setShowAssignTechnicianModal(true)}
+        order={order}
         disabled={demoMode} // Disable manual updates in demo mode
       />
 
@@ -996,6 +1000,35 @@ const OrderStatusTracker: React.FC<OrderStatusTrackerProps> = ({
         isOpen={showTechnicianModal}
         onClose={() => setShowTechnicianModal(false)}
       />
+
+      {/* Assign Technician Modal */}
+      {order && (
+        <AssignTechnicianModal
+          isOpen={showAssignTechnicianModal}
+          onClose={() => setShowAssignTechnicianModal(false)}
+          order={{
+            orderId: (order as any).orderId || order.id,
+            consumerName: (order as any).consumerName || order.contactInfo?.name || 'Customer',
+            provisionedDeviceId: (order as any).provisionedDeviceId || order.id,
+            address: typeof order.deliveryAddress === 'string'
+              ? order.deliveryAddress
+              : `${(order.deliveryAddress as any)?.street || ''}, ${(order.deliveryAddress as any)?.city || ''}`.trim().replace(/^,\s*/, ''),
+          }}
+          onSuccess={() => {
+            setShowAssignTechnicianModal(false);
+            // The modal already updated status + technicianId via the API.
+            // Just reflect the new status locally so the UI updates immediately.
+            setLocalCurrentStatus(OrderStatus.TECHNICIAN_ASSIGNED);
+            setLocalStatusHistory(prev => [{
+              status: OrderStatus.TECHNICIAN_ASSIGNED,
+              timestamp: new Date(),
+              message: 'Technician assigned successfully',
+              metadata: { manualAssignment: true }
+            }, ...prev]);
+            setLastUpdateTime(new Date());
+          }}
+        />
+      )}
     </div>
   );
 };
