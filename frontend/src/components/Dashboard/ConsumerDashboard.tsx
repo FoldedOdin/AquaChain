@@ -53,7 +53,7 @@ import DemoDeviceModal from './DemoDeviceModal';
 import PluggableDeviceManager from './PluggableDeviceManager';
 import DataSourceIndicator from '../common/DataSourceIndicator';
 import { ReadingHistoryModal } from './ReadingHistoryModal';
-import { getSystemConfiguration } from '../../services/adminService';
+import { getPublicThresholds } from '../../services/adminService';
 import RecentAlertsSection from './RecentAlertsSection';
 
 interface ConsumerDashboardProps {
@@ -348,16 +348,19 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     setShowSettings(prev => !prev);
   }, []);
 
-  // Load thresholds when settings panel opens (lazy — only once)
+  // Load thresholds on mount and refresh every 5 minutes so admin config
+  // changes propagate to the consumer dashboard without a page reload.
   useEffect(() => {
-    if (showSettings && !alertThresholds && !thresholdsLoading) {
-      setThresholdsLoading(true);
-      getSystemConfiguration()
-        .then(cfg => setAlertThresholds(cfg?.alertThresholds?.global ?? null))
-        .catch(() => setAlertThresholds(null))
-        .finally(() => setThresholdsLoading(false));
-    }
-  }, [showSettings]); // eslint-disable-line
+    const fetchThresholds = () => {
+      getPublicThresholds()
+        .then(global => { if (global) setAlertThresholds(global); })
+        .catch(() => {}); // keep existing thresholds on error — don't wipe them
+    };
+
+    fetchThresholds(); // immediate on mount
+    const interval = setInterval(fetchThresholds, 5 * 60 * 1000); // every 5 min
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line
 
   const toggleFullReport = useCallback(() => {
     setShowFullReport(prev => !prev);
@@ -673,6 +676,45 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     const { pH, turbidity, tds, temperature } = currentReading;
     const isSensorFault = currentReading.sensorFault === true || currentReading.anomalyType === 'sensor_fault';
 
+    // The admin threshold model: Warning Min → Critical Min → SAFE ZONE → Critical Max → Warning Max
+    // So the "safe zone" shown on the cards = critical range (inner bounds).
+    // Warning range = outer bounds (triggers a yellow warning before critical).
+    const pHCrit   = alertThresholds?.pH?.critical;
+    const turbCrit = alertThresholds?.turbidity?.critical;
+    const tdsCrit  = alertThresholds?.tds?.critical;
+    const tempCrit = alertThresholds?.temperature?.critical;
+
+    const pHWarn   = alertThresholds?.pH?.warning;
+    const turbWarn = alertThresholds?.turbidity?.warning;
+    const tdsWarn  = alertThresholds?.tds?.warning;
+    const tempWarn = alertThresholds?.temperature?.warning;
+
+    // Safe zone = critical (inner) range — what the card displays as "Safe range"
+    const pH_min   = pHCrit?.min   ?? 6.5;
+    const pH_max   = pHCrit?.max   ?? 8.5;
+    const turb_max = turbCrit?.max ?? 5;
+    const tds_max  = tdsCrit?.max  ?? 500;
+    const temp_min = tempCrit?.min ?? 10;
+    const temp_max = tempCrit?.max ?? 30;
+
+    // Warning zone = outer range — card turns yellow when outside critical but inside warning
+    const pH_warn_min   = pHWarn?.min   ?? (pH_min - 0.5);
+    const pH_warn_max   = pHWarn?.max   ?? (pH_max + 0.5);
+    const turb_warn_max = turbWarn?.max ?? (turb_max + 4);
+    const tds_warn_max  = tdsWarn?.max  ?? (tds_max + 100);
+    const temp_warn_min = tempWarn?.min ?? (temp_min - 10);
+    const temp_warn_max = tempWarn?.max ?? (temp_max + 10);
+
+    // Status: 'safe' = inside critical range, 'warning' = inside warning but outside critical
+    const pHStatus   = (pH >= pH_min && pH <= pH_max) ? 'safe'
+                     : (pH >= pH_warn_min && pH <= pH_warn_max) ? 'warning' : 'critical';
+    const turbStatus = turbidity <= turb_max ? 'safe'
+                     : turbidity <= turb_warn_max ? 'warning' : 'critical';
+    const tdsStatus  = tds <= tds_max ? 'safe'
+                     : tds <= tds_warn_max ? 'warning' : 'critical';
+    const tempStatus = (temperature >= temp_min && temperature <= temp_max) ? 'safe'
+                     : (temperature >= temp_warn_min && temperature <= temp_warn_max) ? 'warning' : 'critical';
+
     // Use WQI stored by Lambda (calculated server-side with consistent formula).
     // Fall back to a simple local calculation only if the API didn't return one.
     let wqi: number;
@@ -712,13 +754,13 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       bgColor,
       isSensorFault,
       metrics: {
-        pH: { value: pH, min: 6.5, max: 8.5, unit: '', icon: Beaker, status: pH >= 6.5 && pH <= 8.5 ? 'safe' : 'warning' },
-        turbidity: { value: turbidity, min: 0, max: 5, unit: 'NTU', icon: Eye, status: turbidity < 5 ? 'safe' : 'warning' },
-        tds: { value: tds, min: 0, max: 500, unit: 'ppm', icon: Droplet, status: tds < 500 ? 'safe' : 'warning' },
-        temperature: { value: temperature, min: 10, max: 30, unit: '°C', icon: Thermometer, status: temperature >= 15 && temperature <= 25 ? 'safe' : 'warning' }
+        pH: { value: pH, min: pH_min, max: pH_max, unit: '', icon: Beaker, status: pHStatus },
+        turbidity: { value: turbidity, min: 0, max: turb_max, unit: 'NTU', icon: Eye, status: turbStatus },
+        tds: { value: tds, min: 0, max: tds_max, unit: 'ppm', icon: Droplet, status: tdsStatus },
+        temperature: { value: temperature, min: temp_min, max: temp_max, unit: '°C', icon: Thermometer, status: tempStatus }
       }
     };
-  }, [currentReading, isLoadingReading]);
+  }, [currentReading, isLoadingReading, alertThresholds]);
 
   // ✅ Helper functions for parameter status
   const getParamColor = (status: string) => {
@@ -1152,6 +1194,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
           isOpen={showDataExport}
           onClose={() => setShowDataExport(false)}
           userRole="consumer"
+          readings={currentReadingData ? [currentReadingData] : []}
+          alerts={Array.isArray(alerts) ? alerts : []}
+          deviceInfo={currentDevice ? { device_id: currentDevice.device_id || currentDevice.deviceId, name: currentDevice.deviceId, location: currentDevice.location } : undefined}
         />
       </div>
     );
@@ -1576,6 +1621,8 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
                       </div>
                       {param.status === 'safe' ? (
                         <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                      ) : param.status === 'critical' ? (
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
                       ) : (
                         <AlertTriangle className="w-5 h-5 text-yellow-600" />
                       )}
@@ -2389,6 +2436,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
           isOpen={showDataExport}
           onClose={() => setShowDataExport(false)}
           userRole="consumer"
+          readings={currentReadingData ? [currentReadingData] : []}
+          alerts={Array.isArray(alerts) ? alerts : []}
+          deviceInfo={currentDevice ? { device_id: currentDevice.device_id || currentDevice.deviceId, name: currentDevice.deviceId, location: currentDevice.location } : undefined}
         />,
         document.body
       )}

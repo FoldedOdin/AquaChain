@@ -135,6 +135,10 @@ def lambda_handler(event, context):
         # Allow fetching technician list for any authenticated user (needed for order assignment)
         if path == '/api/technicians' and http_method == 'GET':
             return _get_technicians_list()
+
+        # Allow fetching alert thresholds for any authenticated user (consumer dashboard needs this)
+        if path == '/api/system/thresholds' and http_method == 'GET':
+            return _get_public_thresholds()
         
         # Verify admin authorization for admin endpoints
         is_admin, debug_info = _verify_admin_access(event)
@@ -558,6 +562,43 @@ def _handle_system_management(method: str, path: str, body: Dict, query_params: 
         return _get_performance_metrics(query_params)
     else:
         return _create_response(404, {'error': 'System management endpoint not found'})
+
+def _get_public_thresholds():
+    """
+    Return only alertThresholds for any authenticated user (consumer dashboard).
+    Does NOT require admin role — thresholds are not sensitive data.
+    """
+    try:
+        table = dynamodb.Table(CONFIG_TABLE)
+        response = table.get_item(Key={'configKey': 'system_config'})
+
+        if 'Item' in response:
+            item = response['Item']
+            thresholds = item.get('alertThresholds', {})
+            # Clean up legacy pH flat format if present
+            global_t = thresholds.get('global', {})
+            ph = global_t.get('pH', {})
+            if 'warning' in ph:
+                ph.pop('min', None)
+                ph.pop('max', None)
+            return _create_response(200, {'alertThresholds': thresholds})
+
+        # Fallback defaults matching the admin UI model
+        return _create_response(200, {
+            'alertThresholds': {
+                'global': {
+                    'pH':          {'warning': {'min': 5.0, 'max': 8.0},  'critical': {'min': 6.5, 'max': 8.5}},
+                    'turbidity':   {'warning': {'max': 9.0},               'critical': {'max': 4.0}},
+                    'tds':         {'warning': {'max': 450},               'critical': {'max': 280}},
+                    'temperature': {'warning': {'min': 0, 'max': 50},      'critical': {'min': 10, 'max': 40}},
+                    'wqi':         {'warning': 60, 'critical': 40},
+                }
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error fetching public thresholds: {e}")
+        return _create_response(500, {'error': 'Failed to fetch thresholds'})
+
 
 def _get_system_configuration():
     """

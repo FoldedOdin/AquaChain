@@ -114,10 +114,26 @@ def _load_thresholds() -> Dict[str, Dict[str, Any]]:
         # WQI
         wqi_t = global_t.get('wqi', {})
 
+        raw_ph_crit_max = _num(ph_crit.get('max', ph.get('max')), _DEFAULT_CRITICAL['pH_max'])
+        raw_ph_crit_min = _num(ph_crit.get('min', ph.get('min')), _DEFAULT_CRITICAL['pH_min'])
+
+        # Sanity-check: critical pH_max must be > 7.5 (neutral pH is 7.0; a critical upper
+        # bound ≤ 7.5 means the admin set the "inner safe zone" upper limit instead of the
+        # actual danger threshold, which causes false critical alerts for normal pH values).
+        # Fall back to the WHO-standard default (8.5) if the configured value is too low.
+        if raw_ph_crit_max <= 7.5:
+            logger.warning(
+                f"Configured pH critical max ({raw_ph_crit_max}) is ≤ 7.5 — "
+                "this would cause false critical alerts for normal pH. "
+                f"Falling back to default ({_DEFAULT_CRITICAL['pH_max']}). "
+                "Please update System Configuration: Critical pH max should be ~8.5."
+            )
+            raw_ph_crit_max = _DEFAULT_CRITICAL['pH_max']
+
         critical = {
             'wqi_min':        _num(wqi_t.get('critical'), _DEFAULT_CRITICAL['wqi_min']),
-            'pH_min':         _num(ph_crit.get('min', ph.get('min')), _DEFAULT_CRITICAL['pH_min']),
-            'pH_max':         _num(ph_crit.get('max', ph.get('max')), _DEFAULT_CRITICAL['pH_max']),
+            'pH_min':         raw_ph_crit_min,
+            'pH_max':         raw_ph_crit_max,
             'turbidity_max':  _num(turb_crit.get('max', turb.get('max')), _DEFAULT_CRITICAL['turbidity_max']),
             'tds_max':        _num(tds_crit.get('max', tds.get('max')), _DEFAULT_CRITICAL['tds_max']),
             'temperature_min': _num(temp_crit.get('min', temp.get('min')), _DEFAULT_CRITICAL['temperature_min']),

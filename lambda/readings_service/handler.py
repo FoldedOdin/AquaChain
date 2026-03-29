@@ -184,65 +184,66 @@ def get_device_history(device_id: str, days: int = 7) -> List[Dict[str, Any]]:
     try:
         readings = []
         now = datetime.utcnow()
-        
-        # Calculate how many months to check
         start_date = now - timedelta(days=days)
-        
-        # Get readings from current month
-        current_month = f"{device_id}_{now.strftime('%Y-%m')}"
-        
+
         logger.info(f"Getting {days} days of history for device: {device_id}")
-        
-        # Query current month
-        response = readings_table.query(
-            KeyConditionExpression='deviceId_month = :device_month AND #ts >= :start_time',
-            ExpressionAttributeNames={
-                '#ts': 'timestamp'
-            },
-            ExpressionAttributeValues={
-                ':device_month': current_month,
-                ':start_time': start_date.isoformat() + 'Z'
-            },
-            ScanIndexForward=False,  # Latest first
-            Limit=100  # Reasonable limit
-        )
-        
-        readings.extend(response['Items'])
-        
-        # If we need more data and start_date is in previous month, query previous month too
-        if start_date.month != now.month:
-            prev_month = start_date.strftime('%Y-%m')
-            prev_device_month = f"{device_id}_{prev_month}"
-            
-            logger.info(f"Also querying previous month: {prev_device_month}")
-            
-            response = readings_table.query(
-                KeyConditionExpression='deviceId_month = :device_month AND #ts >= :start_time',
-                ExpressionAttributeNames={
-                    '#ts': 'timestamp'
-                },
-                ExpressionAttributeValues={
-                    ':device_month': prev_device_month,
-                    ':start_time': start_date.isoformat() + 'Z'
-                },
-                ScanIndexForward=False,
-                Limit=100
-            )
-            
-            readings.extend(response['Items'])
-        
+
+        # Build the set of year-month strings to query (covers multi-month ranges)
+        months_to_query = set()
+        cursor = start_date.replace(day=1)
+        while cursor <= now:
+            months_to_query.add(cursor.strftime('%Y-%m'))
+            # Advance to next month
+            if cursor.month == 12:
+                cursor = cursor.replace(year=cursor.year + 1, month=1)
+            else:
+                cursor = cursor.replace(month=cursor.month + 1)
+
+        # Query both partition key formats: "deviceId_YYYY-MM" and "deviceId#YYYY-MM"
+        # The legacy format used '#' as separator; current format uses '_'.
+        partition_key_formats = [
+            lambda ym: f"{device_id}_{ym}",
+            lambda ym: f"{device_id}#{ym}",
+        ]
+
+        for ym in sorted(months_to_query):
+            for fmt in partition_key_formats:
+                device_month = fmt(ym)
+                try:
+                    response = readings_table.query(
+                        KeyConditionExpression='deviceId_month = :device_month AND #ts >= :start_time',
+                        ExpressionAttributeNames={'#ts': 'timestamp'},
+                        ExpressionAttributeValues={
+                            ':device_month': device_month,
+                            ':start_time': start_date.isoformat() + 'Z',
+                        },
+                        ScanIndexForward=False,
+                    )
+                    items = response.get('Items', [])
+                    if items:
+                        logger.info(f"Found {len(items)} readings in partition {device_month}")
+                    readings.extend(items)
+                except Exception as qe:
+                    logger.warning(f"Query failed for partition {device_month}: {qe}")
+
         # Convert all Decimals to floats for JSON serialization
         readings = convert_decimals(readings)
-        
+
         # Add WQI and quality for readings that don't have them
         readings = add_missing_wqi_quality(readings)
-        
-        # Sort by timestamp descending
-        readings.sort(key=lambda x: x['timestamp'], reverse=True)
-        
-        logger.info(f"Found {len(readings)} readings for device {device_id}")
-        return readings
-        
+
+        # Sort by timestamp descending, deduplicate by timestamp
+        seen = set()
+        unique = []
+        for r in sorted(readings, key=lambda x: x['timestamp'], reverse=True):
+            ts = r.get('timestamp', '')
+            if ts not in seen:
+                seen.add(ts)
+                unique.append(r)
+
+        logger.info(f"Found {len(unique)} unique readings for device {device_id} over {days} days")
+        return unique
+
     except Exception as e:
         logger.error(f"Error getting history for {device_id}: {e}")
         return []

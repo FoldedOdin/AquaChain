@@ -585,9 +585,10 @@ class AquaChainApiStack(Stack):
             try:
                 alert_cors = apigateway.CorsOptions(
                     allow_origins=apigateway.Cors.ALL_ORIGINS,
-                    allow_methods=["GET", "PUT", "OPTIONS"],
+                    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                     allow_headers=["Content-Type", "Authorization",
                                    "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
+                    allow_credentials=False,
                 )
 
                 alerts_resource = api_root.node.try_find_child("alerts")
@@ -1329,9 +1330,21 @@ class AquaChainApiStack(Stack):
             pass
         
         # /api/technicians - Public technician list (any authenticated user, used for order assignment)
+        # Use try_find_child to avoid 409 if resource already exists in API Gateway (orphaned resource)
         if "admin_service" in self.lambda_functions:
-            api_technicians = api_root.add_resource("technicians")
+            api_technicians = api_root.node.try_find_child("technicians") or api_root.add_resource("technicians")
             api_technicians.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO
+            )
+
+        # /api/system/thresholds - Public alert thresholds (any authenticated user, used by consumer dashboard)
+        if "admin_service" in self.lambda_functions:
+            api_system = api_root.node.try_find_child("system") or api_root.add_resource("system")
+            api_system_thresholds = api_system.node.try_find_child("thresholds") or api_system.add_resource("thresholds")
+            api_system_thresholds.add_method(
                 "GET",
                 admin_integration,
                 authorizer=self.cognito_authorizer,
@@ -1497,13 +1510,7 @@ class AquaChainApiStack(Stack):
         
         # /api/notifications - Notification management endpoints
         if "notification_api" in self.lambda_functions:
-            notifications_resource = api_root.add_resource("notifications")
-            notification_integration = apigateway.LambdaIntegration(
-                self.lambda_functions["notification_api"],
-                proxy=True
-            )
-
-            # Shared CORS options for all notification sub-resources (no auth on OPTIONS)
+            # Shared CORS options for all notification resources (no auth on OPTIONS)
             notification_cors_options = apigateway.CorsOptions(
                 allow_origins=apigateway.Cors.ALL_ORIGINS,
                 allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -1515,6 +1522,15 @@ class AquaChainApiStack(Stack):
                     "X-Amz-Security-Token"
                 ],
                 allow_credentials=False
+            )
+            # Root resource must also have CORS preflight options so OPTIONS /api/notifications works
+            notifications_resource = api_root.add_resource(
+                "notifications",
+                default_cors_preflight_options=notification_cors_options
+            )
+            notification_integration = apigateway.LambdaIntegration(
+                self.lambda_functions["notification_api"],
+                proxy=True
             )
 
             # GET /api/notifications - List notifications

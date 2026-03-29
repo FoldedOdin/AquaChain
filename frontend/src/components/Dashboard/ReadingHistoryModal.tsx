@@ -39,7 +39,7 @@ export const ReadingHistoryModal: React.FC<ReadingHistoryModalProps> = ({ isOpen
     parameter: 'all',
     minValue: '',
     maxValue: '',
-    timeRange: '7d'
+    timeRange: '30d'
   });
 
   useEffect(() => {
@@ -70,7 +70,15 @@ export const ReadingHistoryModal: React.FC<ReadingHistoryModalProps> = ({ isOpen
                    filters.timeRange === '30d' ? 30 : 90;
 
       const data = await dataService.getDeviceReadings(deviceId, days);
-      setReadings(data || []);
+      // Normalize nested-format records (old format: { readings: { pH, ... } })
+      // into the flat format the table expects
+      const normalized = (data || []).map((r: any) => {
+        if (r.readings && typeof r.readings === 'object') {
+          return { ...r, ...r.readings };
+        }
+        return r;
+      });
+      setReadings(normalized);
     } catch (error) {
       console.error('Error fetching readings:', error);
       setReadings([]);
@@ -455,16 +463,16 @@ export const ReadingHistoryModal: React.FC<ReadingHistoryModalProps> = ({ isOpen
                         {new Date(reading.timestamp).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {reading.pH.toFixed(2)}
+                        {reading.pH != null ? Number(reading.pH).toFixed(2) : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {reading.turbidity.toFixed(2)}
+                        {reading.turbidity != null ? Number(reading.turbidity).toFixed(2) : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {reading.tds.toFixed(0)}
+                        {reading.tds != null ? Number(reading.tds).toFixed(0) : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {reading.temperature.toFixed(1)}
+                        {reading.temperature != null ? Number(reading.temperature).toFixed(1) : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {reading.wqi ? reading.wqi.toFixed(0) : 'N/A'}

@@ -562,20 +562,20 @@ export const getSystemConfiguration = async (): Promise<SystemConfiguration> => 
       alertThresholds: {
         global: {
           pH: { 
-            warning: { min: 5.5, max: 8.5 },
-            critical: { min: 6.0, max: 8.0 }
+            warning: { min: 5.0, max: 8.0 },
+            critical: { min: 6.0, max: 7.0 }
           },
           turbidity: { 
-            warning: { max: 4.0 },
-            critical: { max: 5.0 }
+            warning: { max: 9.0 },
+            critical: { max: 4.0 }
           },
           tds: { 
-            warning: { max: 400 },
-            critical: { max: 500 }
+            warning: { max: 450 },
+            critical: { max: 280 }
           },
           temperature: { 
-            warning: { min: 0.5, max: 39.5 },
-            critical: { min: 0, max: 40 }
+            warning: { min: 0, max: 50 },
+            critical: { min: 10, max: 40 }
           },
           wqi: { critical: 40, warning: 60 }
         }
@@ -606,6 +606,31 @@ export const getSystemConfiguration = async (): Promise<SystemConfiguration> => 
         driftDetectionEnabled: true
       }
     };
+  }
+};
+
+/**
+ * Fetch alert thresholds for any authenticated user (consumer dashboard).
+ * Calls the public /api/system/thresholds endpoint — no admin role required.
+ * Falls back to hardcoded WHO defaults if the API is unreachable.
+ */
+export const getPublicThresholds = async (): Promise<SystemConfiguration['alertThresholds']['global'] | null> => {
+  try {
+    const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    if (!token) return null;
+
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/api/system/thresholds`,
+      { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+    );
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+    return data?.alertThresholds?.global ?? null;
+  } catch (error) {
+    // Silent fallback — consumer dashboard will use hardcoded defaults
+    return null;
   }
 };
 
