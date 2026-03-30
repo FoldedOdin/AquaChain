@@ -105,7 +105,7 @@ def lambda_handler(event, context):
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*',
                     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Password,x-admin-password',
-                    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
                     'Access-Control-Max-Age': '86400'  # Cache preflight for 24 hours
                 },
                 'body': json.dumps({'message': 'OK'})
@@ -180,6 +180,8 @@ def lambda_handler(event, context):
             return _handle_audit_management(http_method, path, query_params)
         elif path.startswith('/api/admin/devices'):
             return _handle_device_management(http_method, path, query_params)
+        elif path.startswith('/api/admin/orders'):
+            return _handle_order_management(http_method, path, body, query_params, path_params)
         else:
             return _create_response(404, {'error': 'Endpoint not found'})
             
@@ -2578,3 +2580,282 @@ def _log_config_change(admin_id: str, action: str, ip_address: str, changes: Dic
     except Exception as e:
         logger.error(f"CRITICAL: Failed to log config change audit: {str(e)}")
         # Don't fail the operation, but log the error
+
+
+# ─── Admin Order Management ───────────────────────────────────────────────────
+
+ORDERS_TABLE_NAME = os.environ.get('ORDERS_TABLE', 'aquachain-orders')
+
+def _handle_order_management(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict):
+    """
+    Route admin order management requests.
+    GET  /api/admin/orders              - list all orders
+    PATCH /api/admin/orders/{id}/status - update order status
+    PATCH /api/admin/orders/{id}/assign-technician - assign technician
+    """
+    # Extract orderId from path if present
+    # Path pattern: /api/admin/orders/{orderId}/status  or  /api/admin/orders/{orderId}/assign-technician
+    parts = path.rstrip('/').split('/')
+    # parts: ['', 'api', 'admin', 'orders', '{orderId}', '{action}']
+
+    if method == 'GET' and path == '/api/admin/orders':
+        return _admin_list_orders(query_params)
+
+    if len(parts) >= 5:
+        order_id = parts[4]
+        action = parts[5] if len(parts) >= 6 else None
+
+        if method == 'PATCH' and action == 'status':
+            return _admin_update_order_status(order_id, body)
+
+        if method == 'PATCH' and action == 'assign-technician':
+            return _admin_assign_technician(order_id, body)
+
+    return _create_response(404, {'error': 'Order management endpoint not found'})
+
+
+def _normalize_order(order: Dict) -> Dict:
+    """
+    Normalize an order record to a consistent shape for the admin frontend.
+    Handles two historical schemas:
+      - aquachain-orders (new): consumerName/consumerEmail, statusHistory, deliveryAddress as JSON string
+      - aquachain-table-orders-dev (old): customerName/customerEmail, timeline, installationAddress as dict
+    """
+    import json as _json
+
+    # Canonical name — consumerName in aquachain-orders stores email; real name is in contactInfo
+    contact_info = order.get('contactInfo') or {}
+    if isinstance(contact_info, str):
+        try:
+            contact_info = _json.loads(contact_info)
+        except Exception:
+            contact_info = {}
+
+    order['consumerName'] = (
+        contact_info.get('name') or
+        order.get('consumerName') or
+        order.get('customerName') or
+        ''
+    )
+    order['consumerEmail'] = (
+        contact_info.get('email') or
+        order.get('consumerEmail') or
+        order.get('customerEmail') or
+        ''
+    )
+    order['phone'] = (
+        contact_info.get('phone') or
+        order.get('phone') or
+        order.get('customerPhone') or
+        ''
+    )
+
+    # Canonical status history
+    if not order.get('statusHistory'):
+        timeline = order.get('timeline', [])
+        order['statusHistory'] = [
+            {
+                'status': t.get('status', ''),
+                'timestamp': t.get('timestamp', ''),
+                'message': t.get('description', t.get('message', ''))
+            }
+            for t in timeline
+            if isinstance(t, dict)
+        ]
+    else:
+        # Normalize statusHistory entries (ensure 'message' key exists)
+        order['statusHistory'] = [
+            {
+                'status': h.get('status', ''),
+                'timestamp': h.get('timestamp', ''),
+                'message': h.get('message', h.get('description', ''))
+            }
+            for h in order['statusHistory']
+            if isinstance(h, dict)
+        ]
+
+    # Canonical address — deliveryAddress may be a JSON string
+    if not order.get('address'):
+        addr = order.get('deliveryAddress') or order.get('installationAddress') or {}
+        if isinstance(addr, str):
+            try:
+                addr = _json.loads(addr)
+            except Exception:
+                addr = {}
+        if isinstance(addr, dict):
+            parts = [addr.get('street', ''), addr.get('city', ''), addr.get('state', ''), addr.get('pincode', '')]
+            order['address'] = ', '.join(p for p in parts if p)
+
+    # Canonical amount
+    if not order.get('quoteAmount'):
+        order['quoteAmount'] = order.get('totalAmount') or order.get('amount')
+
+    # Ensure orderId is always present
+    if not order.get('orderId'):
+        pk = order.get('PK', '')
+        order['orderId'] = pk.replace('ORDER#', '') if pk.startswith('ORDER#') else pk
+
+    return order
+
+
+def _admin_list_orders(query_params: Dict):
+    """GET /api/admin/orders — scan orders table and return all orders with stats."""
+    try:
+        dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+        table = dynamodb.Table(ORDERS_TABLE_NAME)
+
+        items = []
+        response = table.scan()
+        items.extend(response.get('Items', []))
+        while 'LastEvaluatedKey' in response:
+            response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+            items.extend(response.get('Items', []))
+
+        # Normalise Decimal types for JSON serialisation
+        import decimal
+        def _dec(obj):
+            if isinstance(obj, decimal.Decimal):
+                return float(obj)
+            raise TypeError
+        orders = json.loads(json.dumps(items, default=_dec))
+
+        # Normalize schema differences between old and new order formats
+        orders = [_normalize_order(o) for o in orders]
+
+        # Sort newest first
+        orders.sort(key=lambda o: o.get('createdAt', ''), reverse=True)
+
+        logger.info(f"Admin fetched {len(orders)} orders")
+        return _create_response(200, {'success': True, 'orders': orders})
+
+    except Exception as e:
+        logger.error(f"Error listing orders: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Failed to fetch orders', 'message': str(e)})
+
+
+def _admin_update_order_status(order_id: str, body: Dict):
+    """PATCH /api/admin/orders/{id}/status — update order lifecycle status."""
+    try:
+        new_status = (body or {}).get('status')
+        if not new_status:
+            return _create_response(400, {'error': 'status field is required'})
+
+        dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+        table = dynamodb.Table(ORDERS_TABLE_NAME)
+
+        from datetime import datetime
+        now = datetime.utcnow().isoformat() + 'Z'
+
+        status_labels = {
+            'ORDER_PLACED': 'Order Placed',
+            'DEVICE_READY': 'Device Ready',
+            'TECHNICIAN_ASSIGNED': 'Technician Assigned',
+            'SHIPPED': 'Shipped',
+            'OUT_FOR_DELIVERY': 'Out for Delivery',
+            'DELIVERED': 'Delivered',
+            'INSTALLED': 'Installed',
+            'CANCELLED': 'Order Cancelled',
+        }
+        history_entry = {
+            'status': new_status,
+            'timestamp': now,
+            'message': f"Status updated to {status_labels.get(new_status, new_status)} by admin",
+        }
+
+        table.update_item(
+            Key={'orderId': order_id},
+            UpdateExpression=(
+                'SET #s = :s, updatedAt = :t, '
+                'statusHistory = list_append(if_not_exists(statusHistory, :empty), :h)'
+            ),
+            ExpressionAttributeNames={'#s': 'status'},
+            ExpressionAttributeValues={
+                ':s': new_status,
+                ':t': now,
+                ':h': [history_entry],
+                ':empty': [],
+            },
+            ConditionExpression='attribute_exists(orderId)',
+        )
+
+        logger.info(f"Admin updated order {order_id} status to {new_status}")
+        return _create_response(200, {'success': True, 'orderId': order_id, 'status': new_status})
+
+    except Exception as e:
+        if 'ConditionalCheckFailedException' in str(e):
+            return _create_response(404, {'error': 'Order not found'})
+        logger.error(f"Error updating order status: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Failed to update order status', 'message': str(e)})
+
+
+def _admin_assign_technician(order_id: str, body: Dict):
+    """PATCH /api/admin/orders/{id}/assign-technician — assign a technician to an order."""
+    try:
+        technician_id = (body or {}).get('technicianId')
+        if not technician_id:
+            return _create_response(400, {'error': 'technicianId field is required'})
+
+        dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+        table = dynamodb.Table(ORDERS_TABLE_NAME)
+
+        from datetime import datetime
+        now = datetime.utcnow().isoformat() + 'Z'
+
+        # Look up technician name from Users table
+        technician_name = technician_id  # fallback to ID if lookup fails
+        try:
+            users_table = dynamodb.Table(USERS_TABLE)
+            tech_record = users_table.get_item(Key={'userId': technician_id})
+            if 'Item' in tech_record:
+                item = tech_record['Item']
+                profile = item.get('profile', {}) or {}
+                first = profile.get('firstName') or item.get('firstName', '')
+                last  = profile.get('lastName')  or item.get('lastName', '')
+                full  = f"{first} {last}".strip()
+                if full:
+                    technician_name = full
+                # Also try the flat 'name' field
+                if not full:
+                    technician_name = item.get('name', technician_id)
+        except Exception as lookup_err:
+            logger.warning(f"Could not look up technician name for {technician_id}: {lookup_err}")
+
+        history_entry = {
+            'status': 'TECHNICIAN_ASSIGNED',
+            'timestamp': now,
+            'message': f"Technician {technician_name} assigned by admin",
+        }
+
+        table.update_item(
+            Key={'orderId': order_id},
+            UpdateExpression=(
+                'SET assignedTechnicianId = :tid, assignedTechnicianName = :tname, '
+                'updatedAt = :t, #s = :s, '
+                'statusHistory = list_append(if_not_exists(statusHistory, :empty), :h)'
+            ),
+            ExpressionAttributeNames={'#s': 'status'},
+            ExpressionAttributeValues={
+                ':tid':   technician_id,
+                ':tname': technician_name,
+                ':t':     now,
+                ':s':     'TECHNICIAN_ASSIGNED',
+                ':h':     [history_entry],
+                ':empty': [],
+            },
+            ConditionExpression='attribute_exists(orderId)',
+        )
+
+        logger.info(f"Admin assigned technician {technician_name} ({technician_id}) to order {order_id}")
+        return _create_response(200, {
+            'success': True,
+            'orderId': order_id,
+            'assignedTechnicianId': technician_id,
+            'assignedTechnicianName': technician_name,
+            'status': 'TECHNICIAN_ASSIGNED',
+        })
+
+    except Exception as e:
+        if 'ConditionalCheckFailedException' in str(e):
+            return _create_response(404, {'error': 'Order not found'})
+        logger.error(f"Error assigning technician: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Failed to assign technician', 'message': str(e)})

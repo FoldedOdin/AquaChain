@@ -31,6 +31,7 @@ import {
   Search,
   Filter,
   Megaphone,
+  Package,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -73,6 +74,10 @@ import { SystemConfiguration as SystemConfigType } from '../../types/admin';
 import NotificationCenter from './NotificationCenter';
 import DataExportModal from './DataExportModal';
 import AnnouncementPanel from './AnnouncementPanel';
+import AdminOrderManagement from './AdminOrderManagement';
+import InventoryManagerView from './Operations/InventoryManagerView';
+import WarehouseManagerView from './Operations/WarehouseManagerView';
+import SupplierCoordinatorView from './Operations/SupplierCoordinatorView';
 
 interface AdminDashboardRestructuredProps {
   // Optional props for customization
@@ -371,23 +376,23 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
     fetchData();
     
-    // Refresh metrics every 30 seconds
+    // Refresh metrics every 2 minutes — admin data doesn't need 30s freshness
     const interval = setInterval(async () => {
       try {
         const [usersData, healthMetrics, perfMetrics, incidentStatsData] = await Promise.all([
-          getAllUsers(), // Also refresh user list to show updated lastLogin
+          getAllUsers(),
           getSystemHealthMetrics(),
           getPerformanceMetrics('24h'),
           getIncidentStats(30)
         ]);
-        setUsers(usersData); // Update user list with fresh data
+        setUsers(usersData);
         setSystemMetrics(healthMetrics);
         setPerformanceMetrics(perfMetrics);
         setIncidentStats(incidentStatsData);
       } catch (err) {
         console.error('Failed to refresh metrics:', err);
       }
-    }, 30000);
+    }, 120000);
     
     return () => clearInterval(interval);
   }, []);
@@ -413,8 +418,8 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
     // Fetch immediately
     fetchRealTimeMetrics();
     
-    // Refresh every 30 seconds for real-time updates
-    const metricsInterval = setInterval(fetchRealTimeMetrics, 30000);
+    // Refresh every 2 minutes — consolidated with the metrics interval above
+    const metricsInterval = setInterval(fetchRealTimeMetrics, 120000);
     
     return () => clearInterval(metricsInterval);
   }, []);
@@ -1086,6 +1091,28 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
               <Megaphone className="w-5 h-5" />
               Announcements
             </button>
+            <button
+              onClick={() => setSelectedView('orders')}
+              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+                selectedView === 'orders'
+                  ? 'text-purple-600 border-b-2 border-purple-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Package className="w-5 h-5" />
+              Order Management
+            </button>
+            <button
+              onClick={() => setSelectedView('operations')}
+              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+                selectedView === 'operations'
+                  ? 'text-purple-600 border-b-2 border-purple-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Database className="w-5 h-5" />
+              Operations
+            </button>
           </div>
         </div>
         {/* System Overview Tab */}
@@ -1305,10 +1332,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                       <option value="consumer">Consumer</option>
                       <option value="technician">Technician</option>
                       <option value="administrator">Administrator</option>
-                      <option value="inventory_manager">Inventory Manager</option>
-                      <option value="warehouse_manager">Warehouse Manager</option>
-                      <option value="supplier_coordinator">Supplier Coordinator</option>
-                      <option value="procurement_controller">Procurement Controller</option>
                     </select>
                   </div>
                 </div>
@@ -1783,6 +1806,71 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
         {/* Announcements Tab */}
         {selectedView === 'announcements' && (
           <AnnouncementPanel />
+        )}
+
+        {/* Order Management Tab */}
+        {selectedView === 'orders' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-6"
+          >
+            <AdminOrderManagement />
+          </motion.div>
+        )}
+
+        {/* Operations Tab */}
+        {selectedView === 'operations' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-6 space-y-8"
+          >
+            {/* Inventory Management */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <span className="w-2 h-6 bg-orange-500 rounded-full inline-block" />
+                Inventory Management
+              </h3>
+              <InventoryManagerView />
+            </div>
+
+            <div className="border-t border-gray-200" />
+
+            {/* Warehouse Operations */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <span className="w-2 h-6 bg-indigo-500 rounded-full inline-block" />
+                Warehouse Operations
+              </h3>
+              <WarehouseManagerView />
+            </div>
+
+            <div className="border-t border-gray-200" />
+
+            {/* Supplier Management */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <span className="w-2 h-6 bg-pink-500 rounded-full inline-block" />
+                Supplier Management
+              </h3>
+              <SupplierCoordinatorView />
+            </div>
+
+            <div className="border-t border-gray-200" />
+
+            {/* Procurement Control */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <span className="w-2 h-6 bg-red-500 rounded-full inline-block" />
+                Procurement Control
+              </h3>
+              <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <Database className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">Procurement Control module coming soon.</p>
+              </div>
+            </div>
+          </motion.div>
         )}
       </main>
       {/* Modals */}
@@ -2512,10 +2600,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <option value="consumer">Consumer</option>
                         <option value="technician">Technician</option>
                         <option value="administrator">Administrator</option>
-                        <option value="inventory_manager">Inventory Manager</option>
-                        <option value="warehouse_manager">Warehouse Manager</option>
-                        <option value="supplier_coordinator">Supplier Coordinator</option>
-                        <option value="procurement_controller">Procurement Controller</option>
                       </select>
                     </div>
                     <div>
@@ -2670,10 +2754,6 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
                         <option value="consumer">Consumer</option>
                         <option value="technician">Technician</option>
                         <option value="administrator">Administrator</option>
-                        <option value="inventory_manager">Inventory Manager</option>
-                        <option value="warehouse_manager">Warehouse Manager</option>
-                        <option value="supplier_coordinator">Supplier Coordinator</option>
-                        <option value="procurement_controller">Procurement Controller</option>
                       </select>
                     </div>
                   </div>

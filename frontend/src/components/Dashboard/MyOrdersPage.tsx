@@ -25,7 +25,6 @@ import {
 import Toast from '../Toast/Toast';
 import ShipmentTracking from './ShipmentTracking';
 import TechnicianModal from './TechnicianModal';
-import OrderProgressButtons from './OrderProgressButtons';
 import AssignTechnicianModal from './AssignTechnicianModal';
 
 interface Order {
@@ -341,10 +340,10 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
   useEffect(() => {
     fetchOrders();
     
-    // Set up real-time polling every 10 seconds
+    // Poll every 60 seconds — orders don't need sub-minute freshness
     const pollInterval = setInterval(() => {
       fetchOrders();
-    }, 10000);
+    }, 60000);
     
     return () => clearInterval(pollInterval);
   }, [fetchOrders]); // fetchOrders is stable because showToast is now useCallback
@@ -1247,49 +1246,18 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                     </div>
                   </div>
 
-                  {/* Order Progress Buttons */}
-                  <OrderProgressButtons
-                    orderId={selectedOrder.orderId}
-                    currentStatus={selectedOrder.status}
-                    onAssignTechnician={() => setShowAssignTechnicianModal(true)}
-                    onStatusUpdate={async (newStatus) => {
-                      try {
-                        const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-                        const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev';
-                        
-                        // Call the backend API to update order status
-                        const response = await fetch(`${apiEndpoint}/api/orders/${selectedOrder.orderId}/status`, {
-                          method: 'PUT',
-                          headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            status: newStatus,
-                            reason: `Status updated to ${newStatus}`
-                          })
-                        });
-
-                        if (!response.ok) {
-                          const error = await response.json();
-                          throw new Error(error.error || 'Failed to update order status');
-                        }
-
-                        // Update local state
-                        setSelectedOrder({ ...selectedOrder, status: newStatus });
-                        
-                        // Refresh orders list to get updated data from backend
-                        await fetchOrders();
-                        
-                        showToast(`Order status updated to ${newStatus}`, 'success');
-                      } catch (error) {
-                        console.error('Error updating order status:', error);
-                        showToast(error instanceof Error ? error.message : 'Failed to update order status', 'error');
-                        throw error; // Re-throw so OrderProgressButtons can handle it
-                      }
-                    }}
-                    disabled={false}
-                  />
+                  {/* Support Info - Order actions are managed by admin */}
+                  {selectedOrder.status !== 'DELIVERED' && selectedOrder.status !== 'completed' && selectedOrder.status !== 'CANCELLED' && (
+                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-blue-900">
+                          <p className="font-semibold mb-1">Order in Progress</p>
+                          <p>Our team is handling your order. You'll receive updates as your order progresses. Contact support if you have any questions.</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Status Message for Completed Orders */}
                   {(selectedOrder.status === 'completed' || selectedOrder.status === 'DELIVERED') && (
@@ -1307,9 +1275,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
 
                 {/* Enhanced Footer */}
                 <div className="bg-gray-50 px-6 py-4 border-t">
-                  <div className="flex items-center justify-between">
-                    {(selectedOrder.status === 'ORDER_PLACED' || selectedOrder.status === 'pending') ? (
-                      <>
+                  <div className="flex items-center justify-between w-full">
+                    <a
+                      href="mailto:support@aquachain.com"
+                      className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                      Need Help?
+                    </a>
+                    <div className="flex items-center gap-3">
+                      {(selectedOrder.status === 'ORDER_PLACED' || selectedOrder.status === 'pending') && (
                         <button
                           onClick={() => handleCancelOrder(selectedOrder.orderId)}
                           disabled={isCancelling}
@@ -1317,41 +1292,16 @@ const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ onBack }) => {
                         >
                           {isCancelling ? 'Cancelling...' : 'Cancel Order'}
                         </button>
-                        <div className="flex items-center gap-3">
-                          <a
-                            href="mailto:support@aquachain.com"
-                            className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors"
-                          >
-                            <HelpCircle className="w-4 h-4" />
-                            Need Help?
-                          </a>
-                          <button
-                            onClick={() => setShowDetailsModal(false)}
-                            className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
-                          >
-                            Okay, Got It
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex items-center justify-between w-full">
-                        <a
-                          href="mailto:support@aquachain.com"
-                          className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors"
-                        >
-                          <HelpCircle className="w-4 h-4" />
-                          Need Help?
-                        </a>
-                        <button
-                          onClick={() => setShowDetailsModal(false)}
-                          className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
-                        >
-                          {selectedOrder.status === 'completed' || selectedOrder.status === 'DELIVERED' 
-                            ? 'Close' 
-                            : 'Track Later'}
-                        </button>
-                      </div>
-                    )}
+                      )}
+                      <button
+                        onClick={() => setShowDetailsModal(false)}
+                        className="px-6 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                      >
+                        {selectedOrder.status === 'completed' || selectedOrder.status === 'DELIVERED'
+                          ? 'Close'
+                          : 'Track Later'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -280,6 +280,7 @@ class AquaChainComputeStack(Stack):
             environment={
                 **common_lambda_config.get("environment", {}),
                 "NOTIFICATION_TOPIC_ARN": self.security_resources["service_updates_topic"].topic_arn,
+                "INVENTORY_TABLE": get_resource_name(self.config, "table", "inventory"),
             }
         )
         
@@ -310,6 +311,26 @@ class AquaChainComputeStack(Stack):
                 resources=[
                     f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-orders",
                     f"arn:aws:dynamodb:{self.region}:{self.account}:table/aquachain-orders/index/*"
+                ]
+            )
+        )
+
+        # Grant inventory table full access (read for technicians, write for admin restock/delete)
+        inventory_table_name = get_resource_name(self.config, "table", "inventory")
+        self.service_request_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                ],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{inventory_table_name}",
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/{inventory_table_name}/index/*",
                 ]
             )
         )

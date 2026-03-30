@@ -113,6 +113,12 @@ def lambda_handler(event, context):
             return return_inventory_item(body, user_info)
         elif resource == '/api/v1/technician/inventory/request-restock' and http_method == 'POST':
             return request_inventory_restock(body, user_info)
+        elif resource == '/api/admin/inventory/{partId}/restock' and http_method == 'POST':
+            part_id = path_parameters.get('partId', '')
+            return admin_restock_inventory(part_id, body)
+        elif resource == '/api/admin/inventory/{partId}' and http_method == 'DELETE':
+            part_id = path_parameters.get('partId', '')
+            return admin_delete_inventory(part_id)
         elif http_method == 'OPTIONS':
             return create_response(204, {})
         else:
@@ -618,214 +624,272 @@ def _format_relative_time(iso_timestamp: str) -> str:
 
 
 
+def _get_inventory_table():
+    """Lazy-load the inventory DynamoDB table."""
+    table_name = os.environ.get('INVENTORY_TABLE', 'aquachain-table-inventory-dev')
+    return dynamodb.Table(table_name)
+
+
+def _decimal_to_native(obj):
+    """Recursively convert Decimal to int/float for JSON serialisation."""
+    import decimal
+    if isinstance(obj, list):
+        return [_decimal_to_native(i) for i in obj]
+    if isinstance(obj, dict):
+        return {k: _decimal_to_native(v) for k, v in obj.items()}
+    if isinstance(obj, decimal.Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    return obj
+
+
 def get_technician_inventory(query_params: dict, user_info: dict):
-    """Get inventory items available to technician"""
+    """GET /api/v1/technician/inventory — read live inventory from DynamoDB."""
     try:
-        # Log user info for debugging
-        logger.info(f"User info: {json.dumps(user_info)}")
-        
-        # Only technicians can access inventory
-        if user_info.get('role') != 'technician':
-            logger.warning(f"Access denied for user {user_info.get('userId')} with role {user_info.get('role')}")
-            return create_response(403, {'error': 'Access denied', 'userRole': user_info.get('role')})
-        
-        # Mock inventory data - in production, this would query DynamoDB inventory table
-        inventory_items = [
-            {
-                'partId': 'item-001',
-                'name': 'pH Sensor',
-                'category': 'Sensors',
-                'quantity': 15,
-                'checkedOut': 3,
-                'available': 12,
-                'location': 'Warehouse A',
-                'lastRestocked': '2024-02-15T10:30:00Z'
-            },
-            {
-                'partId': 'item-002',
-                'name': 'TDS Sensor',
-                'category': 'Sensors',
-                'quantity': 20,
-                'checkedOut': 5,
-                'available': 15,
-                'location': 'Warehouse A',
-                'lastRestocked': '2024-02-14T14:20:00Z'
-            },
-            {
-                'partId': 'item-003',
-                'name': 'Turbidity Sensor',
-                'category': 'Sensors',
-                'quantity': 12,
-                'checkedOut': 2,
-                'available': 10,
-                'location': 'Warehouse B',
-                'lastRestocked': '2024-02-16T09:15:00Z'
-            },
-            {
-                'partId': 'item-004',
-                'name': 'Temperature Sensor',
-                'category': 'Sensors',
-                'quantity': 25,
-                'checkedOut': 4,
-                'available': 21,
-                'location': 'Warehouse A',
-                'lastRestocked': '2024-02-13T11:45:00Z'
-            },
-            {
-                'partId': 'item-005',
-                'name': 'Calibration Solution',
-                'category': 'Supplies',
-                'quantity': 30,
-                'checkedOut': 8,
-                'available': 22,
-                'location': 'Warehouse C',
-                'lastRestocked': '2024-02-17T08:00:00Z'
-            }
-        ]
-        
-        return create_response(200, {
-            'inventory': inventory_items,
-            'count': len(inventory_items)
-        })
-        
+        logger.info(f"Inventory request by user {user_info.get('userId')} role={user_info.get('role')}")
+
+        table = _get_inventory_table()
+        items = []
+        resp = table.scan(
+            FilterExpression='SK = :sk AND #st <> :disc',
+            ExpressionAttributeNames={'#st': 'status'},
+            ExpressionAttributeValues={':sk': 'CURRENT', ':disc': 'discontinued'}
+        )
+        items.extend(resp.get('Items', []))
+        while 'LastEvaluatedKey' in resp:
+            resp = table.scan(
+                FilterExpression='SK = :sk AND #st <> :disc',
+                ExpressionAttributeNames={'#st': 'status'},
+                ExpressionAttributeValues={':sk': 'CURRENT', ':disc': 'discontinued'},
+                ExclusiveStartKey=resp['LastEvaluatedKey']
+            )
+            items.extend(resp.get('Items', []))
+
+        inventory = []
+        for item in items:
+            part_id = item.get('PK', '').replace('ITEM#', '')
+            qty = int(item.get('quantity', 0))
+            min_qty = int(item.get('minQuantity', 5))
+            inventory.append({
+                'partId': part_id,
+                'name': item.get('name', ''),
+                'category': item.get('category', ''),
+                'quantity': qty,
+                'minQuantity': min_qty,
+                'location': item.get('location', ''),
+                'status': item.get('status', 'active'),
+                'description': item.get('description', ''),
+                'unitPrice': float(item.get('unitPrice', 0)),
+                'lastRestocked': item.get('lastRestocked', ''),
+            })
+
+        logger.info(f"Returning {len(inventory)} inventory items")
+        return create_response(200, {'inventory': inventory, 'count': len(inventory)})
+
     except Exception as e:
-        logger.error(f"Error getting technician inventory: {str(e)}")
+        logger.error(f"Error getting technician inventory: {str(e)}", exc_info=True)
         return create_response(500, {'error': 'Failed to get inventory'})
 
 
 def checkout_inventory_item(checkout_data: dict, user_info: dict):
-    """Checkout an inventory item"""
+    """POST /api/v1/technician/inventory/checkout — decrement stock in DynamoDB."""
     try:
-        # Only technicians can checkout inventory
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
-        
-        # Accept both partId and itemId for backward compatibility
+
         part_id = checkout_data.get('partId') or checkout_data.get('itemId')
-        quantity = checkout_data.get('quantity', 1)
+        quantity = int(checkout_data.get('quantity', 1))
         task_id = checkout_data.get('taskId')
-        
+
         if not part_id:
             return create_response(400, {'error': 'Part ID is required'})
-        
         if quantity <= 0:
             return create_response(400, {'error': 'Quantity must be greater than 0'})
-        
-        # In production, this would update DynamoDB inventory table
-        logger.info(f"Technician {user_info['userId']} checked out {quantity} of part {part_id}" + 
-                   (f" for task {task_id}" if task_id else ""))
-        
+
+        table = _get_inventory_table()
+        now = datetime.utcnow().isoformat() + 'Z'
+
+        try:
+            table.update_item(
+                Key={'PK': f'ITEM#{part_id}', 'SK': 'CURRENT'},
+                UpdateExpression='SET quantity = quantity - :q, updatedAt = :t',
+                ConditionExpression='quantity >= :q AND attribute_exists(PK)',
+                ExpressionAttributeValues={':q': quantity, ':t': now},
+            )
+        except Exception as cond_err:
+            if 'ConditionalCheckFailedException' in str(cond_err):
+                return create_response(400, {'error': 'Insufficient stock or item not found'})
+            raise
+
+        logger.info(f"Technician {user_info['userId']} checked out {quantity}x {part_id}" +
+                    (f" for task {task_id}" if task_id else ""))
         return create_response(200, {
             'success': True,
             'message': f'Successfully checked out {quantity} item(s)',
-            'partId': part_id,
-            'quantity': quantity,
-            'taskId': task_id,
-            'technicianId': user_info['userId'],
-            'checkedOutAt': datetime.utcnow().isoformat() + 'Z'
+            'partId': part_id, 'quantity': quantity,
+            'taskId': task_id, 'technicianId': user_info['userId'],
+            'checkedOutAt': now,
         })
-        
+
     except Exception as e:
-        logger.error(f"Error checking out inventory item: {str(e)}")
+        logger.error(f"Error checking out inventory item: {str(e)}", exc_info=True)
         return create_response(500, {'error': 'Failed to checkout item'})
 
 
 def return_inventory_item(return_data: dict, user_info: dict):
-    """Return an inventory item"""
+    """POST /api/v1/technician/inventory/return — increment stock back in DynamoDB."""
     try:
-        # Only technicians can return inventory
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
-        
-        # Accept both partId and itemId for backward compatibility
+
         part_id = return_data.get('partId') or return_data.get('itemId')
-        quantity = return_data.get('quantity', 1)
+        quantity = int(return_data.get('quantity', 1))
         condition = return_data.get('condition', 'good')
-        
+
         if not part_id:
             return create_response(400, {'error': 'Part ID is required'})
-        
         if quantity <= 0:
             return create_response(400, {'error': 'Quantity must be greater than 0'})
-        
-        # In production, this would update DynamoDB inventory table
-        logger.info(f"Technician {user_info['userId']} returned {quantity} of part {part_id} in {condition} condition")
-        
+
+        table = _get_inventory_table()
+        now = datetime.utcnow().isoformat() + 'Z'
+
+        table.update_item(
+            Key={'PK': f'ITEM#{part_id}', 'SK': 'CURRENT'},
+            UpdateExpression='SET quantity = quantity + :q, updatedAt = :t',
+            ConditionExpression='attribute_exists(PK)',
+            ExpressionAttributeValues={':q': quantity, ':t': now},
+        )
+
+        logger.info(f"Technician {user_info['userId']} returned {quantity}x {part_id} ({condition})")
         return create_response(200, {
             'success': True,
             'message': f'Successfully returned {quantity} item(s)',
-            'partId': part_id,
-            'quantity': quantity,
-            'condition': condition,
-            'technicianId': user_info['userId'],
-            'returnedAt': datetime.utcnow().isoformat() + 'Z'
+            'partId': part_id, 'quantity': quantity,
+            'condition': condition, 'technicianId': user_info['userId'],
+            'returnedAt': now,
         })
-        
+
     except Exception as e:
-        logger.error(f"Error returning inventory item: {str(e)}")
+        logger.error(f"Error returning inventory item: {str(e)}", exc_info=True)
         return create_response(500, {'error': 'Failed to return item'})
 
 
 def request_inventory_restock(restock_data: dict, user_info: dict):
-    """Request restock of an inventory item"""
+    """POST /api/v1/technician/inventory/request-restock — log request and notify admin."""
     try:
-        # Only technicians can request restocks
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
-        
-        # Accept both partId and itemId for backward compatibility
+
         part_id = restock_data.get('partId') or restock_data.get('itemId')
         part_name = restock_data.get('partName', 'Unknown Part')
-        quantity = restock_data.get('quantity', 1)
+        quantity = int(restock_data.get('quantity', 1))
         urgency = restock_data.get('urgency', 'normal')
         reason = restock_data.get('reason', '')
-        current_stock = restock_data.get('currentStock', 0)
-        
+        current_stock = int(restock_data.get('currentStock', 0))
+
         if not part_id:
             return create_response(400, {'error': 'Part ID is required'})
-        
         if quantity <= 0:
             return create_response(400, {'error': 'Quantity must be greater than 0'})
-        
-        # In production, this would create a restock request in DynamoDB
-        logger.info(f"Technician {user_info['userId']} requested restock of {quantity} of part {part_id} ({part_name}) with {urgency} urgency")
-        
-        # Optionally notify admin via SNS
+
+        now = datetime.utcnow().isoformat() + 'Z'
+        request_id = f"restock-{int(datetime.utcnow().timestamp())}"
+
+        # Write restock request to DynamoDB as a history record
+        table = _get_inventory_table()
+        table.put_item(Item={
+            'PK': f'ITEM#{part_id}',
+            'SK': f'RESTOCK_REQUEST#{now}',
+            'requestId': request_id,
+            'partName': part_name,
+            'quantity': quantity,
+            'currentStock': current_stock,
+            'urgency': urgency,
+            'reason': reason,
+            'requestedBy': user_info['userId'],
+            'requestedAt': now,
+            'status': 'pending',
+        })
+
+        # Notify admin via SNS
         if ADMIN_TOPIC_ARN:
             try:
                 sns.publish(
                     TopicArn=ADMIN_TOPIC_ARN,
                     Subject=f"Inventory Restock Request - {urgency.upper()}",
                     Message=json.dumps({
-                        'type': 'restock_request',
-                        'partId': part_id,
-                        'partName': part_name,
-                        'quantity': quantity,
-                        'currentStock': current_stock,
-                        'urgency': urgency,
-                        'reason': reason,
-                        'requestedBy': user_info['userId'],
-                        'requestedAt': datetime.utcnow().isoformat() + 'Z'
+                        'type': 'restock_request', 'partId': part_id,
+                        'partName': part_name, 'quantity': quantity,
+                        'currentStock': current_stock, 'urgency': urgency,
+                        'reason': reason, 'requestedBy': user_info['userId'],
+                        'requestedAt': now,
                     })
                 )
-            except Exception as sns_error:
-                logger.warning(f"Failed to send SNS notification: {str(sns_error)}")
-        
+            except Exception as sns_err:
+                logger.warning(f"SNS notification failed: {sns_err}")
+
+        logger.info(f"Restock request {request_id} created by {user_info['userId']}")
         return create_response(200, {
             'success': True,
             'message': 'Restock request submitted successfully',
-            'requestId': f"restock-{int(datetime.utcnow().timestamp())}",
-            'partId': part_id,
-            'partName': part_name,
-            'quantity': quantity,
-            'urgency': urgency,
-            'requestedBy': user_info['userId'],
-            'requestedAt': datetime.utcnow().isoformat() + 'Z'
+            'requestId': request_id, 'partId': part_id,
+            'partName': part_name, 'quantity': quantity,
+            'urgency': urgency, 'requestedBy': user_info['userId'],
+            'requestedAt': now,
         })
-        
+
     except Exception as e:
-        logger.error(f"Error requesting inventory restock: {str(e)}")
+        logger.error(f"Error requesting inventory restock: {str(e)}", exc_info=True)
         return create_response(500, {'error': 'Failed to submit restock request'})
+
+
+# ─── Admin inventory handlers (called from admin_service routing) ─────────────
+
+def admin_restock_inventory(part_id: str, body: dict):
+    """POST /api/admin/inventory/{partId}/restock — add stock."""
+    try:
+        quantity = int((body or {}).get('quantity', 0))
+        if quantity <= 0:
+            return create_response(400, {'error': 'quantity must be > 0'})
+
+        table = _get_inventory_table()
+        now = datetime.utcnow().isoformat() + 'Z'
+        table.update_item(
+            Key={'PK': f'ITEM#{part_id}', 'SK': 'CURRENT'},
+            UpdateExpression='SET quantity = quantity + :q, lastRestocked = :t, updatedAt = :t',
+            ConditionExpression='attribute_exists(PK)',
+            ExpressionAttributeValues={':q': quantity, ':t': now},
+        )
+        logger.info(f"Admin restocked {quantity}x {part_id}")
+        return create_response(200, {'success': True, 'partId': part_id, 'added': quantity})
+
+    except Exception as e:
+        if 'ConditionalCheckFailedException' in str(e):
+            return create_response(404, {'error': 'Item not found'})
+        logger.error(f"Error restocking: {e}", exc_info=True)
+        return create_response(500, {'error': 'Failed to restock item'})
+
+
+def admin_delete_inventory(part_id: str):
+    """DELETE /api/admin/inventory/{partId} — mark item as discontinued."""
+    try:
+        table = _get_inventory_table()
+        now = datetime.utcnow().isoformat() + 'Z'
+        table.update_item(
+            Key={'PK': f'ITEM#{part_id}', 'SK': 'CURRENT'},
+            UpdateExpression='SET #st = :disc, updatedAt = :t',
+            ConditionExpression='attribute_exists(PK)',
+            ExpressionAttributeNames={'#st': 'status'},
+            ExpressionAttributeValues={':disc': 'discontinued', ':t': now},
+        )
+        logger.info(f"Admin discontinued inventory item {part_id}")
+        return create_response(200, {'success': True, 'partId': part_id})
+
+    except Exception as e:
+        if 'ConditionalCheckFailedException' in str(e):
+            return create_response(404, {'error': 'Item not found'})
+        logger.error(f"Error deleting inventory item: {e}", exc_info=True)
+        return create_response(500, {'error': 'Failed to delete item'})
 
 
 
@@ -1046,8 +1110,9 @@ def update_technician_task_status(task_id: str, update_data: dict, user_info: di
         if not status:
             return create_response(400, {'error': 'Status is required'})
 
-        # Order-based tasks — update orders table directly
-        if task_id.startswith('ord_') or task_id.startswith('ord-'):
+        # Order-based tasks — any ID that is NOT an SR- service request
+        is_service_request = task_id.upper().startswith('SR-')
+        if not is_service_request:
             orders_table = dynamodb.Table(ORDERS_TABLE)
 
             # Guard: prevent starting work before device is shipped/out for delivery
@@ -1130,8 +1195,9 @@ def complete_technician_task(task_id: str, completion_data: dict, user_info: dic
         if user_info.get('role') != 'technician':
             return create_response(403, {'error': 'Access denied'})
 
-        # Order-based tasks — mark order as completed/installed in orders table
-        if task_id.startswith('ord_') or task_id.startswith('ord-'):
+        # Order-based tasks — any ID that is NOT an SR- service request
+        is_service_request = task_id.upper().startswith('SR-')
+        if not is_service_request:
             orders_table = dynamodb.Table(ORDERS_TABLE)
             now = datetime.utcnow().isoformat()
             audit_entry = {'action': 'INSTALLATION_COMPLETED', 'by': user_info['userId'], 'at': now}

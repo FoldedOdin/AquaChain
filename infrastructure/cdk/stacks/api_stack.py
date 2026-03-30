@@ -266,7 +266,7 @@ class AquaChainApiStack(Stack):
             description="AquaChain REST API",
             default_cors_preflight_options=apigateway.CorsOptions(
                 allow_origins=apigateway.Cors.ALL_ORIGINS,  # Allow all origins for development
-                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                 allow_headers=[
                     "Content-Type",
                     "Authorization",
@@ -585,7 +585,7 @@ class AquaChainApiStack(Stack):
             try:
                 alert_cors = apigateway.CorsOptions(
                     allow_origins=apigateway.Cors.ALL_ORIGINS,
-                    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                     allow_headers=["Content-Type", "Authorization",
                                    "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"],
                     allow_credentials=False,
@@ -1202,6 +1202,101 @@ class AquaChainApiStack(Stack):
                 ]
             )
             
+            # /api/admin/orders - Order management (admin only)
+            admin_orders_resource = api_admin.add_resource("orders")
+            admin_orders_resource.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True,
+                        }
+                    )
+                ]
+            )
+
+            # /api/admin/orders/{orderId}
+            admin_order_resource = admin_orders_resource.add_resource("{orderId}")
+
+            # /api/admin/orders/{orderId}/status
+            admin_order_status_resource = admin_order_resource.add_resource("status")
+            admin_order_status_resource.add_method(
+                "PATCH",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True,
+                        }
+                    )
+                ]
+            )
+
+            # /api/admin/orders/{orderId}/assign-technician
+            admin_order_assign_resource = admin_order_resource.add_resource("assign-technician")
+            admin_order_assign_resource.add_method(
+                "PATCH",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(
+                        status_code="200",
+                        response_parameters={
+                            "method.response.header.Access-Control-Allow-Origin": True,
+                            "method.response.header.Access-Control-Allow-Headers": True,
+                            "method.response.header.Access-Control-Allow-Credentials": True,
+                        }
+                    )
+                ]
+            )
+
+            # /api/admin/inventory - Admin inventory management (routes to service_request Lambda)
+            admin_inventory_resource = api_admin.add_resource("inventory")
+
+            # /api/admin/inventory/{partId}
+            admin_inventory_part_resource = admin_inventory_resource.add_resource("{partId}")
+            admin_inventory_part_resource.add_method(
+                "DELETE",
+                apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                    }
+                )]
+            )
+
+            # /api/admin/inventory/{partId}/restock
+            admin_inventory_restock_resource = admin_inventory_part_resource.add_resource("restock")
+            admin_inventory_restock_resource.add_method(
+                "POST",
+                apigateway.LambdaIntegration(self.lambda_functions["service_request"]),
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                    }
+                )]
+            )
+
             # /api/admin/compliance - Compliance reporting
             admin_compliance_resource = api_admin.add_resource("compliance")
             admin_compliance_report_resource = admin_compliance_resource.add_resource("report")
@@ -1513,7 +1608,7 @@ class AquaChainApiStack(Stack):
             # Shared CORS options for all notification resources (no auth on OPTIONS)
             notification_cors_options = apigateway.CorsOptions(
                 allow_origins=apigateway.Cors.ALL_ORIGINS,
-                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                 allow_headers=[
                     "Content-Type",
                     "Authorization",

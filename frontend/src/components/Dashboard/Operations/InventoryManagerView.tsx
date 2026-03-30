@@ -1,415 +1,304 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../../contexts/AuthContext';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNotification } from '../../../contexts/NotificationContext';
-import { InventoryItem, StockAlert, DemandForecast, AuditEntry } from '../../../types';
-import LoadingSpinner from '../../Loading/LoadingSpinner';
 
-const InventoryManagerView: React.FC = () => {
-  const { user } = useAuth();
-  const { showNotification } = useNotification();
-  const [isLoading, setIsLoading] = useState(true);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [stockAlerts, setStockAlerts] = useState<StockAlert[]>([]);
-  const [demandForecasts, setDemandForecasts] = useState<DemandForecast[]>([]);
-  const [auditHistory, setAuditHistory] = useState<AuditEntry[]>([]);
-  const [selectedTimeRange, setSelectedTimeRange] = useState<'7d' | '30d' | '90d'>('30d');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+// ─── Types (matching the real /api/v1/technician/inventory shape) ─────────────
+interface Part {
+  partId: string;
+  name: string;
+  category: string;
+  quantity: number;
+  location: string;
+  status: string;
+  description?: string;
+  unitPrice?: number;
+  minQuantity?: number;
+  lastRestocked?: string;
+}
 
-  // Mock data for demonstration
-  useEffect(() => {
-    const loadInventoryData = async () => {
-      setIsLoading(true);
-      try {
-        // Simulate API calls
-        await new Promise(resolve => setTimeout(resolve, 1000));
+const API = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
 
-        // Mock inventory items
-        const mockItems: InventoryItem[] = [
-          {
-            itemId: 'INV001',
-            itemName: 'Water Quality Sensor pH-7',
-            currentStock: 45,
-            reorderPoint: 20,
-            reorderQuantity: 50,
-            unitCost: 125.99,
-            supplierId: 'SUP001',
-            warehouseLocation: 'A-1-B-3',
-            lastUpdated: new Date().toISOString(),
-            updatedBy: user?.userId || 'system',
-            category: 'Sensors',
-            status: 'in_stock'
-          },
-          {
-            itemId: 'INV002',
-            itemName: 'Turbidity Sensor Module',
-            currentStock: 8,
-            reorderPoint: 15,
-            reorderQuantity: 30,
-            unitCost: 89.50,
-            supplierId: 'SUP002',
-            warehouseLocation: 'A-2-C-1',
-            lastUpdated: new Date().toISOString(),
-            updatedBy: user?.userId || 'system',
-            category: 'Sensors',
-            status: 'low_stock'
-          },
-          {
-            itemId: 'INV003',
-            itemName: 'TDS Measurement Kit',
-            currentStock: 0,
-            reorderPoint: 10,
-            reorderQuantity: 25,
-            unitCost: 67.25,
-            supplierId: 'SUP001',
-            warehouseLocation: 'B-1-A-2',
-            lastUpdated: new Date().toISOString(),
-            updatedBy: user?.userId || 'system',
-            category: 'Test Kits',
-            status: 'out_of_stock'
-          }
-        ];
+function getToken() {
+  return localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+}
 
-        // Mock stock alerts
-        const mockAlerts: StockAlert[] = [
-          {
-            alertId: 'ALT001',
-            itemId: 'INV002',
-            itemName: 'Turbidity Sensor Module',
-            currentStock: 8,
-            reorderPoint: 15,
-            severity: 'warning',
-            recommendedAction: 'Reorder 30 units from Supplier SUP002',
-            createdAt: new Date().toISOString()
-          },
-          {
-            alertId: 'ALT002',
-            itemId: 'INV003',
-            itemName: 'TDS Measurement Kit',
-            currentStock: 0,
-            reorderPoint: 10,
-            severity: 'critical',
-            recommendedAction: 'Urgent reorder required - 25 units from Supplier SUP001',
-            createdAt: new Date().toISOString()
-          }
-        ];
+// ─── Status badge helper ──────────────────────────────────────────────────────
+function StockBadge({ part }: { part: Part }) {
+  const min = part.minQuantity ?? 5;
+  if (part.quantity === 0)
+    return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">Out of Stock</span>;
+  if (part.quantity <= min)
+    return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">Low Stock</span>;
+  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">In Stock</span>;
+}
 
-        // Mock demand forecasts
-        const mockForecasts: DemandForecast[] = [
-          {
-            itemId: 'INV001',
-            itemName: 'Water Quality Sensor pH-7',
-            forecastPeriod: '30d',
-            predictedDemand: 35,
-            confidence: 0.87,
-            trend: 'stable',
-            seasonalFactors: [1.0, 1.1, 1.2, 0.9]
-          },
-          {
-            itemId: 'INV002',
-            itemName: 'Turbidity Sensor Module',
-            forecastPeriod: '30d',
-            predictedDemand: 22,
-            confidence: 0.92,
-            trend: 'increasing',
-            seasonalFactors: [1.0, 1.3, 1.4, 1.1]
-          }
-        ];
+// ─── Restock Modal ────────────────────────────────────────────────────────────
+function RestockModal({ part, onClose, onSuccess }: {
+  part: Part;
+  onClose: () => void;
+  onSuccess: (partId: string, qty: number) => void;
+}) {
+  const [qty, setQty] = useState(part.minQuantity ?? 10);
+  const [loading, setLoading] = useState(false);
 
-        // Mock audit history
-        const mockAudit: AuditEntry[] = [
-          {
-            auditId: 'AUD001',
-            userId: user?.userId || 'system',
-            userName: `${user?.profile.firstName} ${user?.profile.lastName}` || 'System',
-            action: 'UPDATE_REORDER_POINT',
-            resource: 'inventory_item',
-            resourceId: 'INV001',
-            timestamp: new Date().toISOString(),
-            ipAddress: '192.168.1.100',
-            userAgent: 'Mozilla/5.0...',
-            beforeState: { reorderPoint: 15 },
-            afterState: { reorderPoint: 20 },
-            success: true
-          }
-        ];
-
-        setInventoryItems(mockItems);
-        setStockAlerts(mockAlerts);
-        setDemandForecasts(mockForecasts);
-        setAuditHistory(mockAudit);
-      } catch (error) {
-        showNotification('Failed to load inventory data', 'error');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadInventoryData();
-  }, [user, showNotification]);
-
-  // Filter inventory items based on search and category
-  const filteredItems = inventoryItems.filter(item => {
-    const matchesSearch = item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.itemId.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  // Get unique categories
-  const categories = ['all', ...Array.from(new Set(inventoryItems.map(item => item.category)))];
-
-  // Calculate summary statistics
-  const totalItems = inventoryItems.length;
-  const lowStockItems = inventoryItems.filter(item => item.status === 'low_stock').length;
-  const outOfStockItems = inventoryItems.filter(item => item.status === 'out_of_stock').length;
-  const totalValue = inventoryItems.reduce((sum, item) => sum + (item.currentStock * item.unitCost), 0);
-
-  const handleReorderPointUpdate = async (itemId: string, newReorderPoint: number) => {
+  const submit = async () => {
+    if (qty <= 0) return;
+    setLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setInventoryItems(prev => prev.map(item => 
-        item.itemId === itemId 
-          ? { ...item, reorderPoint: newReorderPoint, lastUpdated: new Date().toISOString() }
-          : item
-      ));
-      
-      showNotification(`Reorder point updated for item ${itemId}`, 'success');
-    } catch (error) {
-      showNotification('Failed to update reorder point', 'error');
+      const res = await fetch(`${API}/api/admin/inventory/${part.partId}/restock`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: qty }),
+      });
+      if (res.ok) {
+        onSuccess(part.partId, qty);
+        onClose();
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
+  return (
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-40 z-50" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-1">Restock Item</h3>
+          <p className="text-sm text-gray-500 mb-4">{part.name}</p>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Quantity to add</label>
+          <input
+            type="number" min={1} value={qty}
+            onChange={e => setQty(Number(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 mb-4"
+          />
+          <div className="flex gap-3 justify-end">
+            <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button
+              onClick={submit} disabled={loading || qty <= 0}
+              className="px-4 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50"
+            >
+              {loading ? 'Restocking…' : 'Confirm Restock'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+const InventoryManagerView: React.FC = () => {
+  const { showNotification } = useNotification();
+  const [parts, setParts] = useState<Part[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [restockTarget, setRestockTarget] = useState<Part | null>(null);
+
+  // ── Fetch from the same endpoint technicians use ──────────────────────────
+  const fetchInventory = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API}/api/v1/technician/inventory`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setParts(data.inventory || []);
+      } else {
+        showNotification('Failed to load inventory', 'error');
+      }
+    } catch {
+      showNotification('Network error loading inventory', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [showNotification]);
+
+  useEffect(() => { fetchInventory(); }, [fetchInventory]);
+
+  // ── Admin: delete item ────────────────────────────────────────────────────
+  const handleDelete = async (part: Part) => {
+    if (!window.confirm(`Delete "${part.name}" from inventory? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${API}/api/admin/inventory/${part.partId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (res.ok) {
+        setParts(prev => prev.filter(p => p.partId !== part.partId));
+        showNotification(`"${part.name}" removed from inventory`, 'success');
+      } else {
+        showNotification('Failed to delete item', 'error');
+      }
+    } catch {
+      showNotification('Network error', 'error');
+    }
+  };
+
+  // ── After successful restock, update local quantity ───────────────────────
+  const handleRestockSuccess = (partId: string, qty: number) => {
+    setParts(prev => prev.map(p =>
+      p.partId === partId ? { ...p, quantity: p.quantity + qty } : p
+    ));
+    showNotification('Inventory restocked successfully', 'success');
+  };
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const categories = useMemo(() =>
+    ['all', ...Array.from(new Set(parts.map(p => p.category)))],
+    [parts]
+  );
+
+  const filtered = useMemo(() => parts.filter(p => {
+    const q = searchTerm.toLowerCase();
+    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.partId.toLowerCase().includes(q);
+    const matchCat = selectedCategory === 'all' || p.category === selectedCategory;
+    return matchSearch && matchCat;
+  }), [parts, searchTerm, selectedCategory]);
+
+  const alerts = useMemo(() => parts.filter(p => {
+    const min = p.minQuantity ?? 5;
+    return p.quantity <= min;
+  }), [parts]);
+
+  const stats = useMemo(() => ({
+    total: parts.length,
+    lowStock: parts.filter(p => { const m = p.minQuantity ?? 5; return p.quantity > 0 && p.quantity <= m; }).length,
+    outOfStock: parts.filter(p => p.quantity === 0).length,
+    totalValue: parts.reduce((s, p) => s + (p.quantity * (p.unitPrice ?? 0)), 0),
+  }), [parts]);
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <LoadingSpinner size="large" />
-        <span className="ml-3 text-gray-600">Loading inventory data...</span>
+      <div className="flex items-center justify-center py-16">
+        <div className="w-8 h-8 border-4 border-orange-400 border-t-transparent rounded-full animate-spin mr-3" />
+        <span className="text-gray-500 text-sm">Loading inventory…</span>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">Inventory Management</h2>
-        <p className="text-gray-600">
-          Manage stock levels, reorder points, and demand forecasting for all inventory items.
-        </p>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-blue-100 rounded-md flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Items</p>
-              <p className="text-2xl font-semibold text-gray-900">{totalItems}</p>
-            </div>
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Parts', value: stats.total, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Low Stock', value: stats.lowStock, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { label: 'Out of Stock', value: stats.outOfStock, color: 'text-red-600', bg: 'bg-red-50' },
+          { label: 'Total Value', value: `₹${stats.totalValue.toLocaleString()}`, color: 'text-green-600', bg: 'bg-green-50' },
+        ].map(s => (
+          <div key={s.label} className={`${s.bg} rounded-lg p-4 border border-gray-100`}>
+            <p className="text-xs text-gray-500 mb-1">{s.label}</p>
+            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
           </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-amber-100 rounded-md flex items-center justify-center">
-                <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Low Stock Alerts</p>
-              <p className="text-2xl font-semibold text-gray-900">{lowStockItems}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-red-100 rounded-md flex items-center justify-center">
-                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Out of Stock</p>
-              <p className="text-2xl font-semibold text-gray-900">{outOfStockItems}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-green-100 rounded-md flex items-center justify-center">
-                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                </svg>
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Value</p>
-              <p className="text-2xl font-semibold text-gray-900">${totalValue.toLocaleString()}</p>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Stock Alerts */}
-      {stockAlerts.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Stock Alerts</h3>
-          <div className="space-y-3">
-            {stockAlerts.map(alert => (
-              <div key={alert.alertId} className={`p-4 rounded-lg border-l-4 ${
-                alert.severity === 'critical' 
-                  ? 'bg-red-50 border-red-400' 
-                  : 'bg-amber-50 border-amber-400'
-              }`}>
-                <div className="flex items-center justify-between">
+      {alerts.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Stock Alerts</h3>
+          <div className="space-y-2">
+            {alerts.map(p => {
+              const isCritical = p.quantity === 0;
+              return (
+                <div key={p.partId} className={`flex items-center justify-between p-3 rounded-lg border-l-4 ${
+                  isCritical ? 'bg-red-50 border-red-400' : 'bg-amber-50 border-amber-400'
+                }`}>
                   <div>
-                    <h4 className="font-medium text-gray-900">{alert.itemName}</h4>
-                    <p className="text-sm text-gray-600">
-                      Current stock: {alert.currentStock} | Reorder point: {alert.reorderPoint}
-                    </p>
-                    <p className="text-sm font-medium text-gray-700 mt-1">
-                      {alert.recommendedAction}
+                    <p className="text-sm font-medium text-gray-900">{p.name}</p>
+                    <p className="text-xs text-gray-500">
+                      Stock: {p.quantity} / Min: {p.minQuantity ?? 5} — {p.location}
                     </p>
                   </div>
-                  <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    alert.severity === 'critical'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {alert.severity.toUpperCase()}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      isCritical ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
+                    }`}>{isCritical ? 'CRITICAL' : 'WARNING'}</span>
+                    <button
+                      onClick={() => setRestockTarget(p)}
+                      className="text-xs px-3 py-1 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+                    >
+                      Restock
+                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Filters and Search */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-              Search Items
-            </label>
-            <input
-              type="text"
-              id="search"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by item name or ID..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
-              Category
-            </label>
-            <select
-              id="category"
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-aqua-500 focus:border-transparent"
-            >
-              {categories.map(category => (
-                <option key={category} value={category}>
-                  {category === 'all' ? 'All Categories' : category}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <input
+          type="text" placeholder="Search by name or part ID…"
+          value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+        />
+        <select
+          value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+        >
+          {categories.map(c => (
+            <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>
+          ))}
+        </select>
+        <button
+          onClick={fetchInventory}
+          className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+        >
+          Refresh
+        </button>
       </div>
 
-      {/* Inventory Items Table */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Inventory Items</h3>
-        </div>
+      {/* Inventory Table */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Item
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Current Stock
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Reorder Point
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Unit Cost
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                {['Part', 'Category', 'Stock', 'Min Qty', 'Unit Price', 'Location', 'Status', 'Actions'].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredItems.map(item => (
-                <tr key={item.itemId} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{item.itemName}</div>
-                      <div className="text-sm text-gray-500">{item.itemId}</div>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400 text-sm">No items found</td>
+                </tr>
+              ) : filtered.map(part => (
+                <tr key={part.partId} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-gray-900">{part.name}</p>
+                    <p className="text-xs text-gray-400 font-mono">{part.partId}</p>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{part.category}</td>
+                  <td className="px-4 py-3 font-semibold text-gray-900">{part.quantity}</td>
+                  <td className="px-4 py-3 text-gray-500">{part.minQuantity ?? 5}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {part.unitPrice ? `₹${part.unitPrice.toLocaleString()}` : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500">{part.location}</td>
+                  <td className="px-4 py-3"><StockBadge part={part} /></td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setRestockTarget(part)}
+                        className="px-3 py-1 text-xs bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                      >
+                        Restock
+                      </button>
+                      <button
+                        onClick={() => handleDelete(part)}
+                        className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {item.currentStock}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {item.reorderPoint}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${item.unitCost.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      item.status === 'in_stock' 
-                        ? 'bg-green-100 text-green-800'
-                        : item.status === 'low_stock'
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {item.status.replace('_', ' ').toUpperCase()}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button
-                      onClick={() => {
-                        const newPoint = prompt('Enter new reorder point:', item.reorderPoint.toString());
-                        if (newPoint && !isNaN(Number(newPoint))) {
-                          handleReorderPointUpdate(item.itemId, Number(newPoint));
-                        }
-                      }}
-                      className="text-aqua-600 hover:text-aqua-900 mr-3"
-                    >
-                      Edit Reorder Point
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -417,90 +306,14 @@ const InventoryManagerView: React.FC = () => {
         </div>
       </div>
 
-      {/* Demand Forecasting */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Demand Forecasting</h3>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {demandForecasts.map(forecast => (
-            <div key={forecast.itemId} className="border border-gray-200 rounded-lg p-4">
-              <h4 className="font-medium text-gray-900 mb-2">{forecast.itemName}</h4>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Predicted Demand (30d):</span>
-                  <span className="text-sm font-medium">{forecast.predictedDemand} units</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Confidence:</span>
-                  <span className="text-sm font-medium">{(forecast.confidence * 100).toFixed(1)}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Trend:</span>
-                  <span className={`text-sm font-medium ${
-                    forecast.trend === 'increasing' ? 'text-green-600' :
-                    forecast.trend === 'decreasing' ? 'text-red-600' : 'text-gray-600'
-                  }`}>
-                    {forecast.trend.charAt(0).toUpperCase() + forecast.trend.slice(1)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Audit History */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Inventory Audit History</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Timestamp
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  User
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Action
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Resource
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Changes
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {auditHistory.map(entry => (
-                <tr key={entry.auditId} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {new Date(entry.timestamp).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {entry.userName}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {entry.action.replace(/_/g, ' ')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {entry.resourceId}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {entry.beforeState && entry.afterState && (
-                      <div className="space-y-1">
-                        <div>Before: {JSON.stringify(entry.beforeState)}</div>
-                        <div>After: {JSON.stringify(entry.afterState)}</div>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Restock Modal */}
+      {restockTarget && (
+        <RestockModal
+          part={restockTarget}
+          onClose={() => setRestockTarget(null)}
+          onSuccess={handleRestockSuccess}
+        />
+      )}
     </div>
   );
 };
