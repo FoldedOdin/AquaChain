@@ -28,7 +28,7 @@ export function useRealTimeUpdates(
   const {
     autoConnect = true,
     enableInDevelopment = true,
-    fallbackPollingInterval = 30000, // 30 seconds
+    fallbackPollingInterval = 120000, // 2 minutes
     enabled = true
   } = options;
 

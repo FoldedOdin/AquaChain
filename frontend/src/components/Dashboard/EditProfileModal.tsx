@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  XMarkIcon, 
+import {
+  XMarkIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
 import { User, Mail, Phone, MapPin, Lock } from 'lucide-react';
 
@@ -36,11 +36,11 @@ interface EditProfileModalProps {
 
 type EditStep = 'form' | 'otp' | 'success' | 'error';
 
-const EditProfileModal: React.FC<EditProfileModalProps> = ({ 
-  isOpen, 
-  onClose, 
+const EditProfileModal: React.FC<EditProfileModalProps> = ({
+  isOpen,
+  onClose,
   currentProfile,
-  onProfileUpdated 
+  onProfileUpdated,
 }) => {
   const [step, setStep] = useState<EditStep>('form');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,7 +52,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [lastName, setLastName] = useState(currentProfile.lastName || '');
   const [email, setEmail] = useState(currentProfile.email || '');
   const [phone, setPhone] = useState(currentProfile.phone || '');
-  
+
   // Detailed address fields
   const [country, setCountry] = useState('India');
   const [pincode, setPincode] = useState('');
@@ -81,19 +81,22 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const initializedRef = useRef(false);
 
   // Memoize stable values from currentProfile to prevent unnecessary re-renders
-  const stableProfile = useMemo(() => ({
-    firstName: currentProfile.firstName || '',
-    lastName: currentProfile.lastName || '',
-    email: currentProfile.email || '',
-    phone: currentProfile.phone || '',
-    address: currentProfile.address
-  }), [
-    currentProfile.firstName,
-    currentProfile.lastName,
-    currentProfile.email,
-    currentProfile.phone,
-    currentProfile.address
-  ]);
+  const stableProfile = useMemo(
+    () => ({
+      firstName: currentProfile.firstName || '',
+      lastName: currentProfile.lastName || '',
+      email: currentProfile.email || '',
+      phone: currentProfile.phone || '',
+      address: currentProfile.address,
+    }),
+    [
+      currentProfile.firstName,
+      currentProfile.lastName,
+      currentProfile.email,
+      currentProfile.phone,
+      currentProfile.address,
+    ]
+  );
 
   // Update form when modal opens (only once per open)
   useEffect(() => {
@@ -102,13 +105,40 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       setFirstName(stableProfile.firstName);
       setLastName(stableProfile.lastName);
       setEmail(stableProfile.email);
-      
+
       // Parse phone number to extract country code
       const currentPhone = stableProfile.phone || '';
       if (currentPhone.startsWith('+')) {
         // Extract country code (e.g., +91 from +919876543210)
-        const commonCodes = ['+91', '+1', '+44', '+61', '+81', '+86', '+33', '+49', '+39', '+34', '+7', '+55', '+27', '+971', '+65', '+60', '+62', '+63', '+66', '+84', '+92', '+880', '+94', '+977'];
-        const matchedCode = commonCodes.find(code => currentPhone.startsWith(code));
+        const commonCodes = [
+          '+91',
+          '+1',
+          '+44',
+          '+61',
+          '+81',
+          '+86',
+          '+33',
+          '+49',
+          '+39',
+          '+34',
+          '+7',
+          '+55',
+          '+27',
+          '+971',
+          '+65',
+          '+60',
+          '+62',
+          '+63',
+          '+66',
+          '+84',
+          '+92',
+          '+880',
+          '+94',
+          '+977',
+        ];
+        const matchedCode = commonCodes.find(code =>
+          currentPhone.startsWith(code)
+        );
         if (matchedCode) {
           setCountryCode(matchedCode);
           setPhone(currentPhone.substring(matchedCode.length));
@@ -122,7 +152,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         setCountryCode('+91');
         setPhone(currentPhone);
       }
-      
+
       // Parse existing address - handle both object and string formats
       const addr = stableProfile.address;
       if (addr) {
@@ -156,11 +186,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         setCity('');
         setState('');
       }
-      
+
       // Reset other states
       setStep('form');
       setErrorMessage('');
-      
+
       initializedRef.current = true;
     } else if (!isOpen) {
       // Reset the flag when modal closes so it reinitializes on next open
@@ -184,11 +214,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       if (!autocompleteInputRef.current || autocompleteRef.current) return;
       if (typeof google === 'undefined' || !google.maps?.places) return;
 
-      const ac = new google.maps.places.Autocomplete(autocompleteInputRef.current, {
-        componentRestrictions: { country: 'in' },
-        fields: ['address_components', 'geometry'],
-        types: ['geocode'],
-      });
+      const ac = new google.maps.places.Autocomplete(
+        autocompleteInputRef.current,
+        {
+          componentRestrictions: { country: 'in' },
+          fields: ['address_components', 'geometry'],
+          types: ['geocode'],
+        }
+      );
 
       ac.addListener('place_changed', () => {
         const place = ac.getPlace();
@@ -198,16 +231,22 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         setAddressLng(place.geometry.location.lng());
 
         const get = (type: string) =>
-          place.address_components?.find((c: google.maps.GeocoderAddressComponent) => c.types.includes(type))?.long_name || '';
+          place.address_components?.find(
+            (c: google.maps.GeocoderAddressComponent) => c.types.includes(type)
+          )?.long_name || '';
 
         const streetNumber = get('street_number');
         const route = get('route');
-        const sublocality = get('sublocality_level_1') || get('sublocality') || get('neighborhood');
+        const sublocality =
+          get('sublocality_level_1') ||
+          get('sublocality') ||
+          get('neighborhood');
         const locality = get('locality');
         const adminArea = get('administrative_area_level_1');
         const postal = get('postal_code');
 
-        if (streetNumber || route) setFlatHouse([streetNumber, route].filter(Boolean).join(', '));
+        if (streetNumber || route)
+          setFlatHouse([streetNumber, route].filter(Boolean).join(', '));
         if (sublocality) setAreaStreet(sublocality);
         if (locality) setCity(locality);
         if (adminArea) setState(adminArea);
@@ -251,15 +290,24 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     };
   }, [isOpen]);
 
-  // Check if sensitive fields changed
+  // Check if sensitive fields changed.
+  // IMPORTANT: `phone` state holds only the local number (country code stripped on init),
+  // so we must reconstruct the full E.164 number before comparing against stableProfile.phone
+  // which stores the full number (e.g. "+919876543210"). Without this, editing name alone
+  // would always fire OTP because "+919876543210" !== "9876543210".
   const hasSensitiveChanges = () => {
-    return email !== stableProfile.email || 
-           phone !== stableProfile.phone;
+    const fullFormattedPhone = phone.trim()
+      ? `${countryCode}${phone.trim()}`
+      : '';
+    return (
+      email.trim() !== stableProfile.email ||
+      fullFormattedPhone !== (stableProfile.phone || '')
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!firstName.trim() || !lastName.trim()) {
       setErrorMessage('First name and last name are required');
       return;
@@ -276,8 +324,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     try {
       // Build structured address object
-      const addressStr = [flatHouse, areaStreet, landmark, city, state, pincode, country]
-        .map(p => p ? p.trim() : '')
+      const addressStr = [
+        flatHouse,
+        areaStreet,
+        landmark,
+        city,
+        state,
+        pincode,
+        country,
+      ]
+        .map(p => (p ? p.trim() : ''))
         .filter(p => p && p !== 'undefined')
         .join(', ');
 
@@ -295,14 +351,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       };
 
       // Format phone with country code (E.164 format)
-      const formattedPhone = phone.trim() ? `${countryCode}${phone.trim()}` : '';
+      const formattedPhone = phone.trim()
+        ? `${countryCode}${phone.trim()}`
+        : '';
 
       const updates = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: formattedPhone,
-        address: addressObj
+        address: addressObj,
       };
 
       // Check if sensitive information changed
@@ -314,18 +372,21 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         console.log('🔐 Requesting OTP for profile update...');
         console.log('📧 Email:', currentProfile.email);
         console.log('📝 Changes:', updates);
-        
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/request-otp`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('aquachain_token')}`
-          },
-          body: JSON.stringify({
-            email: currentProfile.email, // Send to current email
-            changes: updates
-          })
-        });
+
+        const response = await fetch(
+          `${process.env.REACT_APP_API_ENDPOINT}/api/profile/request-otp`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('aquachain_token')}`,
+            },
+            body: JSON.stringify({
+              email: currentProfile.email, // Send to current email
+              changes: updates,
+            }),
+          }
+        );
 
         const result = await response.json();
         console.log('📬 OTP Request Response:', result);
@@ -336,19 +397,23 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
             statusText: response.statusText,
             error: result.error,
             message: result.message,
-            details: result.details
+            details: result.details,
           });
-          
+
           // Show detailed error message
           let errorMsg = 'Failed to send OTP';
-          if (result.error?.includes('SES') || result.error?.includes('email')) {
-            errorMsg = 'Email service error. Please contact support or try again later.';
+          if (
+            result.error?.includes('SES') ||
+            result.error?.includes('email')
+          ) {
+            errorMsg =
+              'Email service error. Please contact support or try again later.';
           } else if (result.message) {
             errorMsg = result.message;
           } else if (result.error) {
             errorMsg = result.error;
           }
-          
+
           throw new Error(errorMsg);
         }
 
@@ -356,14 +421,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         console.log('✅ OTP sent successfully');
         console.log('📮 Delivery method:', result.deliveryMethod);
         console.log('📧 Sent to:', result.deliveryTarget);
-        
+
         // In dev mode, show OTP in console and alert
         if (result.devOtp) {
           console.log('🔑 DEV MODE - OTP:', result.devOtp);
           console.log('⚠️ This OTP is only visible in development mode');
-          
+
           // Show alert with OTP for easy testing
-          alert(`🔑 DEV MODE\n\nYour OTP is: ${result.devOtp}\n\nThis is only shown in development mode.`);
+          alert(
+            `🔑 DEV MODE\n\nYour OTP is: ${result.devOtp}\n\nThis is only shown in development mode.`
+          );
         }
 
         setOtpSentTo(currentProfile.email);
@@ -371,19 +438,24 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         setStep('otp');
       } else {
         // No sensitive changes, update directly
-        const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('aquachain_token')}`
-          },
-          body: JSON.stringify(updates)
-        });
+        const response = await fetch(
+          `${process.env.REACT_APP_API_ENDPOINT}/api/profile/update`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('aquachain_token')}`,
+            },
+            body: JSON.stringify(updates),
+          }
+        );
 
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(result.message || result.error || 'Failed to update profile');
+          throw new Error(
+            result.message || result.error || 'Failed to update profile'
+          );
         }
 
         // Update localStorage with new profile data
@@ -395,7 +467,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
             firstName: updates.firstName,
             lastName: updates.lastName,
             phone: updates.phone,
-            address: updates.address
+            address: updates.address,
           };
           localStorage.setItem('aquachain_user', JSON.stringify(userData));
           console.log('✅ Updated profile in localStorage');
@@ -407,10 +479,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
           handleClose();
         }, 2000);
       }
-
     } catch (error: any) {
       console.error('Profile update error:', error);
-      setErrorMessage(error.message || 'Failed to update profile. Please try again.');
+      setErrorMessage(
+        error.message || 'Failed to update profile. Please try again.'
+      );
       setStep('error');
     } finally {
       setIsSubmitting(false);
@@ -419,7 +492,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   const handleOtpChange = (index: number, value: string) => {
     if (value.length > 1) return; // Only allow single digit
-    
+
     const newOtp = [...otp];
     newOtp[index] = value;
     setOtp(newOtp);
@@ -441,7 +514,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   const handleVerifyOtp = async () => {
     const otpCode = otp.join('');
-    
+
     if (otpCode.length !== 6) {
       setOtpError('Please enter complete OTP');
       return;
@@ -452,7 +525,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     try {
       console.log('🔐 Verifying OTP...');
-      
+
       // Build structured address object
       const addressObj = {
         country,
@@ -462,36 +535,49 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         landmark: landmark.trim(),
         city: city.trim(),
         state: state.trim(),
-        formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
-          .map(p => p ? p.trim() : '')
+        formatted: [
+          flatHouse,
+          areaStreet,
+          landmark,
+          city,
+          state,
+          pincode,
+          country,
+        ]
+          .map(p => (p ? p.trim() : ''))
           .filter(p => p && p !== 'undefined')
-          .join(', ')
+          .join(', '),
       };
 
       // Format phone with country code (E.164 format)
-      const formattedPhone = phone.trim() ? `${countryCode}${phone.trim()}` : '';
+      const formattedPhone = phone.trim()
+        ? `${countryCode}${phone.trim()}`
+        : '';
 
       const updates = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: formattedPhone,
-        address: addressObj
+        address: addressObj,
       };
 
       console.log('🔐 Verifying OTP with updates:', updates);
 
-      const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/verify-and-update`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('aquachain_token')}`
-        },
-        body: JSON.stringify({
-          otp: otpCode,
-          updates
-        })
-      });
+      const response = await fetch(
+        `${process.env.REACT_APP_API_ENDPOINT}/api/profile/verify-and-update`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('aquachain_token')}`,
+          },
+          body: JSON.stringify({
+            otp: otpCode,
+            updates,
+          }),
+        }
+      );
 
       const result = await response.json();
       console.log('📬 OTP Verification Response:', result);
@@ -501,16 +587,16 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
           status: response.status,
           statusText: response.statusText,
           error: result.error,
-          message: result.message
+          message: result.message,
         });
-        
+
         let errorMsg = 'Invalid OTP';
         if (result.message) {
           errorMsg = result.message;
         } else if (result.error) {
           errorMsg = result.error;
         }
-        
+
         throw new Error(errorMsg);
       }
 
@@ -525,13 +611,24 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         userData.email = apiProfile.email || updates.email; // Update email
         userData.profile = {
           ...userData.profile,
-          firstName: apiProfile.profile?.firstName || apiProfile.firstName || updates.firstName,
-          lastName: apiProfile.profile?.lastName || apiProfile.lastName || updates.lastName,
+          firstName:
+            apiProfile.profile?.firstName ||
+            apiProfile.firstName ||
+            updates.firstName,
+          lastName:
+            apiProfile.profile?.lastName ||
+            apiProfile.lastName ||
+            updates.lastName,
           phone: apiProfile.profile?.phone || apiProfile.phone || updates.phone,
-          address: apiProfile.profile?.address || apiProfile.address || updates.address
+          address:
+            apiProfile.profile?.address ||
+            apiProfile.address ||
+            updates.address,
         };
         localStorage.setItem('aquachain_user', JSON.stringify(userData));
-        console.log('✅ Updated profile in localStorage after OTP verification with API response data');
+        console.log(
+          '✅ Updated profile in localStorage after OTP verification with API response data'
+        );
       }
 
       setStep('success');
@@ -539,7 +636,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         onProfileUpdated();
         handleClose();
       }, 2000);
-
     } catch (error: any) {
       console.error('❌ OTP verification error:', error);
       setOtpError(error.message || 'Invalid OTP. Please try again.');
@@ -564,29 +660,40 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         landmark: landmark.trim(),
         city: city.trim(),
         state: state.trim(),
-        formatted: [flatHouse, areaStreet, landmark, city, state, pincode, country]
-          .map(p => p ? p.trim() : '')
+        formatted: [
+          flatHouse,
+          areaStreet,
+          landmark,
+          city,
+          state,
+          pincode,
+          country,
+        ]
+          .map(p => (p ? p.trim() : ''))
           .filter(p => p && p !== 'undefined')
-          .join(', ')
+          .join(', '),
       };
 
-      const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT}/api/profile/request-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('aquachain_token')}`
-        },
-        body: JSON.stringify({
-          email: currentProfile.email,
-          changes: {
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
-            email: email.trim(),
-            phone: phone.trim() ? `${countryCode}${phone.trim()}` : '',
-            address: addressObj
-          }
-        })
-      });
+      const response = await fetch(
+        `${process.env.REACT_APP_API_ENDPOINT}/api/profile/request-otp`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('aquachain_token')}`,
+          },
+          body: JSON.stringify({
+            email: currentProfile.email,
+            changes: {
+              firstName: firstName.trim(),
+              lastName: lastName.trim(),
+              email: email.trim(),
+              phone: phone.trim() ? `${countryCode}${phone.trim()}` : '',
+              address: addressObj,
+            },
+          }),
+        }
+      );
 
       const result = await response.json();
       console.log('📬 Resend OTP Response:', result);
@@ -596,32 +703,34 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
           status: response.status,
           statusText: response.statusText,
           error: result.error,
-          message: result.message
+          message: result.message,
         });
-        
+
         let errorMsg = 'Failed to resend OTP';
         if (result.error?.includes('SES') || result.error?.includes('email')) {
-          errorMsg = 'Email service error. Please contact support or try again later.';
+          errorMsg =
+            'Email service error. Please contact support or try again later.';
         } else if (result.message) {
           errorMsg = result.message;
         } else if (result.error) {
           errorMsg = result.error;
         }
-        
+
         throw new Error(errorMsg);
       }
 
       console.log('✅ OTP resent successfully');
-      
+
       // In dev mode, show OTP
       if (result.devOtp) {
         console.log('🔑 DEV MODE - New OTP:', result.devOtp);
-        alert(`🔑 DEV MODE\n\nYour new OTP is: ${result.devOtp}\n\nThis is only shown in development mode.`);
+        alert(
+          `🔑 DEV MODE\n\nYour new OTP is: ${result.devOtp}\n\nThis is only shown in development mode.`
+        );
       }
 
       setResendTimer(60);
       setOtp(['', '', '', '', '', '']);
-      
     } catch (error: any) {
       console.error('❌ Resend OTP error:', error);
       setOtpError(error.message || 'Failed to resend OTP');
@@ -642,15 +751,44 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   // Indian states list
   const indianStates = [
-    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
-    'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
-    'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
-    'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-    'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
-    'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry'
+    'Andhra Pradesh',
+    'Arunachal Pradesh',
+    'Assam',
+    'Bihar',
+    'Chhattisgarh',
+    'Goa',
+    'Gujarat',
+    'Haryana',
+    'Himachal Pradesh',
+    'Jharkhand',
+    'Karnataka',
+    'Kerala',
+    'Madhya Pradesh',
+    'Maharashtra',
+    'Manipur',
+    'Meghalaya',
+    'Mizoram',
+    'Nagaland',
+    'Odisha',
+    'Punjab',
+    'Rajasthan',
+    'Sikkim',
+    'Tamil Nadu',
+    'Telangana',
+    'Tripura',
+    'Uttar Pradesh',
+    'Uttarakhand',
+    'West Bengal',
+    'Andaman and Nicobar Islands',
+    'Chandigarh',
+    'Dadra and Nagar Haveli and Daman and Diu',
+    'Delhi',
+    'Jammu and Kashmir',
+    'Ladakh',
+    'Lakshadweep',
+    'Puducherry',
   ];
-  
+
   if (!isOpen) return null;
 
   return (
@@ -689,8 +827,12 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 className="text-center py-12"
               >
                 <CheckCircleIcon className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">Profile Updated Successfully!</h3>
-                <p className="text-gray-600">Your profile information has been updated.</p>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  Profile Updated Successfully!
+                </h3>
+                <p className="text-gray-600">
+                  Your profile information has been updated.
+                </p>
               </motion.div>
             )}
 
@@ -701,7 +843,9 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 className="text-center py-12"
               >
                 <ExclamationTriangleIcon className="w-16 h-16 text-red-500 mx-auto mb-4" />
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">Update Failed</h3>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  Update Failed
+                </h3>
                 <p className="text-gray-600 mb-4">{errorMessage}</p>
                 <button
                   onClick={() => setStep('form')}
@@ -721,7 +865,9 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <ShieldCheckIcon className="w-8 h-8 text-blue-600" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Enter Verification Code</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                    Enter Verification Code
+                  </h3>
                   <p className="text-gray-600">
                     We've sent a 6-digit code to <strong>{otpSentTo}</strong>
                   </p>
@@ -737,8 +883,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       inputMode="numeric"
                       maxLength={1}
                       value={digit}
-                      onChange={(e) => handleOtpChange(index, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                      onChange={e => handleOtpChange(index, e.target.value)}
+                      onKeyDown={e => handleOtpKeyDown(index, e)}
                       className="w-12 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   ))}
@@ -772,8 +918,13 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   <div className="flex items-start space-x-3">
                     <ShieldCheckIcon className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                     <div className="text-sm text-blue-900">
-                      <p className="font-semibold mb-1">Why do I need to verify?</p>
-                      <p>You're changing sensitive information (email or phone). We need to verify it's really you for security.</p>
+                      <p className="font-semibold mb-1">
+                        Why do I need to verify?
+                      </p>
+                      <p>
+                        You're changing sensitive information (email or phone).
+                        We need to verify it's really you for security.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -783,7 +934,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
             {step === 'form' && (
               <form onSubmit={handleSubmit}>
                 <p className="text-gray-600 mb-6">
-                  Update your profile information. Changes to email or phone will require verification.
+                  Update your profile information. Changes to email or phone
+                  will require verification.
                 </p>
 
                 {/* Name Fields */}
@@ -799,7 +951,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       <input
                         type="text"
                         value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
+                        onChange={e => setFirstName(e.target.value)}
                         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                       />
@@ -817,7 +969,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       <input
                         type="text"
                         value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
+                        onChange={e => setLastName(e.target.value)}
                         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                       />
@@ -842,7 +994,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={e => setEmail(e.target.value)}
                       className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     />
@@ -851,8 +1003,10 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
                 {/* Address Section */}
                 <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Address Details</h3>
-                  
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    Address Details
+                  </h3>
+
                   {/* Country/Region */}
                   <div className="mb-4">
                     <label className="block text-sm font-semibold text-gray-900 mb-2">
@@ -860,7 +1014,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     </label>
                     <select
                       value={country}
-                      onChange={(e) => setCountry(e.target.value)}
+                      onChange={e => setCountry(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     >
                       <option value="India">India</option>
@@ -888,7 +1042,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <div className="flex gap-2">
                       <select
                         value={countryCode}
-                        onChange={(e) => setCountryCode(e.target.value)}
+                        onChange={e => setCountryCode(e.target.value)}
                         className="w-32 px-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="+91">🇮🇳 +91</option>
@@ -919,7 +1073,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       <input
                         type="tel"
                         value={phone}
-                        onChange={(e) => {
+                        onChange={e => {
                           // Remove non-numeric characters
                           const cleaned = e.target.value.replace(/\D/g, '');
                           setPhone(cleaned);
@@ -929,7 +1083,8 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       />
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Enter number without country code. Used for OTP verification and delivery updates.
+                      Enter number without country code. Used for OTP
+                      verification and delivery updates.
                     </p>
                   </div>
 
@@ -948,9 +1103,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       />
                     </div>
                     {addressLat && addressLng ? (
-                      <p className="text-xs text-green-600 mt-1">✓ Exact location captured — navigation will be precise</p>
+                      <p className="text-xs text-green-600 mt-1">
+                        ✓ Exact location captured — navigation will be precise
+                      </p>
                     ) : (
-                      <p className="text-xs text-gray-500 mt-1">Select a suggestion to capture exact coordinates for accurate technician navigation</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Select a suggestion to capture exact coordinates for
+                        accurate technician navigation
+                      </p>
                     )}
                   </div>
 
@@ -962,7 +1122,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <input
                       type="text"
                       value={pincode}
-                      onChange={(e) => setPincode(e.target.value)}
+                      onChange={e => setPincode(e.target.value)}
                       placeholder="6 digits [0-9] PIN code"
                       maxLength={6}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -977,7 +1137,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <input
                       type="text"
                       value={flatHouse}
-                      onChange={(e) => setFlatHouse(e.target.value)}
+                      onChange={e => setFlatHouse(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -990,7 +1150,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <input
                       type="text"
                       value={areaStreet}
-                      onChange={(e) => setAreaStreet(e.target.value)}
+                      onChange={e => setAreaStreet(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1003,7 +1163,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <input
                       type="text"
                       value={landmark}
-                      onChange={(e) => setLandmark(e.target.value)}
+                      onChange={e => setLandmark(e.target.value)}
                       placeholder="E.g. near apollo hospital"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -1018,7 +1178,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       <input
                         type="text"
                         value={city}
-                        onChange={(e) => setCity(e.target.value)}
+                        onChange={e => setCity(e.target.value)}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -1028,11 +1188,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       </label>
                       <select
                         value={state}
-                        onChange={(e) => setState(e.target.value)}
+                        onChange={e => setState(e.target.value)}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="">Choose a state</option>
-                        {indianStates.map((stateName) => (
+                        {indianStates.map(stateName => (
                           <option key={stateName} value={stateName}>
                             {stateName}
                           </option>
@@ -1040,7 +1200,6 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                       </select>
                     </div>
                   </div>
-
                 </div>
 
                 {/* Security Notice */}
@@ -1049,8 +1208,13 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     <div className="flex items-start space-x-3">
                       <Lock className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
                       <div className="text-sm text-orange-900">
-                        <p className="font-semibold mb-1">Verification Required</p>
-                        <p>You're changing sensitive information. We'll send a verification code to your current email address.</p>
+                        <p className="font-semibold mb-1">
+                          Verification Required
+                        </p>
+                        <p>
+                          You're changing sensitive information. We'll send a
+                          verification code to your current email address.
+                        </p>
                       </div>
                     </div>
                   </div>

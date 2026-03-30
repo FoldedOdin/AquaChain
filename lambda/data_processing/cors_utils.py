@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',  # Allow all origins for development
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Requested-With',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Credentials': 'false',  # Must be false when using wildcard origin
     'Content-Type': 'application/json'
 }

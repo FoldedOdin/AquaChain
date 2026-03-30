@@ -60,10 +60,19 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [successModal, setSuccessModal] = useState<{ show: boolean; message: string; orderId?: string }>({ show: false, message: '' });
   const [shipmentStatuses, setShipmentStatuses] = useState<Record<string, ShipmentStatusResponse>>({});
 
-  // Fetch dashboard data (mock data - not used for tasks; tasks now fetched from real API)
   const [techOrders, setTechOrders] = useState<any[]>([]);
   const [techOrdersLoading, setTechOrdersLoading] = useState(true);
   const [techOrdersError, setTechOrdersError] = useState<string | null>(null);
+
+  // Completion modal state (replaces browser prompt())
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completeTaskTarget, setCompleteTaskTarget] = useState<{ orderId: string; task: any } | null>(null);
+  const [completeLocation, setCompleteLocation] = useState('');
+
+  // Update-note modal state (replaces browser prompt())
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateTaskTarget, setUpdateTaskTarget] = useState<string | null>(null);
+  const [updateNote, setUpdateNote] = useState('');
 
   const fetchTechnicianOrders = useCallback(async () => {
     try {
@@ -134,11 +143,12 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     fetchTechnicianOrders();
   }, [fetchTechnicianOrders]);
 
-  // Auto-refresh every 30 seconds as fallback alongside WebSocket
+  // Fallback poll every 2 minutes — WebSocket handles real-time updates;
+  // this only catches cases where the WS connection is down for an extended period
   useEffect(() => {
     const interval = setInterval(() => {
       fetchTechnicianOrders();
-    }, 30000);
+    }, 120000);
     return () => clearInterval(interval);
   }, [fetchTechnicianOrders]);
 
@@ -465,12 +475,20 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     }
   }, [refetch]);
 
-  const handleCompleteTask = useCallback(async (orderId: string, task: any) => {
-    const location = prompt('Enter device installation location (e.g., Kitchen, Bathroom):');
-    if (!location) return;
+  // Opens the completion modal instead of the browser prompt()
+  const handleCompleteTask = useCallback((orderId: string, task: any) => {
+    setCompleteTaskTarget({ orderId, task });
+    setCompleteLocation('');
+    setShowCompleteModal(true);
+  }, []);
 
+  // Called when technician confirms location in the modal
+  const handleConfirmComplete = useCallback(async () => {
+    if (!completeTaskTarget || !completeLocation.trim()) return;
+    const { orderId, task } = completeTaskTarget;
     try {
       setIsProcessing(orderId);
+      setShowCompleteModal(false);
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
       const response = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/complete`, {
@@ -481,60 +499,55 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
         },
         body: JSON.stringify({
           deviceId: task.deviceId || task.provisionedDeviceId,
-          location,
-          calibrationData: {
-            phOffset: 0,
-            tdsFactor: 1
-          }
+          location: completeLocation.trim(),
+          calibrationData: { phOffset: 0, tdsFactor: 1 }
         })
       });
-      
       const data = await response.json();
-      
       if (!response.ok) {
-        setErrorModal({ 
-          show: true, 
-          message: data.error || 'Failed to complete installation. Please try again.' 
-        });
+        setErrorModal({ show: true, message: data.error || 'Failed to complete installation. Please try again.' });
         return;
       }
-      
-      setSuccessModal({ 
-        show: true, 
-        message: 'Installation completed successfully! Great work!' 
-      });
+      setSuccessModal({ show: true, message: 'Installation completed successfully! Great work!' });
       await refetch();
     } catch (error) {
       console.error('Error completing installation:', error);
-      setErrorModal({ 
-        show: true, 
-        message: 'Failed to complete installation. Please check your connection and try again.' 
-      });
+      setErrorModal({ show: true, message: 'Failed to complete installation. Please check your connection and try again.' });
     } finally {
       setIsProcessing(null);
+      setCompleteTaskTarget(null);
     }
-  }, [refetch]);
+  }, [completeTaskTarget, completeLocation, refetch]);
 
-  const handleUpdateTask = useCallback(async (taskId: string) => {
-    const note = prompt('Add a note about the task progress:');
-    if (!note) return;
+  // Opens the update-note modal instead of browser prompt()
+  const handleUpdateTask = useCallback((taskId: string) => {
+    setUpdateTaskTarget(taskId);
+    setUpdateNote('');
+    setShowUpdateModal(true);
+  }, []);
 
+  // Called when technician submits the note in the modal
+  const handleConfirmUpdate = useCallback(async () => {
+    if (!updateTaskTarget || !updateNote.trim()) return;
     try {
-      setIsProcessing(taskId);
-      await technicianService.addTaskNote(taskId, {
+      setIsProcessing(updateTaskTarget);
+      setShowUpdateModal(false);
+      await technicianService.addTaskNote(updateTaskTarget, {
         author: user?.email || 'technician',
         type: 'technician_note',
-        content: note,
+        content: updateNote.trim(),
         attachments: []
       });
       await refetch();
+      setSuccessModal({ show: true, message: 'Note added successfully.' });
     } catch (error) {
       console.error('Error updating task:', error);
-      alert('Failed to update task. Please try again.');
+      setErrorModal({ show: true, message: 'Failed to add note. Please try again.' });
     } finally {
       setIsProcessing(null);
+      setUpdateTaskTarget(null);
     }
-  }, [refetch, user]);
+  }, [updateTaskTarget, updateNote, refetch, user]);
 
   const handleViewInventory = useCallback(() => {
     setShowInventoryModal(true);
@@ -835,13 +848,20 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     ).length,
   };
 
-  // Completion rate and SLA (tasks completed within due date)
+  // Completion rate and SLA (tasks completed within due date).
+  // slaTracked: how many completed tasks have *both* dueDate and completedAt set by the backend.
+  // When the backend doesn't supply these fields (e.g. installation tasks), slaRate would
+  // incorrectly show 0% even though all tasks are done. We show "N/A" in that case.
   const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
+  const slaTracked = tasksWithMappedStatus.filter((t: any) =>
+    t.mappedStatus === 'completed' && t.dueDate && t.completedAt
+  ).length;
   const slaCompliant = tasksWithMappedStatus.filter((t: any) =>
     t.mappedStatus === 'completed' && t.dueDate && t.completedAt &&
     new Date(t.completedAt) <= new Date(t.dueDate)
   ).length;
-  const slaRate = stats.completed > 0 ? Math.round((slaCompliant / stats.completed) * 100) : 100;
+  // Only compute a percentage when we have trackable tasks; otherwise null means "N/A"
+  const slaRate: number | null = slaTracked > 0 ? Math.round((slaCompliant / slaTracked) * 100) : null;
 
   // Filter tasks using mapped tasks
   const filteredTasks = tasksWithMappedStatus.filter((task: any) => {
@@ -1258,11 +1278,23 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm text-gray-600">SLA Compliance</span>
-                    <span className="text-sm font-semibold text-gray-900">{slaRate}%</span>
+                    <span className="text-sm font-semibold text-gray-900">
+                      {slaRate === null ? <span className="text-gray-400 italic">N/A</span> : `${slaRate}%`}
+                    </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className={`h-2 rounded-full transition-all ${slaRate >= 90 ? 'bg-green-600' : slaRate >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${slaRate}%` }}></div>
+                    {slaRate !== null ? (
+                      <div
+                        className={`h-2 rounded-full transition-all ${slaRate >= 90 ? 'bg-green-600' : slaRate >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                        style={{ width: `${slaRate}%` }}
+                      />
+                    ) : (
+                      <div className="h-2 rounded-full bg-gray-300" style={{ width: '100%' }} />
+                    )}
                   </div>
+                  {slaRate === null && (
+                    <p className="text-xs text-gray-400 mt-1">SLA tracking data not yet available</p>
+                  )}
                 </div>
                 <div className="pt-2 border-t border-gray-100 grid grid-cols-2 gap-3">
                   <div className="text-center bg-green-50 rounded-lg p-3">
@@ -1481,6 +1513,73 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                     Accept Task
                   </button>
                 )}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+
+      {/* Complete Task Modal */}
+      {showCompleteModal && completeTaskTarget && (
+        <>
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={() => setShowCompleteModal(false)} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          >
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-4 flex items-center justify-between rounded-t-xl">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-6 h-6 text-white" />
+                  <h2 className="text-xl font-bold text-white">Complete Installation</h2>
+                </div>
+                <button
+                  onClick={() => setShowCompleteModal(false)}
+                  className="text-white hover:bg-white hover:bg-opacity-20 rounded-lg p-2 transition"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="bg-gray-50 rounded-lg p-3 mb-4">
+                  <p className="font-semibold text-gray-900">{completeTaskTarget.task?.title || 'Installation Task'}</p>
+                  <p className="text-sm text-gray-600">Customer: {completeTaskTarget.task?.consumerName || '—'}</p>
+                </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Installation Location <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={completeLocation}
+                    onChange={e => setCompleteLocation(e.target.value)}
+                    placeholder="e.g. Kitchen, under the sink"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    autoFocus
+                  />
+                  {!completeLocation.trim() && (
+                    <p className="text-xs text-red-500 mt-1">Please enter the installation location to continue.</p>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setShowCompleteModal(false); setCompleteLocation(''); }}
+                    className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmComplete}
+                    disabled={!completeLocation.trim() || isProcessing === completeTaskTarget.orderId}
+                    className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  >
+                    {isProcessing === completeTaskTarget.orderId ? 'Completing…' : 'Confirm Complete'}
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

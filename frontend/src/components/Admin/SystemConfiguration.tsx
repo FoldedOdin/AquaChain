@@ -72,8 +72,8 @@ const SystemConfiguration = () => {
       // Load health immediately when entering edit mode
       loadSystemHealth();
       
-      // Set up 30-second auto-refresh interval
-      const interval = setInterval(loadSystemHealth, 30000);
+      // Set up 2-minute auto-refresh interval while in edit mode
+      const interval = setInterval(loadSystemHealth, 120000);
       
       // Cleanup interval on unmount or when exiting edit mode
       return () => clearInterval(interval);

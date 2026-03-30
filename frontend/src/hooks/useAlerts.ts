@@ -32,8 +32,8 @@ export function useAlerts(limit: number = 50) {
   useEffect(() => {
     fetchData();
 
-    // Poll every 30 seconds as fallback when WebSocket is unavailable
-    const interval = setInterval(fetchData, 30000);
+    // Poll every 2 minutes as fallback when WebSocket is unavailable
+    const interval = setInterval(fetchData, 120000);
     return () => clearInterval(interval);
     // eslint-disable-next-line
   }, [limit]);

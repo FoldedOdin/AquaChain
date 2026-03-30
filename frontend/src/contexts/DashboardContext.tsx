@@ -25,7 +25,7 @@ import {
  * Default dashboard configuration
  */
 const DEFAULT_CONFIG: DashboardConfig = {
-  refreshInterval: 30, // 30 seconds
+  refreshInterval: 120, // 2 minutes
   theme: "light",
   visibleComponents: [
     "globalKPIBar",
@@ -79,6 +79,10 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({
           Array.isArray(parsed.visibleComponents) &&
           Array.isArray(parsed.filterPresets)
         ) {
+          // Migrate stale aggressive polling intervals from old defaults
+          if (parsed.refreshInterval < 60) {
+            parsed.refreshInterval = DEFAULT_CONFIG.refreshInterval;
+          }
           return parsed;
         }
       }

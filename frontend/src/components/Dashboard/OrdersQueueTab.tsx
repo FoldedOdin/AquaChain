@@ -109,10 +109,10 @@ const OrdersQueueTab: React.FC = () => {
   useEffect(() => {
     fetchOrders();
     
-    // Set up real-time polling every 10 seconds
+    // Poll every 60 seconds — orders don't need sub-minute freshness
     const pollInterval = setInterval(() => {
       fetchOrders();
-    }, 10000);
+    }, 60000);
     
     return () => clearInterval(pollInterval);
   }, [fetchOrders]);

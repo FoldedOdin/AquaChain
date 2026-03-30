@@ -35,7 +35,7 @@ interface RealTimeData {
 export const useRealTimeData = (options: UseRealTimeDataOptions = {}) => {
   const {
     enableRealTime = true,
-    refreshInterval = 30000, // 30 seconds
+    refreshInterval = 120000, // 2 minutes
     autoReconnect = true,
   } = options;
 
