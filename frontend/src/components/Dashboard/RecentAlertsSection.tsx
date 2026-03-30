@@ -17,7 +17,7 @@ import {
   BellIcon,
   FunnelIcon,
 } from '@heroicons/react/24/outline';
-import AlertDetailModal, { AlertDetail, AlertStatus } from './AlertDetailModal';
+import AlertDetailModal, { AlertDetail, AlertLocation, AlertStatus } from './AlertDetailModal';
 import { dataService } from '../../services/dataService';
 
 type FilterTab = 'active' | 'acknowledged' | 'resolved';
@@ -40,7 +40,7 @@ interface RawAlert {
   createdAt?: string;
   acknowledgedAt?: string;
   resolvedAt?: string;
-  location?: string;
+  location?: string | AlertLocation;
 }
 
 interface RecentAlertsSectionProps {

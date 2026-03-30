@@ -2,6 +2,11 @@
  * AlertDetailModal
  * Action-oriented alert detail panel with lifecycle state machine:
  * TRIGGERED → ACKNOWLEDGED → RESOLVED → ARCHIVED
+ *
+ * Context-aware actions:
+ * - WQI / water quality alerts → show safety advice, no "Request Tech"
+ * - Sensor fault / device offline → show "Request Tech"
+ * - Other alerts → show "Request Tech"
  */
 
 import React, { useState } from 'react';
@@ -15,17 +20,24 @@ import {
   ExclamationTriangleIcon,
   ClockIcon,
   DevicePhoneMobileIcon,
+  ShieldExclamationIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
 import { dataService } from '../../services/dataService';
 
 export type AlertStatus = 'TRIGGERED' | 'ACKNOWLEDGED' | 'RESOLVED' | 'ARCHIVED';
+
+export interface AlertLocation {
+  latitude: number;
+  longitude: number;
+}
 
 export interface AlertDetail {
   alertId: string;
   deviceId: string;
   deviceName?: string;
   issue: string;
-  parameter?: string;       // e.g. 'pH', 'turbidity', 'tds', 'temperature'
+  parameter?: string;
   value?: number;
   threshold?: number;
   unit?: string;
@@ -34,7 +46,7 @@ export interface AlertDetail {
   timestamp: string;
   acknowledgedAt?: string;
   resolvedAt?: string;
-  location?: string;
+  location?: string | AlertLocation;
 }
 
 interface AlertDetailModalProps {
@@ -78,6 +90,45 @@ const STATUS_CONFIG: Record<AlertStatus, { label: string; color: string }> = {
   ARCHIVED:     { label: 'Archived',     color: 'bg-gray-100 text-gray-600' },
 };
 
+type AlertCategory = 'water_quality' | 'sensor_fault' | 'device_offline' | 'other';
+
+function categoriseAlert(alert: AlertDetail): AlertCategory {
+  const text = `${alert.issue} ${alert.parameter || ''}`.toLowerCase();
+  if (text.includes('offline') || text.includes('disconnect') || text.includes('unreachable')) {
+    return 'device_offline';
+  }
+  if (
+    text.includes('malfunction') ||
+    text.includes('sensor fault') ||
+    text.includes('calibration') ||
+    text.includes('sensor error') ||
+    text.includes('probe')
+  ) {
+    return 'sensor_fault';
+  }
+  if (
+    text.includes('wqi') ||
+    text.includes('water quality index') ||
+    text.includes('quality index') ||
+    text.includes('ph') ||
+    text.includes('turbidity') ||
+    text.includes('tds') ||
+    text.includes('temperature') ||
+    text.includes('quality alert') ||
+    text.includes('threshold')
+  ) {
+    return 'water_quality';
+  }
+  return 'other';
+}
+
+const WATER_QUALITY_ADVICE = [
+  'Do not consume this water',
+  'Check for contamination at the source',
+  'Inspect storage tank and pipelines',
+  'Flush the system and monitor recovery',
+];
+
 const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
   alert,
   isOpen,
@@ -89,12 +140,15 @@ const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
 }) => {
   const [isAcknowledging, setIsAcknowledging] = useState(false);
   const [isMuting, setIsMuting] = useState(false);
+  const [showAdvice, setShowAdvice] = useState(false);
 
   if (!isOpen || !alert) return null;
 
   const sev = SEVERITY_CONFIG[alert.severity] ?? SEVERITY_CONFIG.warning;
   const statusCfg = STATUS_CONFIG[alert.status] ?? STATUS_CONFIG.TRIGGERED;
   const isActive = alert.status === 'TRIGGERED';
+  const category = categoriseAlert(alert);
+  const needsTech = category === 'sensor_fault' || category === 'device_offline' || category === 'other';
 
   const handleAcknowledge = async () => {
     setIsAcknowledging(true);
@@ -167,7 +221,11 @@ const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
                   {alert.deviceName || alert.deviceId}
                 </p>
                 {alert.location && (
-                  <p className="text-xs text-gray-500 mt-0.5">{alert.location}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {typeof alert.location === 'object'
+                      ? `${alert.location.latitude.toFixed(4)}, ${alert.location.longitude.toFixed(4)}`
+                      : alert.location}
+                  </p>
                 )}
               </div>
             </div>
@@ -198,7 +256,47 @@ const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
               </div>
             )}
 
-            {/* Timestamp */}
+            {/* Water quality advice panel */}
+            {category === 'water_quality' && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
+                <button
+                  onClick={() => setShowAdvice(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldExclamationIcon className="w-4 h-4 text-amber-600" />
+                    <span className="text-xs font-semibold text-amber-800">
+                      Water quality issue — recommended actions
+                    </span>
+                  </div>
+                  <InformationCircleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                </button>
+                <AnimatePresence initial={false}>
+                  {showAdvice && (
+                    <motion.ul
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="px-4 pb-3 space-y-1 overflow-hidden"
+                    >
+                      {WATER_QUALITY_ADVICE.map((tip, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-amber-800">
+                          <span className="mt-0.5 text-amber-500">•</span>
+                          {tip}
+                        </li>
+                      ))}
+                      <li className="flex items-start gap-2 text-xs text-amber-700 mt-1 pt-1 border-t border-amber-200">
+                        <span className="mt-0.5 text-amber-500">ℹ</span>
+                        If readings remain abnormal after flushing, the sensor may need calibration — then request a technician.
+                      </li>
+                    </motion.ul>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* Timestamps */}
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <ClockIcon className="w-4 h-4 text-gray-400" />
               <span>Triggered: {formatTime(alert.timestamp)}</span>
@@ -223,14 +321,24 @@ const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
               {isAcknowledging ? 'Acknowledging…' : 'Acknowledge'}
             </button>
 
-            {/* Create Service Request */}
-            <button
-              onClick={() => onServiceRequested(alert)}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
-            >
-              <WrenchScrewdriverIcon className="w-4 h-4" />
-              Request Tech
-            </button>
+            {/* Context-aware second action */}
+            {needsTech ? (
+              <button
+                onClick={() => onServiceRequested(alert)}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+              >
+                <WrenchScrewdriverIcon className="w-4 h-4" />
+                Request Tech
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowAdvice(v => !v)}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white text-sm font-medium rounded-xl hover:bg-amber-600 transition-colors"
+              >
+                <ShieldExclamationIcon className="w-4 h-4" />
+                {showAdvice ? 'Hide Advice' : 'View Advice'}
+              </button>
+            )}
 
             {/* Mute similar */}
             <button
