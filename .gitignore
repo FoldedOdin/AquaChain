@@ -592,3 +592,4 @@ lambda/**/response*.json
 scripts/deployment/build_ws_connect.py
 scripts/deployment/test_ws_connect.py
 scripts/deployment/test_ws_connect_real.py
+scripts/deployment/fix-upload-url-cors.py
