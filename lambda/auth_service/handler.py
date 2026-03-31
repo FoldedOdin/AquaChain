@@ -342,6 +342,92 @@ def create_auth_middleware(token_manager: TokenManager, auth_manager: Authorizat
         return decorator
     return auth_required
 
+# ============================================================================
+# ACCOUNT LOCKOUT / PROGRESSIVE DELAY (2.1)
+# Tracks failed login attempts per email in DynamoDB with TTL.
+# After MAX_ATTEMPTS failures within the window, the account is locked.
+# ============================================================================
+
+_AUTH_EVENTS_TABLE = os.environ.get('AUTH_EVENTS_TABLE', 'AquaChain-AuthEvents')
+_MAX_ATTEMPTS = 5          # lock after 5 consecutive failures
+_LOCKOUT_SECONDS = 900     # 15-minute lockout window
+_DELAY_SECONDS = [0, 1, 2, 4, 8]  # progressive delay per attempt (index = attempt number)
+
+
+def _get_login_attempts(email: str) -> dict:
+    """Return current failed-attempt record for email, or empty dict."""
+    try:
+        ddb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+        table = ddb.Table(_AUTH_EVENTS_TABLE)
+        resp = table.get_item(Key={'email': email, 'eventType': 'FAILED_LOGIN_COUNTER'})
+        return resp.get('Item', {})
+    except Exception as e:
+        logger.warning(f"Could not read login attempts for {email}: {e}")
+        return {}
+
+
+def _increment_failed_attempts(email: str) -> int:
+    """Increment failed attempt counter; return new count."""
+    try:
+        import time as _time
+        ddb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+        table = ddb.Table(_AUTH_EVENTS_TABLE)
+        now = int(_time.time())
+        resp = table.update_item(
+            Key={'email': email, 'eventType': 'FAILED_LOGIN_COUNTER'},
+            UpdateExpression='SET attempts = if_not_exists(attempts, :zero) + :one, '
+                             'lastFailedAt = :now, '
+                             'expiresAt = :exp',
+            ExpressionAttributeValues={
+                ':zero': 0, ':one': 1,
+                ':now': now,
+                ':exp': now + _LOCKOUT_SECONDS  # DynamoDB TTL auto-deletes after window
+            },
+            ReturnValues='UPDATED_NEW'
+        )
+        return int(resp['Attributes'].get('attempts', 1))
+    except Exception as e:
+        logger.warning(f"Could not increment failed attempts for {email}: {e}")
+        return 0
+
+
+def _reset_failed_attempts(email: str) -> None:
+    """Clear failed attempt counter on successful login."""
+    try:
+        ddb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+        table = ddb.Table(_AUTH_EVENTS_TABLE)
+        table.delete_item(Key={'email': email, 'eventType': 'FAILED_LOGIN_COUNTER'})
+    except Exception as e:
+        logger.warning(f"Could not reset failed attempts for {email}: {e}")
+
+
+def _check_account_lockout(email: str) -> None:
+    """
+    Raise AuthenticationError if account is locked.
+    Apply progressive delay based on attempt count.
+    """
+    import time as _time
+    record = _get_login_attempts(email)
+    attempts = int(record.get('attempts', 0))
+
+    if attempts >= _MAX_ATTEMPTS:
+        last_failed = int(record.get('lastFailedAt', 0))
+        elapsed = int(_time.time()) - last_failed
+        if elapsed < _LOCKOUT_SECONDS:
+            remaining = _LOCKOUT_SECONDS - elapsed
+            logger.warning(f"Account locked for {email}: {attempts} failed attempts, {remaining}s remaining")
+            raise AuthenticationError(
+                f"Account temporarily locked due to too many failed attempts. "
+                f"Try again in {remaining // 60 + 1} minute(s)."
+            )
+
+    # Progressive delay: slow down brute-force without full lockout
+    if 0 < attempts < _MAX_ATTEMPTS:
+        delay = _DELAY_SECONDS[min(attempts, len(_DELAY_SECONDS) - 1)]
+        if delay > 0:
+            _time.sleep(delay)
+
+
 # Lambda handler for authentication service
 def lambda_handler(event, context):
     """
@@ -506,6 +592,9 @@ def _handle_request(event, context):
             'request_id': event.get('requestContext', {}).get('requestId', 'unknown'),
             'source': 'api'
         }
+
+        # Account lockout / progressive delay check (2.1)
+        _check_account_lockout(email)
         
         # Use Cognito to authenticate user
         import boto3
@@ -606,6 +695,9 @@ def _handle_request(event, context):
                 metadata={'role': user_role}
             )
             
+            # Reset failed attempt counter on successful login
+            _reset_failed_attempts(email)
+            
             return {
                 'statusCode': 200,
                 'headers': {
@@ -650,6 +742,9 @@ def _handle_request(event, context):
                 user_agent=request_context['user_agent'],
                 metadata={'error': error_code}
             )
+            
+            # Increment failed attempt counter for lockout tracking
+            _increment_failed_attempts(email)
             
             if error_code == 'NotAuthorizedException':
                 # Check if the user is disabled (email not yet verified via OTP flow)

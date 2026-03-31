@@ -9,6 +9,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_sns as sns,
     aws_location as location,
+    aws_secretsmanager as secretsmanager,
     RemovalPolicy,
     Duration
 )
@@ -41,6 +42,9 @@ class AquaChainSecurityStack(Stack):
         
         # Create security policies
         self._create_security_policies()
+
+        # Create managed secrets with rotation (5.1)
+        self._create_secrets_with_rotation()
     
     def _create_kms_keys(self) -> None:
         """
@@ -407,4 +411,57 @@ class AquaChainSecurityStack(Stack):
         self.security_resources.update({
             "location_map": self.location_map,
             "route_calculator": self.route_calculator
+        })
+
+    def _create_secrets_with_rotation(self) -> None:
+        """
+        Create AWS Secrets Manager secrets with automatic 90-day rotation (5.1).
+        Secrets are encrypted with the data KMS key.
+        Actual secret values must be set manually after first deploy via:
+          aws secretsmanager put-secret-value --secret-id <arn> --secret-string '{"key":"value"}'
+        """
+        env = self.config["environment"]
+
+        # Razorpay payment credentials
+        self.razorpay_secret = secretsmanager.Secret(
+            self, "RazorpaySecret",
+            secret_name=f"aquachain/{env}/razorpay/credentials",
+            description="Razorpay API key and secret for payment processing",
+            encryption_key=self.data_key,
+            removal_policy=RemovalPolicy.RETAIN if env == "prod" else RemovalPolicy.DESTROY,
+            # Rotation: 90-day schedule using a Lambda rotation function
+            # The rotation Lambda must be deployed separately (see scripts/maintenance/rotate-secrets.py)
+            # Uncomment once rotation Lambda is deployed:
+            # rotation_schedule=secretsmanager.RotationSchedule(
+            #     automatically_after=Duration.days(90),
+            #     rotation_lambda=rotation_lambda
+            # )
+        )
+
+        # SES email credentials (if using SMTP instead of SES SDK)
+        self.ses_secret = secretsmanager.Secret(
+            self, "SESSecret",
+            secret_name=f"aquachain/{env}/ses/credentials",
+            description="SES SMTP credentials for email notifications",
+            encryption_key=self.data_key,
+            removal_policy=RemovalPolicy.RETAIN if env == "prod" else RemovalPolicy.DESTROY,
+        )
+
+        # IoT device provisioning credentials
+        self.iot_provisioning_secret = secretsmanager.Secret(
+            self, "IoTProvisioningSecret",
+            secret_name=f"aquachain/{env}/iot/provisioning-key",
+            description="IoT device provisioning claim certificate and key",
+            encryption_key=self.data_key,
+            removal_policy=RemovalPolicy.RETAIN if env == "prod" else RemovalPolicy.DESTROY,
+        )
+
+        # Grant Lambda execution roles read access to secrets
+        for secret in [self.razorpay_secret, self.ses_secret, self.iot_provisioning_secret]:
+            secret.grant_read(self.data_processing_role)
+
+        self.security_resources.update({
+            "razorpay_secret": self.razorpay_secret,
+            "ses_secret": self.ses_secret,
+            "iot_provisioning_secret": self.iot_provisioning_secret,
         })

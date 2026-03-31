@@ -357,6 +357,91 @@ class AquaChainMonitoringStack(Stack):
             "uptime_alarm": self.uptime_alarm,
             "device_offline_alarm": self.device_offline_alarm
         })
+
+        # ── Security Alarms (4.1) ──────────────────────────────────────────────
+
+        # Failed login spike — metric filter on auth-service logs
+        auth_log_group = logs.LogGroup.from_log_group_name(
+            self, "AuthLogGroup",
+            log_group_name=f"/aws/lambda/{self.config['environment']}/aquachain-function-auth-service"
+        )
+
+        failed_login_filter = logs.MetricFilter(
+            self, "FailedLoginMetricFilter",
+            log_group=auth_log_group,
+            metric_namespace="AquaChain/Security",
+            metric_name="FailedLoginAttempts",
+            filter_pattern=logs.FilterPattern.literal('"USER_SIGNIN" "FAILURE"'),
+            metric_value="1",
+            default_value=0
+        )
+
+        self.failed_login_alarm = cloudwatch.Alarm(
+            self, "FailedLoginAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "failed-logins"),
+            alarm_description="Spike in failed login attempts — possible credential stuffing or brute-force",
+            metric=failed_login_filter.metric(
+                statistic="Sum",
+                period=Duration.minutes(5)
+            ),
+            threshold=20,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
+        )
+
+        # WAF block spike — already created in api_stack; add SNS action here via metric
+        self.waf_block_alarm = cloudwatch.Alarm(
+            self, "WAFBlockSecurityAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "waf-block-spike"),
+            alarm_description="WAF blocking spike — possible attack in progress",
+            metric=cloudwatch.Metric(
+                namespace="AWS/WAFV2",
+                metric_name="BlockedRequests",
+                dimensions_map={
+                    "WebACL": get_resource_name(self.config, "waf", "api-protection"),
+                    "Region": self.region,
+                    "Rule": "ALL"
+                },
+                statistic="Sum",
+                period=Duration.minutes(5)
+            ),
+            threshold=100,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
+        )
+
+        # Account lockout alarm — too many accounts being locked (coordinated attack)
+        lockout_filter = logs.MetricFilter(
+            self, "AccountLockoutMetricFilter",
+            log_group=auth_log_group,
+            metric_namespace="AquaChain/Security",
+            metric_name="AccountLockouts",
+            filter_pattern=logs.FilterPattern.literal('"Account temporarily locked"'),
+            metric_value="1",
+            default_value=0
+        )
+
+        self.account_lockout_alarm = cloudwatch.Alarm(
+            self, "AccountLockoutAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "account-lockouts"),
+            alarm_description="Multiple accounts being locked — possible coordinated attack",
+            metric=lockout_filter.metric(
+                statistic="Sum",
+                period=Duration.minutes(10)
+            ),
+            threshold=5,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
+        )
+
+        self.monitoring_resources.update({
+            "failed_login_alarm": self.failed_login_alarm,
+            "waf_block_alarm": self.waf_block_alarm,
+            "account_lockout_alarm": self.account_lockout_alarm,
+        })
     
     def _create_alerting_topics(self) -> None:
         """
@@ -415,6 +500,17 @@ class AquaChainMonitoringStack(Stack):
         
         self.device_offline_alarm.add_alarm_action(
             cloudwatch_actions.SnsAction(self.warning_alerts_topic)
+        )
+
+        # Security alarms → critical topic
+        self.failed_login_alarm.add_alarm_action(
+            cloudwatch_actions.SnsAction(self.critical_alerts_topic)
+        )
+        self.waf_block_alarm.add_alarm_action(
+            cloudwatch_actions.SnsAction(self.critical_alerts_topic)
+        )
+        self.account_lockout_alarm.add_alarm_action(
+            cloudwatch_actions.SnsAction(self.critical_alerts_topic)
         )
         
         self.monitoring_resources.update({

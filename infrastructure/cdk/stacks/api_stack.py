@@ -118,18 +118,23 @@ class AquaChainApiStack(Stack):
             ),
             auto_verify=cognito.AutoVerifiedAttrs(email=True),
             password_policy=cognito.PasswordPolicy(
-                min_length=8,
+                min_length=12,          # Increased from 8 — brute force harder
                 require_lowercase=True,
                 require_uppercase=True,
                 require_digits=True,
                 require_symbols=True
             ),
-            mfa=cognito.Mfa.OPTIONAL,
+            # MFA REQUIRED for all users — OPTIONAL is not acceptable for production
+            # Consumers can use TOTP app; admins/technicians must use TOTP
+            mfa=cognito.Mfa.REQUIRED,
             mfa_second_factor=cognito.MfaSecondFactor(
-                sms=True,
-                otp=True
+                sms=False,   # SMS is vulnerable to SIM-swap attacks — TOTP only
+                otp=True     # TOTP (Google Authenticator, Authy, etc.)
             ),
             account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
+            # Advanced Security Mode — adaptive auth, account takeover detection,
+            # compromised credential detection
+            advanced_security_mode=cognito.AdvancedSecurityMode.ENFORCED,
             removal_policy=self._get_removal_policy()
         )
         
@@ -198,7 +203,9 @@ class AquaChainApiStack(Stack):
             ] + ([cognito.UserPoolClientIdentityProvider.GOOGLE] if self.config.get("google_client_id") else []),
             access_token_validity=Duration.hours(1),
             id_token_validity=Duration.hours(1),
-            refresh_token_validity=Duration.days(30)
+            refresh_token_validity=Duration.days(30),
+            enable_token_revocation=True,   # Allow token blacklisting on logout
+            prevent_user_existence_errors=True  # Don't reveal if email exists (prevents enumeration)
         )
         
         # Identity Pool for AWS resource access
@@ -264,8 +271,13 @@ class AquaChainApiStack(Stack):
             self, "RestAPI",
             rest_api_name=get_resource_name(self.config, "api", "rest"),
             description="AquaChain REST API",
+            minimum_compression_size=1024,   # Compress responses > 1KB
             default_cors_preflight_options=apigateway.CorsOptions(
-                allow_origins=apigateway.Cors.ALL_ORIGINS,  # Allow all origins for development
+                allow_origins=[
+                    f"https://{self.config['domain_name']}",
+                    "http://localhost:3000",   # Dev only — remove in prod
+                    "http://localhost:3001",
+                ],
                 allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                 allow_headers=[
                     "Content-Type",
@@ -1923,10 +1935,10 @@ class AquaChainApiStack(Stack):
     
     def _create_waf_resources(self) -> None:
         """
-        Create WAF Web ACL for API protection
+        Create WAF Web ACL for API protection with geo-blocking, SQLi protection,
+        and CloudWatch security alarms.
         """
-        
-        # WAF Web ACL
+
         self.web_acl = waf.CfnWebACL(
             self, "WebACL",
             name=get_resource_name(self.config, "waf", "api-protection"),
@@ -1934,57 +1946,122 @@ class AquaChainApiStack(Stack):
             default_action=waf.CfnWebACL.DefaultActionProperty(allow={}),
             description="WAF protection for AquaChain API",
             rules=[
-                # Rate limiting rule
+                # 1. IP Reputation — block known bad actors first (cheapest check)
+                waf.CfnWebACL.RuleProperty(
+                    name="AWSManagedRulesAmazonIpReputationList",
+                    priority=1,
+                    override_action=waf.CfnWebACL.OverrideActionProperty(none={}),
+                    statement=waf.CfnWebACL.StatementProperty(
+                        managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
+                            vendor_name="AWS", name="AWSManagedRulesAmazonIpReputationList"
+                        )
+                    ),
+                    visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
+                        metric_name="IpReputationMetric"
+                    )
+                ),
+                # 2. Geo-blocking — allow only India (IN); adjust if users are global
+                waf.CfnWebACL.RuleProperty(
+                    name="GeoBlockNonIndia",
+                    priority=2,
+                    action=waf.CfnWebACL.RuleActionProperty(block={}),
+                    statement=waf.CfnWebACL.StatementProperty(
+                        not_statement=waf.CfnWebACL.NotStatementProperty(
+                            statement=waf.CfnWebACL.StatementProperty(
+                                geo_match_statement=waf.CfnWebACL.GeoMatchStatementProperty(
+                                    country_codes=["IN"]
+                                )
+                            )
+                        )
+                    ),
+                    visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
+                        metric_name="GeoBlockMetric"
+                    )
+                ),
+                # 3. Rate limiting per IP
                 waf.CfnWebACL.RuleProperty(
                     name="RateLimitRule",
-                    priority=1,
+                    priority=3,
+                    action=waf.CfnWebACL.RuleActionProperty(block={}),
                     statement=waf.CfnWebACL.StatementProperty(
                         rate_based_statement=waf.CfnWebACL.RateBasedStatementProperty(
-                            limit=self.config["api_throttle_rate_limit"] * 2,  # Allow 2x API Gateway limit
+                            limit=self.config["api_throttle_rate_limit"] * 2,
                             aggregate_key_type="IP"
                         )
                     ),
-                    action=waf.CfnWebACL.RuleActionProperty(block={}),
                     visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                        sampled_requests_enabled=True,
-                        cloud_watch_metrics_enabled=True,
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
                         metric_name="RateLimitRule"
                     )
                 ),
-                # AWS Managed Rules - Common Rule Set
+                # 4. OWASP Common Rule Set (SQLi, XSS, path traversal, etc.)
                 waf.CfnWebACL.RuleProperty(
                     name="AWSManagedRulesCommonRuleSet",
-                    priority=2,
+                    priority=4,
                     override_action=waf.CfnWebACL.OverrideActionProperty(none={}),
                     statement=waf.CfnWebACL.StatementProperty(
                         managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
-                            vendor_name="AWS",
-                            name="AWSManagedRulesCommonRuleSet"
+                            vendor_name="AWS", name="AWSManagedRulesCommonRuleSet"
                         )
                     ),
                     visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                        sampled_requests_enabled=True,
-                        cloud_watch_metrics_enabled=True,
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
                         metric_name="CommonRuleSetMetric"
                     )
                 ),
-                # AWS Managed Rules - IP Reputation List
+                # 5. SQL injection managed rule
                 waf.CfnWebACL.RuleProperty(
-                    name="AWSManagedRulesAmazonIpReputationList",
-                    priority=3,
+                    name="AWSManagedRulesSQLiRuleSet",
+                    priority=5,
                     override_action=waf.CfnWebACL.OverrideActionProperty(none={}),
                     statement=waf.CfnWebACL.StatementProperty(
                         managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
-                            vendor_name="AWS",
-                            name="AWSManagedRulesAmazonIpReputationList"
+                            vendor_name="AWS", name="AWSManagedRulesSQLiRuleSet"
                         )
                     ),
                     visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                        sampled_requests_enabled=True,
-                        cloud_watch_metrics_enabled=True,
-                        metric_name="IpReputationMetric"
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
+                        metric_name="SQLiRuleSetMetric"
                     )
-                )
+                ),
+                # 6. Known bad inputs (log4j, SSRF, etc.)
+                waf.CfnWebACL.RuleProperty(
+                    name="AWSManagedRulesKnownBadInputsRuleSet",
+                    priority=6,
+                    override_action=waf.CfnWebACL.OverrideActionProperty(none={}),
+                    statement=waf.CfnWebACL.StatementProperty(
+                        managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
+                            vendor_name="AWS", name="AWSManagedRulesKnownBadInputsRuleSet"
+                        )
+                    ),
+                    visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
+                        metric_name="KnownBadInputsMetric"
+                    )
+                ),
+                # 7. Request size limit — block payloads > 8KB (prevents memory exhaustion)
+                # Sensor readings and API payloads are small; large bodies are suspicious
+                waf.CfnWebACL.RuleProperty(
+                    name="BlockOversizedRequests",
+                    priority=7,
+                    action=waf.CfnWebACL.RuleActionProperty(block={}),
+                    statement=waf.CfnWebACL.StatementProperty(
+                        size_constraint_statement=waf.CfnWebACL.SizeConstraintStatementProperty(
+                            comparison_operator="GT",
+                            size=8192,  # 8KB — sufficient for all AquaChain API payloads
+                            field_to_match=waf.CfnWebACL.FieldToMatchProperty(body={}),
+                            text_transformations=[
+                                waf.CfnWebACL.TextTransformationProperty(priority=0, type="NONE")
+                            ]
+                        )
+                    ),
+                    visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
+                        sampled_requests_enabled=True, cloud_watch_metrics_enabled=True,
+                        metric_name="OversizedRequestsMetric"
+                    )
+                ),
             ],
             visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
                 sampled_requests_enabled=True,
@@ -1992,48 +2069,65 @@ class AquaChainApiStack(Stack):
                 metric_name="AquaChainWebACL"
             )
         )
-        
-        # Associate WAF with API Gateway
-        # Add explicit dependency to ensure API Gateway stage is fully created
+
+        # Associate WAF with API Gateway stage — this is what actually enforces the rules
         self.waf_association = waf.CfnWebACLAssociation(
             self, "WebACLAssociation",
             resource_arn=f"arn:aws:apigateway:{self.region}::/restapis/{self.rest_api.rest_api_id}/stages/{self.config['environment']}",
             web_acl_arn=self.web_acl.attr_arn
         )
-        # Ensure WAF association happens after API deployment is complete
         self.waf_association.node.add_dependency(self.rest_api.deployment_stage)
-        
+
+        # CloudWatch alarm — WAF blocking spike (potential attack in progress)
+        import aws_cdk.aws_cloudwatch as cloudwatch
+        import aws_cdk.aws_cloudwatch_actions as cw_actions
+        import aws_cdk.aws_sns as sns
+
+        waf_block_alarm = cloudwatch.Alarm(
+            self, "WAFBlockAlarm",
+            alarm_name=get_resource_name(self.config, "alarm", "waf-blocks"),
+            alarm_description="WAF is blocking an unusual number of requests — possible attack",
+            metric=cloudwatch.Metric(
+                namespace="AWS/WAFV2",
+                metric_name="BlockedRequests",
+                dimensions_map={"WebACL": get_resource_name(self.config, "waf", "api-protection"), "Region": self.region, "Rule": "ALL"},
+                statistic="Sum",
+                period=Duration.minutes(5)
+            ),
+            threshold=100,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
+        )
+
+        # GuardDuty — threat detection for AWS account activity
+        import aws_cdk.aws_guardduty as guardduty
+        self.guardduty_detector = guardduty.CfnDetector(
+            self, "GuardDutyDetector",
+            enable=True,
+            finding_publishing_frequency="FIFTEEN_MINUTES",
+            data_sources=guardduty.CfnDetector.CFNDataSourceConfigurationsProperty(
+                s3_logs=guardduty.CfnDetector.CFNS3LogsConfigurationProperty(enable=True),
+                kubernetes=guardduty.CfnDetector.CFNKubernetesConfigurationProperty(
+                    audit_logs=guardduty.CfnDetector.CFNKubernetesAuditLogsConfigurationProperty(enable=False)
+                )
+            )
+        )
+
         self.api_resources.update({
             "web_acl": self.web_acl,
-            "waf_association": self.waf_association
+            "waf_association": self.waf_association,
+            "guardduty_detector": self.guardduty_detector,
         })
-        
+
         # Outputs
-        CfnOutput(
-            self, "RestAPIEndpoint",
-            value=self.rest_api.url,
-            description="REST API endpoint URL"
-        )
-        
-        CfnOutput(
-            self, "WebSocketAPIEndpoint",
+        CfnOutput(self, "RestAPIEndpoint", value=self.rest_api.url, description="REST API endpoint URL")
+        CfnOutput(self, "WebSocketAPIEndpoint",
             value=f"wss://{self.websocket_api.ref}.execute-api.{self.region}.amazonaws.com/{self.config['environment']}",
-            description="WebSocket API endpoint URL"
-        )
-        
-        CfnOutput(
-            self, "UserPoolId",
-            value=self.user_pool.user_pool_id,
-            description="Cognito User Pool ID"
-        )
-        
-        CfnOutput(
-            self, "UserPoolClientId",
-            value=self.user_pool_client.user_pool_client_id,
-            description="Cognito User Pool Client ID"
-        )
-    
-    def _get_removal_policy(self):
+            description="WebSocket API endpoint URL")
+        CfnOutput(self, "UserPoolId", value=self.user_pool.user_pool_id, description="Cognito User Pool ID")
+        CfnOutput(self, "UserPoolClientId", value=self.user_pool_client.user_pool_client_id, description="Cognito User Pool Client ID")
+        CfnOutput(self, "WebACLArn", value=self.web_acl.attr_arn, description="WAF WebACL ARN — verify this is attached to API Gateway stage")
         """Get removal policy based on environment"""
         from aws_cdk import RemovalPolicy
         return RemovalPolicy.RETAIN if self.config["environment"] == "prod" else RemovalPolicy.DESTROY

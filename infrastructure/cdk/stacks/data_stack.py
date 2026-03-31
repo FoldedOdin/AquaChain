@@ -165,6 +165,20 @@ class AquaChainDataStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL
         )
 
+        # AuthEvents table — tracks login attempts for account lockout and security dashboard (2.1, 2.2)
+        # PK: email, SK: eventType (e.g. "FAILED_LOGIN_COUNTER" or "LOGIN#<timestamp>")
+        # TTL: expiresAt — auto-deletes old records after lockout window / 90 days
+        self.auth_events_table = dynamodb.Table(
+            self, "AuthEventsTable",
+            table_name="AquaChain-AuthEvents",
+            partition_key=dynamodb.Attribute(name="email", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="eventType", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            removal_policy=RemovalPolicy.RETAIN if self.config.get("environment") == "prod" else RemovalPolicy.DESTROY,
+            time_to_live_attribute="expiresAt"
+        )
+
         self.data_resources.update({
             "readings_table": self.readings_table,
             "ledger_table": self.ledger_table,
@@ -176,7 +190,8 @@ class AquaChainDataStack(Stack):
             "notifications_table": self.notifications_table,
             "audit_logs_table": self.audit_logs_table,
             "system_config_table": self.system_config_table,
-            "alerts_table": self.alerts_table
+            "alerts_table": self.alerts_table,
+            "auth_events_table": self.auth_events_table
         })
     
     def _create_s3_buckets(self) -> None:

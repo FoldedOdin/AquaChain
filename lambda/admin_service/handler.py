@@ -104,7 +104,7 @@ def lambda_handler(event, context):
                 'headers': {
                     'Content-Type': 'application/json',
                     'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Password,x-admin-password',
+                    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-StepUp-Token,x-stepup-token',
                     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
                     'Access-Control-Max-Age': '86400'  # Cache preflight for 24 hours
                 },
@@ -182,6 +182,9 @@ def lambda_handler(event, context):
             return _handle_device_management(http_method, path, query_params)
         elif path.startswith('/api/admin/orders'):
             return _handle_order_management(http_method, path, body, query_params, path_params)
+        elif path == '/api/admin/stepup' and http_method == 'POST':
+            # Issue a short-lived step-up token after re-verifying Cognito password
+            return _issue_stepup_token(body, event)
         elif path.startswith('/api/suppliers'):
             return _handle_supplier_routes(http_method, path, body, query_params, path_params, event)
         elif path.startswith('/api/inventory/reorder-alerts'):
@@ -1569,8 +1572,9 @@ def _get_technicians_list():
 
 def _track_user_login(login_data: Dict):
     """
-    Track user login timestamp in DynamoDB
-    Expected fields: userId (or email)
+    Track user login event in DynamoDB.
+    Records: userId, IP address, user-agent, timestamp, and device fingerprint.
+    Used by the Security & Audit dashboard to detect new-device logins (2.2).
     """
     try:
         user_id = login_data.get('userId') or login_data.get('email')
@@ -1578,33 +1582,50 @@ def _track_user_login(login_data: Dict):
         if not user_id:
             return _create_response(400, {'error': 'userId or email is required'})
         
-        # Update lastLogin in DynamoDB Users table
-        users_table = dynamodb.Table(USERS_TABLE)
-        # Use ISO format with 'Z' suffix to indicate UTC
         current_time = datetime.utcnow().isoformat() + 'Z'
-        
+        ip_address = login_data.get('ipAddress', 'unknown')
+        user_agent = login_data.get('userAgent', 'unknown')
+        device_fingerprint = login_data.get('deviceFingerprint', 'unknown')
+
+        # Update lastLogin in Users table
+        users_table = dynamodb.Table(USERS_TABLE)
         try:
-            # Try to update existing record
             users_table.update_item(
                 Key={'userId': user_id},
-                UpdateExpression='SET lastLogin = :timestamp, updatedAt = :timestamp',
+                UpdateExpression='SET lastLogin = :ts, updatedAt = :ts, lastLoginIp = :ip',
                 ExpressionAttributeValues={
-                    ':timestamp': current_time
+                    ':ts': current_time,
+                    ':ip': ip_address,
                 }
             )
-            logger.info(f"Updated lastLogin for user {user_id}")
         except Exception as update_error:
-            # If record doesn't exist, create it
-            logger.warning(f"User record not found, creating new record for {user_id}")
-            users_table.put_item(
-                Item={
-                    'userId': user_id,
-                    'lastLogin': current_time,
-                    'createdAt': current_time,
-                    'updatedAt': current_time
-                }
-            )
-        
+            logger.warning(f"User record not found, creating for {user_id}: {update_error}")
+            users_table.put_item(Item={
+                'userId': user_id,
+                'lastLogin': current_time,
+                'lastLoginIp': ip_address,
+                'createdAt': current_time,
+                'updatedAt': current_time
+            })
+
+        # Write auth event to AUTH_EVENTS_TABLE for security dashboard (2.2)
+        try:
+            auth_table = dynamodb.Table(AUTH_EVENTS_TABLE)
+            auth_table.put_item(Item={
+                'email': user_id,
+                'eventType': f'LOGIN#{current_time}',
+                'timestamp': current_time,
+                'ipAddress': ip_address,
+                'userAgent': user_agent,
+                'deviceFingerprint': device_fingerprint,
+                'status': 'SUCCESS',
+                # TTL: keep auth events for 90 days
+                'expiresAt': int((datetime.utcnow() + timedelta(days=90)).timestamp())
+            })
+        except Exception as ae:
+            logger.warning(f"Could not write auth event for {user_id}: {ae}")
+
+        logger.info(f"Login tracked for user {user_id} from IP {ip_address}")
         return _create_response(200, {
             'message': 'Login tracked successfully',
             'userId': user_id,
@@ -2079,7 +2100,7 @@ def _create_response(status_code: int, body: Dict) -> Dict:
         'headers': {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Admin-Password,x-admin-password',
+            'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-StepUp-Token,x-stepup-token',
             'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
             'Access-Control-Max-Age': '86400'
         },
@@ -2371,50 +2392,149 @@ def _get_system_uptime() -> float:
 # SECURE PII ACCESS ENDPOINT (Audit Logged)
 # ============================================================================
 
-def _get_sensitive_user_data(user_id: str, admin_id: str, ip_address: str, admin_password: str = None):
+def _get_sensitive_user_data(user_id: str, admin_id: str, ip_address: str):
     """
-    Retrieve full unmasked PII for a specific user
-    SECURITY: This action is audit logged. Password verification removed for MVP.
-    
-    Security Model:
-    - JWT authentication (admin role required) - enforced by API Gateway
-    - Audit logging (immutable record) - all PII access is logged
-    - 5-minute session timeout - enforced on frontend
-    
-    NOTE: For production, consider adding password verification via API Gateway configuration
+    Retrieve full unmasked PII — requires valid step-up token (not just JWT).
+    All access is audit logged to immutable ledger.
     """
     try:
-        # Fetch full user data from DynamoDB
         users_table = dynamodb.Table(USERS_TABLE)
         response = users_table.get_item(Key={'userId': user_id})
-        
         if 'Item' not in response:
             return _create_response(404, {'error': 'User not found'})
-        
         user_data = response['Item']
-        
-        # Log PII access in audit table (immutable record)
         _log_pii_access(
-            admin_id=admin_id,
-            target_user_id=user_id,
-            action='REVEAL_SENSITIVE_DATA',
-            ip_address=ip_address,
-            details={'password_verification': False, 'method': 'jwt_only'}
+            admin_id=admin_id, target_user_id=user_id,
+            action='REVEAL_SENSITIVE_DATA', ip_address=ip_address,
+            details={'method': 'stepup_token'}
         )
-        
-        # Return full unmasked data
         return _create_response(200, {
             'userId': user_id,
             'email': user_data.get('email', ''),
             'phone': user_data.get('phone', ''),
             'lastName': user_data.get('lastName', ''),
             'revealedAt': datetime.utcnow().isoformat() + 'Z',
-            'expiresIn': 300  # 5 minutes in seconds
+            'expiresIn': 300
         })
-        
     except Exception as e:
         logger.error(f"Error retrieving sensitive data: {str(e)}")
         return _create_response(500, {'error': 'Failed to retrieve sensitive data'})
+
+
+def _issue_stepup_token(body: Dict, event: Dict) -> Dict:
+    """
+    POST /api/admin/stepup — re-authenticate with Cognito password and issue
+    a short-lived (5-minute) step-up token stored in DynamoDB.
+    Replaces the X-Admin-Password anti-pattern.
+    """
+    import secrets as _secrets
+    try:
+        password = (body or {}).get('password')
+        if not password:
+            return _create_response(400, {'error': 'password required'})
+
+        request_context = event.get('requestContext', {})
+        claims = request_context.get('authorizer', {}).get('claims', {})
+        admin_id = claims.get('sub') or claims.get('cognito:username')
+        email = claims.get('email', '')
+        ip = request_context.get('identity', {}).get('sourceIp', 'unknown')
+
+        # Re-authenticate against Cognito to verify the password is still valid
+        cognito_client_id = os.environ.get('COGNITO_CLIENT_ID', '')
+        try:
+            cognito_client.initiate_auth(
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={'USERNAME': email, 'PASSWORD': password},
+                ClientId=cognito_client_id,
+            )
+        except cognito_client.exceptions.NotAuthorizedException:
+            _log_pii_access(admin_id=admin_id, target_user_id='stepup',
+                            action='STEPUP_FAILED', ip_address=ip,
+                            details={'reason': 'wrong_password'})
+            return _create_response(403, {'error': 'Password incorrect', 'code': 'STEPUP_DENIED'})
+
+        # Issue token
+        token = _secrets.token_urlsafe(32)
+        expires_at = int((datetime.utcnow() + timedelta(minutes=5)).timestamp())
+        stepup_table = dynamodb.Table(os.environ.get('STEPUP_TABLE', 'AquaChain-StepUpTokens'))
+        stepup_table.put_item(Item={
+            'adminId': admin_id,
+            'token': token,
+            'expiresAt': expires_at,
+            'ttl': expires_at,
+            'issuedAt': datetime.utcnow().isoformat() + 'Z',
+            'ipAddress': ip,
+        })
+        _log_pii_access(admin_id=admin_id, target_user_id='stepup',
+                        action='STEPUP_ISSUED', ip_address=ip, details={})
+        return _create_response(200, {'stepUpToken': token, 'expiresIn': 300})
+    except Exception as e:
+        logger.error(f"Step-up token error: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Step-up authentication failed'})
+
+
+def _verify_stepup_token(admin_id: str, token: str) -> bool:
+    """Verify a step-up token is valid and not expired."""
+    try:
+        stepup_table = dynamodb.Table(os.environ.get('STEPUP_TABLE', 'AquaChain-StepUpTokens'))
+        resp = stepup_table.get_item(Key={'adminId': admin_id, 'token': token})
+        item = resp.get('Item')
+        if not item:
+            return False
+        if int(item.get('expiresAt', 0)) < int(datetime.utcnow().timestamp()):
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _track_login_attempt(user_id: str, ip: str, success: bool) -> None:
+    """
+    Track login attempts for account lockout.
+    After 5 consecutive failures within 15 minutes → lock for 30 minutes.
+    """
+    try:
+        lockout_table = dynamodb.Table(os.environ.get('LOCKOUT_TABLE', 'AquaChain-LoginAttempts'))
+        now = int(datetime.utcnow().timestamp())
+        window_start = now - 900  # 15-minute window
+
+        if success:
+            # Clear failure count on successful login
+            lockout_table.delete_item(Key={'userId': user_id})
+            return
+
+        resp = lockout_table.get_item(Key={'userId': user_id})
+        item = resp.get('Item', {})
+        failures = [f for f in item.get('failures', []) if f > window_start]
+        failures.append(now)
+
+        locked_until = None
+        if len(failures) >= 5:
+            locked_until = now + 1800  # Lock for 30 minutes
+
+        lockout_table.put_item(Item={
+            'userId': user_id,
+            'failures': failures,
+            'lockedUntil': locked_until,
+            'lastIp': ip,
+            'ttl': now + 3600,
+        })
+    except Exception as e:
+        logger.warning(f"Could not track login attempt: {e}")
+
+
+def _is_account_locked(user_id: str) -> bool:
+    """Check if account is currently locked due to too many failed attempts."""
+    try:
+        lockout_table = dynamodb.Table(os.environ.get('LOCKOUT_TABLE', 'AquaChain-LoginAttempts'))
+        resp = lockout_table.get_item(Key={'userId': user_id})
+        item = resp.get('Item', {})
+        locked_until = item.get('lockedUntil')
+        if locked_until and int(locked_until) > int(datetime.utcnow().timestamp()):
+            return True
+        return False
+    except Exception:
+        return False
 
 
 def _log_pii_access(admin_id: str, target_user_id: str, action: str, ip_address: str, details: dict = None):
