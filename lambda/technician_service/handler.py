@@ -93,6 +93,8 @@ def lambda_handler(event, context):
             return add_technician_task_note(path_parameters['taskId'], body, user_info)
         elif resource == '/api/v1/technician/tasks/{taskId}/complete' and http_method == 'POST':
             return complete_technician_task(path_parameters['taskId'], body, user_info)
+        elif resource == '/api/v1/technician/tasks/{taskId}/upload-url' and http_method == 'POST':
+            return get_photo_upload_url(path_parameters['taskId'], body, user_info)
         elif resource == '/api/v1/technician/tasks/history' and http_method == 'GET':
             return get_technician_task_history(query_parameters, user_info)
         elif resource == '/api/v1/technician/tasks/{taskId}/route' and http_method == 'GET':
@@ -135,11 +137,19 @@ def extract_user_from_token(event):
     authorizer = request_context.get('authorizer', {})
     
     # Cognito User Pool authorizer puts claims under 'claims' key
+    # but some API Gateway configurations put them at the top level of authorizer
     claims = authorizer.get('claims', {})
-    
+    if not claims:
+        # Fallback: claims may be at the authorizer top level
+        claims = authorizer
+
     # Extract groups from cognito:groups claim
-    groups_str = claims.get('cognito:groups', '') or authorizer.get('cognito:groups', '')
-    groups = groups_str.split(',') if groups_str else []
+    groups_str = claims.get('cognito:groups', '') or ''
+    # cognito:groups can also be a list (when not cached)
+    if isinstance(groups_str, list):
+        groups = groups_str
+    else:
+        groups = [g.strip() for g in groups_str.split(',') if g.strip()] if groups_str else []
     
     # Determine role from groups (priority: administrators > technicians > consumers)
     role = 'consumer'  # Default role
@@ -157,7 +167,6 @@ def extract_user_from_token(event):
         'groups': groups
     }
     
-    # Log for debugging
     logger.info(f"Extracted user info - userId: {user_info['userId']}, role: {user_info['role']}, groups: {groups}")
     
     return user_info
@@ -1115,15 +1124,33 @@ def update_technician_task_status(task_id: str, update_data: dict, user_info: di
         if not is_service_request:
             orders_table = dynamodb.Table(ORDERS_TABLE)
 
-            # Guard: prevent starting work before device is shipped/out for delivery
+            # Guard: prevent starting work before device is shipped/out for delivery.
+            # We check both the current status AND the audit trail — once a 'Delivered'
+            # event exists in the timeline, the technician is always allowed to proceed
+            # regardless of intermediate statuses (accepted, en_route, etc.).
             if status == 'in_progress':
                 order_resp = orders_table.get_item(Key={'orderId': task_id})
                 if 'Item' in order_resp:
-                    current_status = order_resp['Item'].get('status', '')
-                    allowed_to_start = current_status in (
-                        'SHIPPED', 'shipped', 'OUT_FOR_DELIVERY', 'out_for_delivery',
-                        'accepted', 'TECHNICIAN_ASSIGNED', 'assigned'
+                    item = order_resp['Item']
+                    current_status = item.get('status', '')
+
+                    # Check if device was ever delivered via audit trail
+                    audit_trail = item.get('auditTrail', [])
+                    delivered_in_history = any(
+                        'DELIVERED' in str(entry.get('action', '')).upper() or
+                        str(entry.get('action', '')).upper() in ('STATUS_UPDATED_DELIVERED', 'DELIVERED')
+                        for entry in audit_trail
                     )
+
+                    allowed_statuses = (
+                        'SHIPPED', 'shipped', 'OUT_FOR_DELIVERY', 'out_for_delivery',
+                        'DELIVERED', 'delivered',
+                        'accepted', 'ACCEPTED',
+                        'TECHNICIAN_ASSIGNED', 'assigned',
+                        'en_route', 'EN_ROUTE',
+                    )
+                    allowed_to_start = current_status in allowed_statuses or delivered_in_history
+
                     if not allowed_to_start:
                         return create_response(400, {
                             'error': 'Cannot start work before the device has been shipped',
@@ -1189,6 +1216,57 @@ def add_technician_task_note(task_id: str, note_data: dict, user_info: dict):
         return create_response(500, {'error': 'Failed to add note'})
 
 
+def get_photo_upload_url(task_id: str, body: dict, user_info: dict):
+    """Upload a base64-encoded photo via Lambda (avoids S3 CORS issues with presigned URLs)."""
+    try:
+        if user_info.get('role') != 'technician':
+            return create_response(403, {'error': 'Access denied'})
+
+        import base64
+        import re
+
+        file_name = body.get('fileName', 'photo.jpg')
+        content_type = body.get('contentType', 'image/jpeg')
+        file_data_b64 = body.get('fileData')  # base64-encoded file content
+
+        if not file_data_b64:
+            return create_response(400, {'error': 'fileData (base64) is required'})
+
+        # Decode base64 — strip data URI prefix if present
+        if ',' in file_data_b64:
+            file_data_b64 = file_data_b64.split(',', 1)[1]
+        file_bytes = base64.b64decode(file_data_b64)
+
+        # Enforce 10 MB limit
+        if len(file_bytes) > 10 * 1024 * 1024:
+            return create_response(400, {'error': 'File too large (max 10 MB)'})
+
+        safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file_name)
+        PHOTOS_BUCKET = os.environ.get('PHOTOS_BUCKET', 'aquachain-installation-photos-dev')
+        s3_client = boto3.client('s3', region_name=os.environ.get('REGION', 'ap-south-1'))
+        s3_key = f"installation-photos/{task_id}/{user_info['userId']}/{safe_name}"
+
+        s3_client.put_object(
+            Bucket=PHOTOS_BUCKET,
+            Key=s3_key,
+            Body=file_bytes,
+            ContentType=content_type,
+        )
+
+        # Generate a 7-day presigned GET URL for viewing
+        view_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': PHOTOS_BUCKET, 'Key': s3_key},
+            ExpiresIn=604800
+        )
+
+        return create_response(200, {'viewUrl': view_url, 's3Key': s3_key})
+
+    except Exception as e:
+        logger.error(f"Error uploading photo: {str(e)}")
+        return create_response(500, {'error': 'Failed to upload photo'})
+
+
 def complete_technician_task(task_id: str, completion_data: dict, user_info: dict):
     """Complete a task"""
     try:
@@ -1209,6 +1287,16 @@ def complete_technician_task(task_id: str, completion_data: dict, user_info: dic
             if completion_data.get('location'):
                 update_expr += ', installationLocation = :loc'
                 expr_values[':loc'] = completion_data['location']
+            if completion_data.get('workNotes'):
+                update_expr += ', workNotes = :notes'
+                expr_values[':notes'] = completion_data['workNotes']
+            if completion_data.get('photoS3Keys'):
+                update_expr += ', photoS3Keys = :photos'
+                expr_values[':photos'] = completion_data['photoS3Keys']
+            elif completion_data.get('photoUrls'):
+                # Legacy fallback: if old client sends presigned URLs, store them as-is
+                update_expr += ', photoUrls = :photos'
+                expr_values[':photos'] = completion_data['photoUrls']
             orders_table.update_item(
                 Key={'orderId': task_id},
                 UpdateExpression=update_expr,

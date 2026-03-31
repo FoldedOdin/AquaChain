@@ -2835,6 +2835,54 @@ def _log_config_change(admin_id: str, action: str, ip_address: str, changes: Dic
 # ─── Admin Order Management ───────────────────────────────────────────────────
 
 ORDERS_TABLE_NAME = os.environ.get('ORDERS_TABLE', 'aquachain-orders')
+PHOTOS_BUCKET = os.environ.get('PHOTOS_BUCKET', 'aquachain-installation-photos-dev')
+
+def _generate_photo_urls(order: Dict) -> Dict:
+    """
+    Generate fresh presigned URLs for installation photos.
+    Prefers photoS3Keys (durable S3 keys) over legacy photoUrls (expired presigned URLs).
+    For legacy data, extracts the S3 key from the expired presigned URL path.
+    """
+    s3_keys = order.get('photoS3Keys') or []
+
+    # Legacy fallback: extract S3 keys from stored presigned URLs
+    if not s3_keys:
+        legacy_urls = order.get('photoUrls') or []
+        for url in legacy_urls:
+            try:
+                # URL format: https://{bucket}.s3.{region}.amazonaws.com/{key}?X-Amz-...
+                # or: https://s3.{region}.amazonaws.com/{bucket}/{key}?X-Amz-...
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                path = parsed.path.lstrip('/')
+                # Virtual-hosted style: bucket is in hostname, path is the key
+                if parsed.hostname and parsed.hostname.endswith('.amazonaws.com') and PHOTOS_BUCKET in parsed.hostname:
+                    s3_keys.append(path)
+                # Path-style: first path segment is bucket name
+                elif path.startswith(PHOTOS_BUCKET + '/'):
+                    s3_keys.append(path[len(PHOTOS_BUCKET) + 1:])
+                # Fallback: assume path is the key (strip leading bucket segment if present)
+                elif path.startswith('installation-photos/'):
+                    s3_keys.append(path)
+            except Exception:
+                pass
+
+    if s3_keys:
+        try:
+            s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+            fresh_urls = []
+            for key in s3_keys:
+                url = s3_client.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': PHOTOS_BUCKET, 'Key': key},
+                    ExpiresIn=3600  # 1-hour URLs, regenerated on each fetch
+                )
+                fresh_urls.append(url)
+            order['photoUrls'] = fresh_urls
+        except Exception as e:
+            logger.warning(f"Failed to generate presigned URLs for order {order.get('orderId')}: {e}")
+            order['photoUrls'] = []
+    return order
 
 def _handle_order_management(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict):
     """
@@ -2983,6 +3031,8 @@ def _admin_list_orders(query_params: Dict):
 
         # Normalize schema differences between old and new order formats
         orders = [_normalize_order(o) for o in orders]
+        # Generate fresh presigned URLs for installation photos
+        orders = [_generate_photo_urls(o) for o in orders]
 
         # Filter out test/non-consumer orders:
         # - consumerName is "test user" (case-insensitive)

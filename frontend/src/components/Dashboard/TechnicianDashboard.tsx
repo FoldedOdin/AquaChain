@@ -68,6 +68,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completeTaskTarget, setCompleteTaskTarget] = useState<{ orderId: string; task: any } | null>(null);
   const [completeLocation, setCompleteLocation] = useState('');
+  const [completeWorkNotes, setCompleteWorkNotes] = useState('');
+  // Photo upload state for completion modal
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [photoViewUrls, setPhotoViewUrls] = useState<string[]>([]); // S3 view URLs after upload
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   // Update-note modal state (replaces browser prompt())
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -283,7 +288,8 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     switch(status) {
       case 'assigned': return 'bg-blue-100 text-blue-800';
       case 'delivered': return 'bg-green-100 text-green-800';
-      case 'accepted': return 'bg-green-100 text-green-800';
+      case 'accepted': return 'bg-indigo-100 text-indigo-800';
+      case 'en_route': return 'bg-purple-100 text-purple-800';
       case 'in_progress': return 'bg-yellow-100 text-yellow-800';
       case 'completed': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
@@ -343,6 +349,25 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     const task = techOrders.find((t: any) => t.orderId === orderId);
     const s = (task?.status || '').toUpperCase();
     return ['DELIVERED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'TECHNICIAN_ASSIGNED', 'ASSIGNED'].includes(s);
+  };
+
+  // Returns elapsed time string since a given ISO timestamp (e.g. "2h 15m")
+  const getElapsedTime = (isoTimestamp: string | undefined): string | null => {
+    if (!isoTimestamp) return null;
+    try {
+      const start = new Date(isoTimestamp).getTime();
+      const now = Date.now();
+      const diffMs = now - start;
+      if (diffMs < 0) return null;
+      const totalMinutes = Math.floor(diffMs / 60000);
+      if (totalMinutes < 1) return 'Just now';
+      if (totalMinutes < 60) return `${totalMinutes}m`;
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = totalMinutes % 60;
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    } catch {
+      return null;
+    }
   };
 
   // Task action handlers
@@ -446,6 +471,46 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
+        body: JSON.stringify({ status: 'en_route' })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setErrorModal({ 
+          show: true, 
+          message: data.error || 'Failed to start navigation. Please try again.' 
+        });
+        return;
+      }
+      
+      setSuccessModal({ 
+        show: true, 
+        message: 'Navigation started! Mark "Arrived" when you reach the customer.' 
+      });
+      await refetch();
+    } catch (error) {
+      console.error('Error starting navigation:', error);
+      setErrorModal({ 
+        show: true, 
+        message: 'Failed to start navigation. Please check your connection and try again.' 
+      });
+    } finally {
+      setIsProcessing(null);
+    }
+  }, [refetch]);
+
+  const handleMarkArrived = useCallback(async (orderId: string) => {
+    try {
+      setIsProcessing(orderId);
+      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+      const response = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({ status: 'in_progress' })
       });
       
@@ -454,21 +519,21 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       if (!response.ok) {
         setErrorModal({ 
           show: true, 
-          message: data.error || 'Failed to start task. Please try again.' 
+          message: data.error || 'Failed to mark arrived. Please try again.' 
         });
         return;
       }
       
       setSuccessModal({ 
         show: true, 
-        message: 'Installation started! Update the status when complete.' 
+        message: 'Marked as on-site! Start the installation work.' 
       });
       await refetch();
     } catch (error) {
-      console.error('Error starting task:', error);
+      console.error('Error marking arrived:', error);
       setErrorModal({ 
         show: true, 
-        message: 'Failed to start task. Please check your connection and try again.' 
+        message: 'Failed to mark arrived. Please check your connection and try again.' 
       });
     } finally {
       setIsProcessing(null);
@@ -479,27 +544,72 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
   const handleCompleteTask = useCallback((orderId: string, task: any) => {
     setCompleteTaskTarget({ orderId, task });
     setCompleteLocation('');
+    setCompleteWorkNotes('');
+    setPhotoFiles([]);
+    setPhotoViewUrls([]);
     setShowCompleteModal(true);
   }, []);
 
+  // Upload selected photos via Lambda (Lambda → S3), returns S3 keys (not presigned URLs)
+  const uploadPhotos = useCallback(async (orderId: string, files: File[]): Promise<string[]> => {
+    if (!files.length) return [];
+    const token = await getAuthToken();
+    if (!token) throw new Error('Not authenticated');
+    const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
+    const s3Keys: string[] = [];
+
+    for (const file of files) {
+      // Read file as base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // POST to Lambda which uploads to S3 and returns s3Key + viewUrl
+      const res = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/upload-url`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type || 'image/jpeg',
+          fileData: base64
+        })
+      });
+      if (!res.ok) throw new Error(`Upload failed for ${file.name}`);
+      const { s3Key } = await res.json();
+      s3Keys.push(s3Key);
+    }
+    return s3Keys;
+  }, [getAuthToken]);
+
   // Called when technician confirms location in the modal
   const handleConfirmComplete = useCallback(async () => {
-    if (!completeTaskTarget || !completeLocation.trim()) return;
+    if (!completeTaskTarget || !completeLocation.trim() || !completeWorkNotes.trim()) return;
     const { orderId, task } = completeTaskTarget;
     try {
       setIsProcessing(orderId);
+      setPhotoUploading(photoFiles.length > 0);
       setShowCompleteModal(false);
+
+      // Upload photos first (if any) — returns S3 keys, not presigned URLs
+      let uploadedPhotoS3Keys: string[] = [];
+      if (photoFiles.length > 0) {
+        uploadedPhotoS3Keys = await uploadPhotos(orderId, photoFiles);
+      }
+      setPhotoUploading(false);
+
       const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
       const apiBase = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3002';
       const response = await fetch(`${apiBase}/api/v1/technician/tasks/${orderId}/complete`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deviceId: task.deviceId || task.provisionedDeviceId,
           location: completeLocation.trim(),
+          workNotes: completeWorkNotes.trim(),
+          photoS3Keys: uploadedPhotoS3Keys,
           calibrationData: { phOffset: 0, tdsFactor: 1 }
         })
       });
@@ -512,12 +622,13 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       await refetch();
     } catch (error) {
       console.error('Error completing installation:', error);
+      setPhotoUploading(false);
       setErrorModal({ show: true, message: 'Failed to complete installation. Please check your connection and try again.' });
     } finally {
       setIsProcessing(null);
       setCompleteTaskTarget(null);
     }
-  }, [completeTaskTarget, completeLocation, refetch]);
+  }, [completeTaskTarget, completeLocation, completeWorkNotes, photoFiles, uploadPhotos, refetch]);
 
   // Opens the update-note modal instead of browser prompt()
   const handleUpdateTask = useCallback((taskId: string) => {
@@ -759,6 +870,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
       mappedStatus = 'assigned'; // Device on the way or delivered — technician can accept
     }
     if (rawStatus === 'ACCEPTED') mappedStatus = 'accepted';
+    if (rawStatus === 'EN_ROUTE') mappedStatus = 'en_route';
     if (['INSTALLING', 'IN_PROGRESS'].includes(rawStatus)) mappedStatus = 'in_progress';
     if (['COMPLETED', 'INSTALLED', 'DELIVERED_AND_INSTALLED'].includes(rawStatus)) mappedStatus = 'completed';
 
@@ -843,6 +955,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
     pending: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'assigned').length,
     inProgress: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'in_progress').length,
     accepted: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'accepted').length,
+    enRoute: tasksWithMappedStatus.filter((t: any) => t.mappedStatus === 'en_route').length,
     completedToday: tasksWithMappedStatus.filter((t: any) =>
       t.mappedStatus === 'completed' && t.completedAt && new Date(t.completedAt).toDateString() === todayStr
     ).length,
@@ -958,7 +1071,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
         )}
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Total Tasks</h3>
@@ -966,15 +1079,6 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
             </div>
             <div className="text-3xl font-bold text-gray-900">{stats.total}</div>
             <p className="text-xs text-gray-500 mt-1">All assigned</p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-5">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Completed</h3>
-              <CheckCircle className="w-5 h-5 text-green-600" />
-            </div>
-            <div className="text-3xl font-bold text-green-700">{stats.completed}</div>
-            <p className="text-xs text-gray-500 mt-1">{stats.completedToday} today</p>
           </div>
 
           <div className="bg-white rounded-lg shadow-md p-5">
@@ -988,20 +1092,38 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
 
           <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">In Progress</h3>
-              <TrendingUp className="w-5 h-5 text-yellow-600" />
+              <h3 className="text-sm font-medium text-gray-600">Accepted</h3>
+              <Settings className="w-5 h-5 text-indigo-600" />
             </div>
-            <div className="text-3xl font-bold text-yellow-700">{stats.inProgress}</div>
-            <p className="text-xs text-gray-500 mt-1">Active work</p>
+            <div className="text-3xl font-bold text-indigo-700">{stats.accepted}</div>
+            <p className="text-xs text-gray-500 mt-1">Ready to go</p>
           </div>
 
           <div className="bg-white rounded-lg shadow-md p-5">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Accepted</h3>
-              <Settings className="w-5 h-5 text-blue-600" />
+              <h3 className="text-sm font-medium text-gray-600">En Route</h3>
+              <Navigation className="w-5 h-5 text-purple-600" />
             </div>
-            <div className="text-3xl font-bold text-blue-700">{stats.accepted}</div>
-            <p className="text-xs text-gray-500 mt-1">Ready to start</p>
+            <div className="text-3xl font-bold text-purple-700">{stats.enRoute}</div>
+            <p className="text-xs text-gray-500 mt-1">Travelling</p>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-5">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-600">In Progress</h3>
+              <TrendingUp className="w-5 h-5 text-yellow-600" />
+            </div>
+            <div className="text-3xl font-bold text-yellow-700">{stats.inProgress}</div>
+            <p className="text-xs text-gray-500 mt-1">On site</p>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-5">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-600">Completed</h3>
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            </div>
+            <div className="text-3xl font-bold text-green-700">{stats.completed}</div>
+            <p className="text-xs text-gray-500 mt-1">{stats.completedToday} today</p>
           </div>
         </div>
 
@@ -1031,6 +1153,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                   <option value="all">All Status</option>
                   <option value="assigned">Assigned</option>
                   <option value="accepted">Accepted</option>
+                  <option value="en_route">En Route</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
                 </select>
@@ -1132,6 +1255,16 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                                   <span>Due: {task.dueDate}</span>
                                 </div>
                               )}
+                              {/* SLA elapsed time — show for active tasks */}
+                              {task.mappedStatus !== 'completed' && task.mappedStatus !== 'assigned' && task.acceptedAt && (() => {
+                                const elapsed = getElapsedTime(task.acceptedAt);
+                                return elapsed ? (
+                                  <div className="flex items-center gap-1 text-amber-600">
+                                    <Clock className="w-3 h-3" />
+                                    <span>Active: {elapsed}</span>
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
                           </div>
                         </div>
@@ -1173,9 +1306,18 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                           <button
                             onClick={() => handleStartTask(task.taskId)}
                             disabled={isProcessing === task.taskId}
-                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:opacity-50 text-sm"
+                            className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition font-medium disabled:opacity-50 text-sm"
                           >
-                            {isProcessing === task.taskId ? 'Processing...' : '▶️ Start Work'}
+                            {isProcessing === task.taskId ? 'Processing...' : '🚗 Start Navigation'}
+                          </button>
+                        )}
+                        {task.mappedStatus === 'en_route' && (
+                          <button
+                            onClick={() => handleMarkArrived(task.taskId)}
+                            disabled={isProcessing === task.taskId}
+                            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium disabled:opacity-50 text-sm"
+                          >
+                            {isProcessing === task.taskId ? 'Processing...' : '📍 Mark Arrived'}
                           </button>
                         )}
                         {task.mappedStatus === 'in_progress' && (
@@ -1299,11 +1441,11 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                 <div className="pt-2 border-t border-gray-100 grid grid-cols-2 gap-3">
                   <div className="text-center bg-green-50 rounded-lg p-3">
                     <div className="text-2xl font-bold text-green-700">{stats.completedToday}</div>
-                    <div className="text-xs text-gray-500 mt-1">Completed Today</div>
+                    <div className="text-xs text-gray-500 mt-1">Done Today</div>
                   </div>
                   <div className="text-center bg-blue-50 rounded-lg p-3">
                     <div className="text-2xl font-bold text-blue-700">{stats.completed}</div>
-                    <div className="text-xs text-gray-500 mt-1">Total Done</div>
+                    <div className="text-xs text-gray-500 mt-1">All Time</div>
                   </div>
                 </div>
               </div>
@@ -1549,7 +1691,7 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                   <p className="font-semibold text-gray-900">{completeTaskTarget.task?.title || 'Installation Task'}</p>
                   <p className="text-sm text-gray-600">Customer: {completeTaskTarget.task?.consumerName || '—'}</p>
                 </div>
-                <div className="mb-6">
+                <div className="mb-4">
                   <label className="block text-sm font-semibold text-gray-900 mb-2">
                     Installation Location <span className="text-red-500">*</span>
                   </label>
@@ -1565,19 +1707,77 @@ const TechnicianDashboard: React.FC<TechnicianDashboardProps> = memo(() => {
                     <p className="text-xs text-red-500 mt-1">Please enter the installation location to continue.</p>
                   )}
                 </div>
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Work Performed <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={completeWorkNotes}
+                    onChange={e => setCompleteWorkNotes(e.target.value)}
+                    placeholder="Describe the work done, any issues encountered, parts used..."
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                  />
+                  {!completeWorkNotes.trim() && (
+                    <p className="text-xs text-red-500 mt-1">Please describe the work performed.</p>
+                  )}
+                </div>
+
+                {/* Photo Upload */}
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Installation Photos <span className="text-gray-400 font-normal">(optional, max 5)</span>
+                  </label>
+                  <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors">
+                    <div className="flex items-center gap-2 text-gray-500">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span className="text-sm">Tap to add photos</span>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={e => {
+                        const selected = Array.from(e.target.files || []).slice(0, 5);
+                        setPhotoFiles(selected);
+                      }}
+                    />
+                  </label>
+                  {photoFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {photoFiles.map((f, i) => (
+                        <div key={i} className="relative">
+                          <img
+                            src={URL.createObjectURL(f)}
+                            alt={f.name}
+                            className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                          />
+                          <button
+                            onClick={() => setPhotoFiles(prev => prev.filter((_, idx) => idx !== i))}
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-xs flex items-center justify-center"
+                          >×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex gap-3">
                   <button
-                    onClick={() => { setShowCompleteModal(false); setCompleteLocation(''); }}
+                    onClick={() => { setShowCompleteModal(false); setCompleteLocation(''); setCompleteWorkNotes(''); setPhotoFiles([]); setPhotoViewUrls([]); }}
                     className="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleConfirmComplete}
-                    disabled={!completeLocation.trim() || isProcessing === completeTaskTarget.orderId}
+                    disabled={!completeLocation.trim() || !completeWorkNotes.trim() || isProcessing === completeTaskTarget.orderId || photoUploading}
                     className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                   >
-                    {isProcessing === completeTaskTarget.orderId ? 'Completing…' : 'Confirm Complete'}
+                    {photoUploading ? 'Uploading photos…' : isProcessing === completeTaskTarget.orderId ? 'Completing…' : 'Confirm Complete'}
                   </button>
                 </div>
               </div>

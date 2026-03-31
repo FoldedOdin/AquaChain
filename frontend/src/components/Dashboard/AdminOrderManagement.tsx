@@ -39,6 +39,12 @@ interface AdminOrder {
   createdAt: string;
   updatedAt: string;
   statusHistory?: Array<{ status: string; timestamp: string; message: string }>;
+  // Proof of work fields (set by technician on completion)
+  workNotes?: string;
+  installationLocation?: string;
+  installedDeviceId?: string;
+  completedAt?: string;
+  photoUrls?: string[];
 }
 
 interface OrderStats {
@@ -568,6 +574,55 @@ const AdminOrderManagement: React.FC = () => {
                           ? 'Order complete. Device installed and active.'
                           : `Order is in a terminal state: ${STATUS_LABELS[selectedOrder.status]}.`}
                       </p>
+                    </div>
+                  )}
+
+                  {/* Proof of Work — shown when technician has submitted completion data */}
+                  {(selectedOrder.workNotes || selectedOrder.installationLocation || selectedOrder.installedDeviceId) && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-3">Proof of Work</p>
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
+                        {selectedOrder.installedDeviceId && (
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-0.5">Device ID Installed</p>
+                            <p className="text-sm font-mono text-gray-900">{selectedOrder.installedDeviceId}</p>
+                          </div>
+                        )}
+                        {selectedOrder.installationLocation && (
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-0.5">Installation Location</p>
+                            <p className="text-sm text-gray-900">{selectedOrder.installationLocation}</p>
+                          </div>
+                        )}
+                        {selectedOrder.workNotes && (
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-0.5">Work Performed</p>
+                            <p className="text-sm text-gray-900 whitespace-pre-wrap">{selectedOrder.workNotes}</p>
+                          </div>
+                        )}
+                        {selectedOrder.completedAt && (
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-0.5">Completed At</p>
+                            <p className="text-sm text-gray-900">{new Date(selectedOrder.completedAt).toLocaleString()}</p>
+                          </div>
+                        )}
+                        {selectedOrder.photoUrls && selectedOrder.photoUrls.length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-2">Installation Photos</p>
+                            <div className="flex flex-wrap gap-2">
+                              {selectedOrder.photoUrls.map((url, i) => (
+                                <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                                  <img
+                                    src={url}
+                                    alt={`Installation photo ${i + 1}`}
+                                    className="w-20 h-20 object-cover rounded-lg border border-green-300 hover:opacity-80 transition-opacity cursor-pointer"
+                                  />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
