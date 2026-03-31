@@ -182,6 +182,12 @@ def lambda_handler(event, context):
             return _handle_device_management(http_method, path, query_params)
         elif path.startswith('/api/admin/orders'):
             return _handle_order_management(http_method, path, body, query_params, path_params)
+        elif path.startswith('/api/suppliers'):
+            return _handle_supplier_routes(http_method, path, body, query_params, path_params, event)
+        elif path.startswith('/api/inventory/reorder-alerts'):
+            return _handle_reorder_alerts(query_params)
+        elif path.startswith('/api/procurement'):
+            return _handle_procurement_routes(http_method, path, body, query_params, path_params, event)
         else:
             return _create_response(404, {'error': 'Endpoint not found'})
             
@@ -326,16 +332,28 @@ def _handle_user_management(method: str, path: str, body: Dict, query_params: Di
     # Check for sensitive data reveal request (GET with reveal=true query param)
     if method == 'GET' and path_params.get('userId') and query_params.get('reveal') == 'true':
         user_id = path_params['userId']
-        
-        # Extract admin ID from authorizer context
         request_context = event.get('requestContext', {}) if event else {}
         authorizer = request_context.get('authorizer', {})
         claims = authorizer.get('claims', {})
         admin_id = claims.get('sub') or claims.get('cognito:username')
         ip_address = request_context.get('identity', {}).get('sourceIp', 'unknown')
-        
-        # No password verification - rely on JWT auth + audit logging
-        return _get_sensitive_user_data(user_id, admin_id, ip_address, admin_password=None)
+
+        # Step-up auth: require a short-lived step-up token issued by /api/admin/stepup
+        # This replaces the X-Admin-Password anti-pattern
+        step_up_token = (event.get('headers') or {}).get('X-StepUp-Token') or \
+                        (event.get('headers') or {}).get('x-stepup-token')
+        if not step_up_token:
+            return _create_response(401, {
+                'error': 'Step-up authentication required',
+                'code': 'STEPUP_REQUIRED',
+                'message': 'Call POST /api/admin/stepup with your Cognito password to get a 5-minute token'
+            })
+        if not _verify_stepup_token(admin_id, step_up_token):
+            return _create_response(403, {
+                'error': 'Step-up token invalid or expired',
+                'code': 'STEPUP_INVALID'
+            })
+        return _get_sensitive_user_data(user_id, admin_id, ip_address)
     
     if method == 'GET' and path == '/api/admin/users':
         return _get_all_users(query_params)
@@ -1940,6 +1958,118 @@ def _decimal_default(obj):
         return float(obj)
     raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
+
+# ── Supplier / Inventory / Procurement route handlers ─────────────────────────
+
+def _handle_supplier_routes(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict, event: Dict = None):
+    """Route /api/suppliers/* to the supplier_management Lambda logic."""
+    try:
+        import sys as _sys
+        _sys.path.insert(0, '/var/task')
+        from supplier_management.handler import SupplierManager
+
+        # Extract authenticated user ID from JWT claims — never hardcode
+        claims = {}
+        if event:
+            claims = (event.get('requestContext', {})
+                          .get('authorizer', {})
+                          .get('claims', {}))
+        user_id = claims.get('sub') or claims.get('cognito:username') or 'unknown'
+        request_context = {'user_id': user_id, 'correlation_id': claims.get('sub', '')}
+        manager = SupplierManager()
+
+        # /api/suppliers/{supplierId}/performance
+        if '/performance' in path:
+            supplier_id = path_params.get('supplierId') or path.split('/')[-2]
+            return manager.get_supplier_performance(supplier_id, user_id, request_context)
+
+        # /api/suppliers/{supplierId}/contracts
+        if '/contracts' in path:
+            supplier_id = path_params.get('supplierId') or path.split('/')[-2]
+            return manager.contract_manager.get_supplier_contracts(supplier_id, user_id, request_context)
+
+        # /api/suppliers/{supplierId}  (PUT)
+        supplier_id = path_params.get('supplierId')
+        if supplier_id and method == 'PUT':
+            return manager.update_supplier(supplier_id, body, user_id, request_context)
+
+        # /api/suppliers  (GET list or POST create)
+        if method == 'POST':
+            return manager.create_supplier(body, user_id, request_context)
+        return manager.get_suppliers(query_params, user_id, request_context)
+
+    except ImportError:
+        # supplier_management not co-deployed — return empty list gracefully
+        logger.warning("supplier_management module not available in this Lambda package")
+        return _create_response(200, {'suppliers': [], 'total': 0})
+    except Exception as e:
+        logger.error(f"Supplier route error: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Supplier service error', 'message': str(e)})
+
+
+def _handle_reorder_alerts(query_params: Dict):
+    """Route /api/inventory/reorder-alerts to inventory_management logic."""
+    try:
+        import sys as _sys
+        _sys.path.insert(0, '/var/task')
+        from inventory_management.handler import InventoryService
+
+        service = InventoryService()
+        urgency = (query_params or {}).get('urgency')
+        return service.get_reorder_alerts(urgency)
+
+    except ImportError:
+        logger.warning("inventory_management module not available in this Lambda package")
+        return _create_response(200, {'alerts': [], 'summary': {'total_count': 0}})
+    except Exception as e:
+        logger.error(f"Reorder alerts error: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Inventory service error', 'message': str(e)})
+
+
+def _handle_procurement_routes(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict, event: Dict = None):
+    """Route /api/procurement/* to procurement_service logic."""
+    try:
+        import sys as _sys
+        _sys.path.insert(0, '/var/task')
+        from procurement_service.handler import ProcurementService
+
+        # Extract authenticated user ID from JWT claims — never hardcode
+        claims = {}
+        if event:
+            claims = (event.get('requestContext', {})
+                          .get('authorizer', {})
+                          .get('claims', {}))
+        user_id = claims.get('sub') or claims.get('cognito:username') or 'unknown'
+        request_context = {'user_id': user_id, 'correlation_id': claims.get('sub', 'admin-api')}
+        service = ProcurementService(request_context)
+
+        # /api/procurement/orders/{orderId}/approve
+        if path.endswith('/approve'):
+            order_id = path_params.get('orderId') or path.split('/')[-2]
+            return service.approve_purchase_order(order_id, body or {})
+
+        # /api/procurement/orders/{orderId}/reject
+        if path.endswith('/reject'):
+            order_id = path_params.get('orderId') or path.split('/')[-2]
+            return service.reject_purchase_order(order_id, body or {})
+
+        # /api/procurement/orders  POST
+        if method == 'POST':
+            idempotency_key = (body or {}).get('idempotencyKey')
+            order_data = (body or {}).get('orderData', body or {})
+            return service.submit_purchase_order(order_data, idempotency_key)
+
+        # /api/procurement/orders  GET
+        return service.get_approval_queue(query_params)
+
+    except ImportError:
+        logger.warning("procurement_service module not available in this Lambda package")
+        return _create_response(200, {'orders': [], 'purchaseOrders': []})
+    except Exception as e:
+        logger.error(f"Procurement route error: {e}", exc_info=True)
+        return _create_response(500, {'error': 'Procurement service error', 'message': str(e)})
+
+
 def _create_response(status_code: int, body: Dict) -> Dict:
     """
     Create standardized API response with proper CORS headers
@@ -2690,6 +2820,16 @@ def _normalize_order(order: Dict) -> Dict:
     if not order.get('quoteAmount'):
         order['quoteAmount'] = order.get('totalAmount') or order.get('amount')
 
+    # Canonical device SKU — normalise to lowercase for consistent frontend display
+    if not order.get('deviceSKU'):
+        order['deviceSKU'] = (
+            order.get('deviceType') or
+            order.get('sku') or
+            order.get('plan') or
+            'basic'
+        )
+    order['deviceSKU'] = str(order['deviceSKU']).lower().strip()
+
     # Ensure orderId is always present
     if not order.get('orderId'):
         pk = order.get('PK', '')
@@ -2699,7 +2839,9 @@ def _normalize_order(order: Dict) -> Dict:
 
 
 def _admin_list_orders(query_params: Dict):
-    """GET /api/admin/orders — scan orders table and return all orders with stats."""
+    """GET /api/admin/orders — scan orders table and return all orders with stats.
+    Only returns orders belonging to real Cognito consumer accounts (excludes test users).
+    """
     try:
         dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
         table = dynamodb.Table(ORDERS_TABLE_NAME)
@@ -2722,10 +2864,35 @@ def _admin_list_orders(query_params: Dict):
         # Normalize schema differences between old and new order formats
         orders = [_normalize_order(o) for o in orders]
 
+        # Filter out test/non-consumer orders:
+        # - consumerName is "test user" (case-insensitive)
+        # - consumerEmail is empty (no real Cognito identity)
+        # - consumerEmail local-part is exactly "test" or starts with "test+"
+        def _is_real_consumer_order(order: Dict) -> bool:
+            name = (order.get('consumerName') or '').strip().lower()
+            email = (order.get('consumerEmail') or '').strip().lower()
+
+            # Reject if no email at all (can't be tied to a Cognito user)
+            if not email:
+                return False
+
+            # Reject known test name patterns
+            if name in ('test user', 'test', 'testuser'):
+                return False
+
+            # Reject test email patterns (local part is "test" or "testuser")
+            local = email.split('@')[0]
+            if local in ('test', 'testuser', 'test_user', 'test.user'):
+                return False
+
+            return True
+
+        orders = [o for o in orders if _is_real_consumer_order(o)]
+
         # Sort newest first
         orders.sort(key=lambda o: o.get('createdAt', ''), reverse=True)
 
-        logger.info(f"Admin fetched {len(orders)} orders")
+        logger.info(f"Admin fetched {len(orders)} orders (test orders excluded)")
         return _create_response(200, {'success': True, 'orders': orders})
 
     except Exception as e:

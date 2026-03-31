@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import AdminProfile from './AdminProfile';
@@ -32,6 +32,8 @@ import {
   Filter,
   Megaphone,
   Package,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
@@ -89,6 +91,29 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedView, setSelectedView] = useState('overview');
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const updateScrollState = () => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+
+  // Check scroll state after mount and on resize
+  useEffect(() => {
+    updateScrollState();
+    window.addEventListener('resize', updateScrollState);
+    return () => window.removeEventListener('resize', updateScrollState);
+  }, []); // eslint-disable-line
+
+  const scrollTabs = (dir: 'left' | 'right') => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === 'left' ? -200 : 200, behavior: 'smooth' });
+  };
   
   // System configuration state (kept for backward compatibility with other features)
   const [systemConfig, setSystemConfig] = useState<SystemConfigType | null>(null);
@@ -978,22 +1003,22 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <ShieldCheckIcon className="w-6 h-6 text-purple-600" />
+      <header className="bg-white shadow-sm border-b border-gray-200 px-3 sm:px-6 py-3 sm:py-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="p-1.5 sm:p-2 bg-purple-100 rounded-lg shrink-0">
+                <ShieldCheckIcon className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
-                <p className="text-sm text-gray-600">System Administration & Oversight</p>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate">Admin Dashboard</h1>
+                <p className="text-xs sm:text-sm text-gray-600 hidden sm:block">System Administration & Oversight</p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full text-sm font-medium">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            <div className="hidden sm:flex items-center gap-2 bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full text-sm font-medium">
               <ShieldCheckIcon className="w-4 h-4" />
               <span>Administrator</span>
             </div>
@@ -1010,107 +1035,132 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors duration-200"
               title="Logout"
             >
               <PowerIcon className="w-5 h-5" />
-              <span className="text-sm">Logout</span>
+              <span className="text-sm hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto p-6">
+      <main className="max-w-7xl mx-auto p-3 sm:p-6">
         {/* Tabbed Navigation - NO OPERATIONAL CONTROLS */}
-        <div className="bg-white rounded-lg shadow-md mb-6">
-          <div className="flex border-b">
+        <div className="bg-white rounded-lg shadow-md mb-6 relative">
+          {/* Left arrow */}
+          {canScrollLeft && (
+            <button
+              onClick={() => scrollTabs('left')}
+              className="absolute left-0 top-0 bottom-0 z-10 flex items-center justify-center w-8 bg-gradient-to-r from-white via-white to-transparent rounded-l-lg"
+              aria-label="Scroll tabs left"
+            >
+              <ChevronLeft className="w-4 h-4 text-gray-500" />
+            </button>
+          )}
+          {/* Right arrow */}
+          {canScrollRight && (
+            <button
+              onClick={() => scrollTabs('right')}
+              className="absolute right-0 top-0 bottom-0 z-10 flex items-center justify-center w-8 bg-gradient-to-l from-white via-white to-transparent rounded-r-lg"
+              aria-label="Scroll tabs right"
+            >
+              <ChevronRight className="w-4 h-4 text-gray-500" />
+            </button>
+          )}
+          <div
+            ref={tabScrollRef}
+            onScroll={updateScrollState}
+            className="flex border-b overflow-x-auto"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
             <button
               onClick={() => setSelectedView('overview')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'overview'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Monitor className="w-5 h-5" />
+              <Monitor className="w-4 h-4 shrink-0" />
               System Overview
             </button>
             <button
               onClick={() => setSelectedView('users')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'users'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Users className="w-5 h-5" />
+              <Users className="w-4 h-4 shrink-0" />
               User Management
             </button>
             <button
               onClick={() => setSelectedView('configuration')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'configuration'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Settings className="w-5 h-5" />
+              <Settings className="w-4 h-4 shrink-0" />
               System Configuration
             </button>
             <button
               onClick={() => setSelectedView('monitoring')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'monitoring'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Activity className="w-5 h-5" />
+              <Activity className="w-4 h-4 shrink-0" />
               Global Monitoring
             </button>
             <button
               onClick={() => setSelectedView('security')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'security'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Shield className="w-5 h-5" />
+              <Shield className="w-4 h-4 shrink-0" />
               Security & Audit
             </button>
             <button
               onClick={() => setSelectedView('announcements')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'announcements'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Megaphone className="w-5 h-5" />
+              <Megaphone className="w-4 h-4 shrink-0" />
               Announcements
             </button>
             <button
               onClick={() => setSelectedView('orders')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'orders'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Package className="w-5 h-5" />
+              <Package className="w-4 h-4 shrink-0" />
               Order Management
             </button>
             <button
               onClick={() => setSelectedView('operations')}
-              className={`flex items-center gap-2 px-6 py-3 font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm shrink-0 ${
                 selectedView === 'operations'
                   ? 'text-purple-600 border-b-2 border-purple-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <Database className="w-5 h-5" />
+              <Database className="w-4 h-4 shrink-0" />
               Operations
             </button>
           </div>
@@ -1848,27 +1898,13 @@ const AdminDashboardRestructured: React.FC<AdminDashboardRestructuredProps> = me
 
             <div className="border-t border-gray-200" />
 
-            {/* Supplier Management */}
+            {/* Supplier & Procurement */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <span className="w-2 h-6 bg-pink-500 rounded-full inline-block" />
-                Supplier Management
+                Supplier & Procurement
               </h3>
               <SupplierCoordinatorView />
-            </div>
-
-            <div className="border-t border-gray-200" />
-
-            {/* Procurement Control */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <span className="w-2 h-6 bg-red-500 rounded-full inline-block" />
-                Procurement Control
-              </h3>
-              <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <Database className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">Procurement Control module coming soon.</p>
-              </div>
             </div>
           </motion.div>
         )}

@@ -283,7 +283,7 @@ const AdminOrderManagement: React.FC = () => {
 
       {/* Stats Row */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
           {[
             { label: 'Total Orders', value: stats.total, color: 'text-gray-900', bg: 'bg-white' },
             { label: 'Pending',      value: stats.pending,    color: 'text-orange-600', bg: 'bg-orange-50' },
@@ -291,18 +291,18 @@ const AdminOrderManagement: React.FC = () => {
             { label: 'Delivered',    value: stats.delivered,  color: 'text-green-600',  bg: 'bg-green-50' },
             { label: 'Cancelled',    value: stats.cancelled,  color: 'text-red-600',    bg: 'bg-red-50' },
           ].map(s => (
-            <div key={s.label} className={`${s.bg} rounded-lg p-4 border border-gray-100 shadow-sm`}>
+            <div key={s.label} className={`${s.bg} rounded-lg p-3 sm:p-4 border border-gray-100 shadow-sm`}>
               <p className="text-xs text-gray-500 mb-1">{s.label}</p>
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className={`text-xl sm:text-2xl font-bold ${s.color}`}>{s.value}</p>
             </div>
           ))}
         </div>
       )}
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex flex-wrap gap-3 flex-1">
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
+          <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -341,15 +341,15 @@ const AdminOrderManagement: React.FC = () => {
             </select>
             <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
+          <button
+            onClick={() => fetchOrders(true)}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 ml-auto"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
         </div>
-        <button
-          onClick={() => fetchOrders(true)}
-          disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
       </div>
 
       {/* Orders Table */}

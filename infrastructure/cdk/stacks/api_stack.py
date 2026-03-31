@@ -1297,6 +1297,121 @@ class AquaChainApiStack(Stack):
                 )]
             )
 
+            # /api/suppliers - Supplier management (admin_service Lambda)
+            api_suppliers = api_root.node.try_find_child("suppliers") or api_root.add_resource("suppliers")
+            api_suppliers.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Credentials": True,
+                    }
+                )]
+            )
+            api_suppliers.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Credentials": True,
+                    }
+                )]
+            )
+
+            # /api/suppliers/{supplierId}
+            api_supplier_item = api_suppliers.add_resource("{supplierId}")
+            api_supplier_item.add_method(
+                "PUT",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(status_code="200")]
+            )
+
+            # /api/suppliers/{supplierId}/performance
+            api_supplier_perf = api_supplier_item.add_resource("performance")
+            api_supplier_perf.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(status_code="200")]
+            )
+
+            # /api/suppliers/{supplierId}/contracts
+            api_supplier_contracts = api_supplier_item.add_resource("contracts")
+            api_supplier_contracts.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(status_code="200")]
+            )
+
+            # /api/inventory/reorder-alerts
+            api_inventory = api_root.node.try_find_child("inventory") or api_root.add_resource("inventory")
+            api_inventory_reorder = api_inventory.node.try_find_child("reorder-alerts") or api_inventory.add_resource("reorder-alerts")
+            api_inventory_reorder.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Credentials": True,
+                    }
+                )]
+            )
+
+            # /api/procurement/orders - Procurement service
+            api_procurement = api_root.node.try_find_child("procurement") or api_root.add_resource("procurement")
+            api_procurement_orders = api_procurement.node.try_find_child("orders") or api_procurement.add_resource("orders")
+            api_procurement_orders.add_method(
+                "GET",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(
+                    status_code="200",
+                    response_parameters={
+                        "method.response.header.Access-Control-Allow-Origin": True,
+                        "method.response.header.Access-Control-Allow-Headers": True,
+                        "method.response.header.Access-Control-Allow-Credentials": True,
+                    }
+                )]
+            )
+            api_procurement_orders.add_method(
+                "POST",
+                admin_integration,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[apigateway.MethodResponse(status_code="200")]
+            )
+
+            # /api/procurement/orders/{orderId}/approve + /reject
+            api_procurement_order_item = api_procurement_orders.add_resource("{orderId}")
+            for action in ["approve", "reject"]:
+                api_procurement_order_item.add_resource(action).add_method(
+                    "POST",
+                    admin_integration,
+                    authorizer=self.cognito_authorizer,
+                    authorization_type=apigateway.AuthorizationType.COGNITO,
+                    method_responses=[apigateway.MethodResponse(status_code="200")]
+                )
+
             # /api/admin/compliance - Compliance reporting
             admin_compliance_resource = api_admin.add_resource("compliance")
             admin_compliance_report_resource = admin_compliance_resource.add_resource("report")

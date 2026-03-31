@@ -624,9 +624,29 @@ def lambda_handler(event, context):
                 'error': 'Device ID is required',
                 'code': 'MISSING_DEVICE_ID'
             })
-        
+
+        # Ownership check — verify this device belongs to the requesting user
+        # Admins bypass this check
+        requesting_user_id = user_info.get('user_id', '')
+        requesting_groups = user_info.get('groups', [])
+        is_admin = 'administrators' in (requesting_groups if isinstance(requesting_groups, list) else [])
+
+        if not is_admin and requesting_user_id and requesting_user_id != 'unknown':
+            try:
+                devices_table = dynamodb.Table(os.environ.get('DEVICES_TABLE', 'AquaChain-Devices'))
+                device_item = devices_table.get_item(Key={'deviceId': device_id}).get('Item')
+                if device_item and device_item.get('userId') and device_item.get('userId') != requesting_user_id:
+                    logger.warning(f"User {requesting_user_id} attempted to access device {device_id} owned by {device_item.get('userId')}")
+                    return create_response(403, {
+                        'error': 'Access denied — this device does not belong to your account',
+                        'code': 'DEVICE_ACCESS_DENIED'
+                    })
+            except Exception as e:
+                logger.warning(f"Could not verify device ownership: {e}")
+                # Fail open only if DynamoDB is unavailable — log for audit
+
         logger.info(f"Processing request for device: {device_id}")
-        
+
         # Route based on path
         if path.endswith('/latest'):
             logger.info("Handling /latest endpoint")

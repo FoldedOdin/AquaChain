@@ -955,35 +955,55 @@ def lambda_handler(event, context):
     elif http_method == 'GET' and '/profile/' in path and '/profile/update' not in path:
         # Get user profile (for paths like /profile/{userId})
         # NOTE: Exclude /profile/update endpoint
-        user_id = path_params.get('userId')
-        profile = user_service.get_user_profile(user_id)
+        target_user_id = path_params.get('userId')
+
+        # Extract requesting user's ID from JWT — never trust the URL alone
+        request_ctx = event.get('requestContext', {})
+        authorizer = request_ctx.get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        requesting_user_id = claims.get('sub') or claims.get('cognito:username')
+        requesting_groups = claims.get('cognito:groups', '')
+        is_admin = 'administrators' in (requesting_groups if isinstance(requesting_groups, list) else requesting_groups.split(','))
+
+        # Consumers can only read their own profile; admins can read any
+        if not is_admin and requesting_user_id != target_user_id:
+            return create_response(403, {'error': 'Access denied', 'code': 'FORBIDDEN'})
+
+        profile = user_service.get_user_profile(target_user_id)
         
         if not profile:
-            raise ResourceNotFoundError('User not found', details={'user_id': user_id})
+            raise ResourceNotFoundError('User not found', details={'user_id': target_user_id})
         
-        # Log data access
         try:
             audit_logger.log_data_access(
-                user_id=event.get('userContext', {}).get('userId', user_id),
+                user_id=requesting_user_id or target_user_id,
                 resource_type='USER',
-                resource_id=user_id,
+                resource_id=target_user_id,
                 operation='GET',
                 request_context=request_context
             )
         except AttributeError:
-            pass  # log_data_access not implemented on AuditLogger
-        
+            pass
+
         return success_response(profile)
     
     elif http_method == 'PUT' and '/profile/' in path and 'verify-and-update' not in path and 'update' not in path:
         # Update user profile (for paths like /profile/{userId})
-        # NOTE: Exclude verify-and-update and update endpoints
-        user_id = path_params.get('userId')
-        
-        # Get current profile for audit log
-        current_profile = user_service.get_user_profile(user_id)
-        
-        updated_profile = user_service.update_user_profile(user_id, body)
+        target_user_id = path_params.get('userId')
+
+        # Ownership check — consumers can only update their own profile
+        request_ctx = event.get('requestContext', {})
+        authorizer = request_ctx.get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        requesting_user_id = claims.get('sub') or claims.get('cognito:username')
+        requesting_groups = claims.get('cognito:groups', '')
+        is_admin = 'administrators' in (requesting_groups if isinstance(requesting_groups, list) else requesting_groups.split(','))
+
+        if not is_admin and requesting_user_id != target_user_id:
+            return create_response(403, {'error': 'Access denied', 'code': 'FORBIDDEN'})
+
+        current_profile = user_service.get_user_profile(target_user_id)
+        updated_profile = user_service.update_user_profile(target_user_id, body)
         
         # TODO: Fix audit logging - log_data_modification method doesn't exist
         # Log data modification
