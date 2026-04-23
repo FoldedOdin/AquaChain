@@ -17,7 +17,7 @@
   "dependencies": {
     "express": "^4.21.2",
     "cors": "^2.8.5",
-    "uuid": "^9.0.1",
+    "uuid": "^14.0.0",
     "crypto": "^1.0.1",
     "razorpay": "^2.9.2",
     "joi": "^17.11.0",
