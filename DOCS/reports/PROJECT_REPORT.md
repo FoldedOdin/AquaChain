@@ -1,8 +1,8 @@
 # AquaChain Platform: Comprehensive Technical Report
 
 **Project Name:** AquaChain — Real-Time Water Quality Monitoring System
-**Report Date:** March 2026
-**Version:** 2.0
+**Report Date:** May 2026
+**Version:** 3.0
 **Status:** Production — Live & Operational
 **Document Type:** Academic / Professional Technical Report
 
@@ -12,16 +12,21 @@
 
 AquaChain is an enterprise-grade, cloud-native IoT platform for real-time water quality monitoring and analysis. The system integrates ESP32-based sensor devices, AWS serverless infrastructure, machine learning models, a multi-role React dashboard, and a complete consumer device ordering and technician dispatch system.
 
-This report reflects the platform as of March 2026 — fully deployed, actively used, and production-hardened through multiple incident resolution cycles.
+This report reflects the platform as of May 2026 — fully deployed, actively used, and significantly expanded beyond the initial IoT monitoring scope into a comprehensive enterprise supply chain and operations management platform.
 
 **Key Achievements:**
-- 60,000+ lines of production code across frontend, backend, and infrastructure
-- 30+ AWS Lambda microservices deployed and operational
+- 80,000+ lines of production code across frontend, backend, and infrastructure
+- 55+ AWS Lambda microservices deployed and operational
 - 99.74% ML model accuracy for water quality prediction
 - Complete consumer ordering flow (COD + Razorpay online payment)
 - Automated and manual technician assignment system
 - GDPR-compliant audit logging with 7-year retention
 - Sub-500ms API latency (p95) in production
+- Full supply chain management: supplier, warehouse, inventory, and procurement modules
+- 7-role RBAC system with dedicated dashboards per role
+- Maintenance mode with role-based access control
+- Step-up authentication for sensitive admin operations
+- MFA enforcement and strengthened WAF protection
 
 ---
 
@@ -33,14 +38,15 @@ This report reflects the platform as of March 2026 — fully deployed, actively 
 4. AWS Cloud Implementation
 5. Consumer Ordering System
 6. Technician Assignment System
-7. AI/ML Model
-8. Frontend & Dashboards
-9. Security & Compliance
-10. DevOps & Deployment
-11. Production Incidents & Resolutions
-12. Performance Metrics
-13. Database State
-14. Conclusion & Roadmap
+7. Supply Chain & Operations Management
+8. AI/ML Model
+9. Frontend & Dashboards
+10. Security & Compliance
+11. DevOps & Deployment
+12. Production Incidents & Resolutions
+13. Performance Metrics
+14. Database State
+15. Conclusion & Roadmap
 
 ---
 
@@ -66,12 +72,16 @@ AquaChain provides:
 |-----------|--------|
 | Real-time IoT data ingestion | ✅ Live |
 | ML-powered WQI prediction | ✅ Live |
-| Multi-role dashboards | ✅ Live |
+| Multi-role dashboards (7 roles) | ✅ Live |
 | Consumer device ordering (COD + Online) | ✅ Live |
 | Technician assignment (auto + manual) | ✅ Live |
 | GDPR compliance & audit logging | ✅ Live |
 | API latency < 500ms p95 | ✅ Met |
 | 99.95% uptime | ✅ Met |
+| Supply chain management (supplier/warehouse/inventory/procurement) | ✅ Live |
+| Maintenance mode with role-based access | ✅ Live |
+| Step-up authentication for sensitive operations | ✅ Live |
+| MFA enforcement + WAF hardening | ✅ Live |
 
 ---
 
@@ -178,9 +188,9 @@ AquaChain provides:
 
 ## 4. AWS Cloud Implementation
 
-### 4.1 Lambda Microservices (30+ deployed)
+### 4.1 Lambda Microservices (55+ deployed)
 
-**Core Services:**
+**Core IoT & Data Services:**
 
 | Service | Function | Table |
 |---------|----------|-------|
@@ -190,24 +200,80 @@ AquaChain provides:
 | `auth_service` | JWT, Cognito, reCAPTCHA | AquaChain-Users |
 | `user_management` | Profile CRUD, device association | AquaChain-Users |
 | `device_management` | Device CRUD, status | AquaChain-Devices |
+| `device_provisioning` | Device onboarding and provisioning | AquaChain-Devices |
+| `device_status_monitor` | Real-time device health monitoring | AquaChain-Devices |
+| `pluggable_device_service` | Extensible device management | AquaChain-Devices |
+| `iot_management` | IoT device lifecycle management | AquaChain-Devices |
 | `readings_query` | Time-series queries, pagination | AquaChain-Readings |
+| `readings_service` | Sensor reading aggregation | AquaChain-Readings |
 | `notification_service` | SMS, email, push dispatch | — |
-| `technician_service` | Service request lifecycle | AquaChain-ServiceRequests |
-| `technician_assignment` | ETA-based auto-assignment | AquaChain-Users |
+| `contact_service` | Contact management and communication | — |
+
+**Order & Payment Services:**
+
+| Service | Function | Table |
+|---------|----------|-------|
 | `orders` (router) | Order CRUD routing | aquachain-orders |
 | `update_order_status` | Status updates + technician assign | aquachain-orders |
 | `payment_service` | Razorpay + COD payment records | aquachain-table-payments-dev |
 | `enhanced_order_management` | Full order lifecycle | aquachain-table-orders-dev |
-| `admin_service` | Admin analytics, user management | Multiple |
+| `shipments` | Shipment tracking | aquachain-table-shipments-dev |
+
+**Technician & Field Services:**
+
+| Service | Function | Table |
+|---------|----------|-------|
+| `technician_service` | Service request lifecycle | AquaChain-ServiceRequests |
+| `technician_assignment` | ETA-based auto-assignment | AquaChain-Users |
+
+**Supply Chain Services (New):**
+
+| Service | Function | Table |
+|---------|----------|-------|
+| `supplier_management` | Supplier CRUD, performance scoring, contracts | aquachain-table-suppliers-dev |
+| `inventory_management` | Stock tracking, reorder points, low-stock alerts | aquachain-table-inventory-dev |
+| `warehouse_management` | Warehouse operations, location management, task assignment | aquachain-table-warehouse-tasks-dev |
+| `procurement_service` | Purchase order lifecycle, approval workflows | aquachain-table-purchase-orders-dev |
+| `automated_restocking` | Smart reorder engine with EOQ calculations | aquachain-table-reorder-alerts-dev |
+| `demand_forecasting` | ML-based demand prediction for inventory planning | — |
+| `budget_service` | Budget tracking and spend analytics | aquachain-table-budget-dev |
+| `issues_service` | Issue tracking and escalation | aquachain-table-issues-dev |
+| `workflow_service` | Generic workflow engine for multi-step approvals | aquachain-table-workflows-dev |
+
+**Admin, Security & Compliance Services:**
+
+| Service | Function | Table |
+|---------|----------|-------|
+| `admin_service` | Admin analytics, user management, supplier/procurement/warehouse routing | Multiple |
+| `rbac_service` | Role-based access control enforcement | — |
+| `jwt_middleware` | JWT validation and token handling | — |
 | `gdpr_service` | Data export, deletion, consent | AquaChain-GDPRRequests |
+| `audit_service` | Audit trail management | AquaChain-AuditLogs |
 | `audit_trail_processor` | Audit log archival | AquaChain-AuditLogs |
 | `ledger_service` | Immutable hash-chain ledger | AquaChain-Ledger |
+| `ledger_backup_service` | Backup of immutable audit ledger | AquaChain-Ledger |
+| `ledger_verification_service` | Verification of ledger integrity | AquaChain-Ledger |
 | `compliance_service` | Report generation | AquaChain-ComplianceReports |
-| `websocket` / `websocket_ordering` | Real-time push | WebSocketConnections |
-| `slo_calculator` | SLO/SLI tracking | — |
-| `backup` | Automated DynamoDB backups | — |
+| `security_audit_service` | Security event logging and analysis | aquachain-table-security-events-dev |
+| `dependency_scanner` | Dependency vulnerability scanning | — |
+| `pagerduty_integration` | On-call and incident management | — |
 
-### 4.2 DynamoDB Tables
+**ML & Infrastructure Services:**
+
+| Service | Function | Table |
+|---------|----------|-------|
+| `ml_training` | ML model training pipeline | — |
+| `training_job_service` | ML training job orchestration | aquachain-table-ml-training-jobs-dev |
+| `websocket` / `websocket_ordering` / `websocket_api` | Real-time push | WebSocketConnections |
+| `slo_calculator` | SLO/SLI tracking | — |
+| `monitoring` | System monitoring and metrics | — |
+| `backup` | Automated DynamoDB backups | — |
+| `disaster_recovery` | Disaster recovery procedures | — |
+| `status_simulator` | Device status simulation for testing | — |
+
+### 4.2 DynamoDB Tables (25+ active)
+
+**Core Tables:**
 
 | Table | Key | Purpose |
 |-------|-----|---------|
@@ -218,11 +284,36 @@ AquaChain provides:
 | AquaChain-ServiceRequests | requestId (PK) | Technician tasks |
 | AquaChain-Ledger | ledgerId (PK), sequenceNumber (SK) | Immutable audit trail |
 | AquaChain-AuditLogs | logId (PK), timestamp (SK) | All user actions |
+| AquaChain-SystemConfig | configKey (PK) | System configuration (incl. maintenance mode) |
+| AquaChain-ConfigHistory | configKey (PK), timestamp (SK) | Configuration change history |
+| AquaChain-AuthEvents | eventId (PK) | Authentication event tracking |
+
+**Ordering & Payment Tables:**
+
+| Table | Key | Purpose |
+|-------|-----|---------|
 | aquachain-orders | orderId (PK) | Consumer device orders |
 | aquachain-table-orders-dev | orderId (PK) | Enhanced ordering system |
 | aquachain-table-payments-dev | PK + SK | Payment records |
 | aquachain-table-technicians-dev | PK + SK | Technician profiles |
 | aquachain-table-websocket-connections-dev | PK + SK | Active WS sessions |
+
+**Supply Chain Tables (New):**
+
+| Table | Key | Purpose |
+|-------|-----|---------|
+| aquachain-table-suppliers-dev | supplierId (PK) | Supplier master data |
+| aquachain-table-supplier-performance-dev | supplierId (PK), period (SK) | Supplier KPIs and metrics |
+| aquachain-table-purchase-orders-dev | poId (PK) | Purchase order records |
+| aquachain-table-inventory-dev | itemId (PK) | Inventory items and stock levels |
+| aquachain-table-reorder-alerts-dev | itemId (PK) | Smart reorder suggestions |
+| aquachain-table-warehouse-locations-dev | locationId (PK) | Warehouse zone and location mapping |
+| aquachain-table-warehouse-tasks-dev | taskId (PK) | WMS task queue (pick/pack/dispatch/restock) |
+| aquachain-table-budget-dev | budgetId (PK) | Budget allocation and tracking |
+| aquachain-table-workflows-dev | workflowId (PK) | Generic workflow state machine |
+| aquachain-table-issues-dev | issueId (PK) | Issue tracking and escalation |
+| aquachain-table-security-events-dev | eventId (PK) | Security audit events |
+| aquachain-table-ml-training-jobs-dev | jobId (PK) | ML training job history |
 
 ### 4.3 API Gateway
 
@@ -244,6 +335,28 @@ GET    /api/technicians                   → admin/technician Lambda
 POST   /api/payments/create-razorpay-order → payment_service
 POST   /api/payments/verify-payment       → payment_service
 POST   /api/payments/create-cod-payment   → payment_service
+GET    /api/system/maintenance            → admin_service (public, no auth)
+GET    /api/system/thresholds             → admin_service (public)
+POST   /api/admin/stepup                  → admin_service (step-up auth)
+
+# Supply Chain Routes (New)
+GET    /api/suppliers                     → admin_service → supplier_management
+POST   /api/suppliers                     → admin_service → supplier_management
+GET    /api/suppliers/{supplierId}        → admin_service → supplier_management
+PUT    /api/suppliers/{supplierId}        → admin_service → supplier_management
+GET    /api/suppliers/{supplierId}/performance → admin_service → supplier_management
+GET    /api/inventory/reorder-alerts      → admin_service → inventory_management
+GET    /api/inventory/items               → admin_service → inventory_management
+POST   /api/inventory/items               → admin_service → inventory_management
+PUT    /api/inventory/items/{itemId}      → admin_service → inventory_management
+GET    /api/procurement/orders            → admin_service → procurement_service
+POST   /api/procurement/orders            → admin_service → procurement_service
+POST   /api/procurement/orders/{orderId}/approve → admin_service → procurement_service
+POST   /api/procurement/orders/{orderId}/reject  → admin_service → procurement_service
+GET    /api/warehouse/tasks               → admin_service → warehouse_management
+POST   /api/warehouse/tasks               → admin_service → warehouse_management
+PUT    /api/warehouse/tasks/{taskId}/status → admin_service → warehouse_management
+POST   /api/warehouse/tasks/{taskId}/exception → admin_service → warehouse_management
 ```
 
 ### 4.4 Frontend Hosting
@@ -377,9 +490,81 @@ Located in `lambda/technician_service/assignment_algorithm.py`:
 
 ---
 
-## 7. AI/ML Model
+## 7. Supply Chain & Operations Management
 
-### 7.1 Model Overview
+### 7.1 Overview
+
+AquaChain has expanded beyond IoT monitoring to include a full supply chain management system. Four new operational roles — SupplierCoordinator, WarehouseManager, InventoryManager, and ProcurementController — each have dedicated dashboards and backend services.
+
+### 7.2 Supplier Management
+
+The `supplier_management` Lambda and `SupplierCoordinatorView.tsx` provide:
+
+- Supplier directory with contact details, lead times, and product catalog
+- Performance analytics: on-time delivery rate, defect rate, average lead time, delays last month
+- Risk scoring (Low / Medium / High) with AI-generated recommendations
+- Smart reorder alerts with urgency levels (Critical / High / Medium / Low)
+- EOQ-based reorder quantity calculations with incoming stock awareness to prevent over-ordering
+- Purchase order creation and tracking from the supplier view
+
+### 7.3 Warehouse Management
+
+The `warehouse_management` Lambda and `WarehouseManagerView.tsx` provide:
+
+- Kanban pipeline board: Order Placed → Picking → Packing → Dispatch → Delivered
+- Task-based WMS with operator assignment (pick, pack, dispatch, restock task types)
+- Exception handling: shortage, damaged, wrong item, delay
+- Warehouse heatmap showing stock density by location (Zone A, B, C, Tool Room)
+- Barcode scanner for inventory lookup and slot suggestions
+- Completion time tracking and throughput metrics
+
+### 7.4 Inventory Management
+
+The `inventory_management` Lambda and `InventoryManagerView.tsx` provide:
+
+- Real-time stock level monitoring with reorder point thresholds
+- Automated reorder alerts surfaced to SupplierCoordinator
+- Daily usage tracking and safety stock calculations
+- Inventory forecasting via `demand_forecasting` Lambda (ML-based)
+- Automated restocking engine (`automated_restocking` Lambda) using EOQ formula
+
+### 7.5 Procurement Management
+
+The `procurement_service` Lambda provides:
+
+- Full purchase order lifecycle: Draft → Pending Approval → Approved → Ordered → Shipped → Received
+- Multi-step approval workflow via `workflow_service`
+- Budget controls via `budget_service` (allocation tracking, spend analytics)
+- PO rejection with reason tracking
+- Integration with supplier performance data for vendor selection
+
+### 7.6 Maintenance Mode
+
+`lambda/shared/maintenance_middleware.py` provides system-wide maintenance mode control:
+
+- Reads `maintenanceMode` config from `AquaChain-SystemConfig` DynamoDB table
+- 30-second in-memory cache to minimize DynamoDB reads
+- Blocks non-allowed roles with `503 Service Unavailable`
+- Admins remain unblocked during maintenance windows
+- Public `GET /api/system/maintenance` endpoint (no auth) for frontend polling
+- `invalidate_cache()` for immediate propagation of config changes
+
+```python
+# Config structure in AquaChain-SystemConfig
+{
+  "maintenanceMode": {
+    "enabled": true,
+    "message": "System under maintenance. Please try again later.",
+    "allowedRoles": ["admin", "administrator"]
+  }
+}
+```
+
+---
+
+## 8. AI/ML Model
+
+### 8.1 Model Overview
 
 - **Algorithm:** XGBoost classifier
 - **Task:** Water Quality Index (WQI) prediction + anomaly detection
@@ -442,9 +627,9 @@ Readings outside these ranges are rejected before storage:
 
 ---
 
-## 8. Frontend & Dashboards
+## 9. Frontend & Dashboards
 
-### 8.1 Application Structure
+### 9.1 Application Structure
 
 ```
 frontend/src/
@@ -456,6 +641,10 @@ frontend/src/
 │   └── History.tsx            # Historical readings
 ├── components/
 │   ├── Dashboard/             # All dashboard widgets
+│   │   └── Operations/        # Operations role dashboards (new)
+│   │       ├── SupplierCoordinatorView.tsx
+│   │       ├── WarehouseManagerView.tsx
+│   │       └── InventoryManagerView.tsx
 │   ├── Admin/                 # Admin-specific components
 │   ├── Technician/            # Technician components
 │   ├── Auth/                  # Login, register
@@ -473,7 +662,7 @@ frontend/src/
     └── dataService.ts         # Sensor data queries
 ```
 
-### 8.2 Role-Based Dashboards
+### 9.2 Role-Based Dashboards
 
 **Consumer Dashboard:**
 - Real-time pH, turbidity, TDS, temperature gauges
@@ -490,17 +679,47 @@ frontend/src/
 - Status update workflow (accept → en route → in progress → complete)
 - Photo upload for service documentation
 - Navigation integration
+- Shipment delivery notifications via WebSocket
+- Task exception handling (shortage, damaged, wrong item, delay)
 
 **Admin Dashboard:**
 - System-wide device fleet status
-- User management (create/edit/delete)
+- User management (create/edit/delete) with PII masking
 - Technician assignment modal
 - Order management with status control
 - Analytics and fleet metrics
 - Compliance report generation
 - Alert monitoring across all devices
+- Operations tab routing to role-specific views
+- Maintenance mode control
+- Step-up authentication for sensitive data reveal
 
-### 8.3 Key Components
+**SupplierCoordinator Dashboard (New):**
+- Supplier directory with performance analytics
+- On-time delivery rate, defect rate, lead time metrics
+- Risk scoring with AI-generated recommendations
+- Smart reorder alerts with urgency levels
+- Purchase order management with approval/rejection workflows
+- EOQ-based reorder quantity calculations
+
+**WarehouseManager Dashboard (New):**
+- Pipeline Kanban board (Order Placed → Picking → Packing → Dispatch → Delivered)
+- Task board with operator assignment and exception handling
+- Warehouse heatmap showing stock density by location
+- Barcode scanner for inventory lookup and slot suggestions
+- Completion time tracking and performance metrics
+
+**InventoryManager Dashboard (New):**
+- Inventory analytics and reporting
+- Stock level monitoring with reorder point thresholds
+- Inventory forecasting and demand planning
+
+**ProcurementController Dashboard (New):**
+- Purchase order overview and approval queue
+- Budget tracking and spend analytics
+- Vendor selection based on supplier performance data
+
+### 9.3 Key Components
 
 | Component | Purpose |
 |-----------|---------|
@@ -512,8 +731,14 @@ frontend/src/
 | `AlertDetailModal.tsx` | Alert details and acknowledgment |
 | `RecentAlertsSection.tsx` | Dashboard alert feed |
 | `PaymentMethodSelector.tsx` | COD / Online selection UI |
+| `SupplierCoordinatorView.tsx` | Supplier management and procurement (new) |
+| `WarehouseManagerView.tsx` | Warehouse operations and WMS tasks (new) |
+| `InventoryManagerView.tsx` | Inventory analytics and reorder management (new) |
+| `OperationsDashboard.tsx` | Operations hub routing to role-specific views (new) |
+| `ShipmentTracking.tsx` | Shipment status and delivery tracking (new) |
+| `PluggableDeviceManager.tsx` | Extensible device management UI (new) |
 
-### 8.4 Real-Time Updates
+### 9.4 Real-Time Updates
 
 - WebSocket connection to `nnznduptme.execute-api.ap-south-1.amazonaws.com`
 - Sensor readings pushed every 60 seconds
@@ -523,9 +748,9 @@ frontend/src/
 
 ---
 
-## 9. Security & Compliance
+## 10. Security & Compliance
 
-### 9.1 Authentication
+### 10.1 Authentication
 
 - **Provider:** AWS Cognito User Pools
 - **Sign-in:** Email + password, Google OAuth
@@ -533,22 +758,27 @@ frontend/src/
 - **Token:** JWT (RS256), 60-minute expiry, 30-day refresh
 - **Password policy:** 8+ chars, upper + lower + number + special
 
-### 9.2 Authorization
+### 10.2 Authorization
 
 - **Model:** Role-Based Access Control (RBAC)
-- **Roles:** consumer, technician, administrator
-- **Enforcement:** Cognito groups + Lambda-level claim checks
-- **Principle:** Least privilege — each role accesses only its own data
+- **Roles:** consumer, technician, administrator, supplier_coordinator, warehouse_manager, inventory_manager, procurement_controller (7 total)
+- **Enforcement:** Cognito groups + Lambda-level claim checks via `rbac_service` and `jwt_middleware`
+- **Role normalization:** Plural Cognito group names (e.g. `warehouse_managers`) normalized to singular for frontend consistency
+- **Principle:** Least privilege — each role accesses only its own data and endpoints
+- **Step-up auth:** `POST /api/admin/stepup` issues a short-lived token for sensitive admin operations (replaces X-Admin-Password anti-pattern)
 
-### 9.3 Data Security
+### 10.3 Data Security
 
 - **In transit:** TLS 1.2+ on all endpoints
 - **At rest:** AES-256 via AWS KMS
 - **Secrets:** AWS Secrets Manager (Razorpay keys, IoT credentials)
 - **IoT devices:** X.509 certificates, unique per device
-- **API:** WAF enabled on CloudFront
+- **API:** WAF enabled on CloudFront with strengthened rules
+- **MFA:** Enforced for all users (SMS / TOTP)
+- **PII masking:** Admin service masks email, phone, and last name in API responses; step-up token required to reveal full PII
+- **CORS:** Restricted to known origins via `AQUACHAIN_CORS_ORIGIN` env var
 
-### 9.4 GDPR Compliance
+### 10.4 GDPR Compliance
 
 | Right | Implementation | SLA |
 |-------|---------------|-----|
@@ -563,27 +793,82 @@ frontend/src/
 - Audit logs: 7 years (immutable)
 - User data: Until deletion + 30-day grace period
 
-### 9.5 Immutable Audit Ledger
+### 10.5 Immutable Audit Ledger
 
 All sensitive operations are written to an append-only ledger with SHA-256 hash chaining — each entry includes the hash of the previous entry, making tampering detectable.
 
 ---
 
-## 10. DevOps & Deployment
+## 11. DevOps & Deployment
 
-### 10.1 Infrastructure as Code
+### 11.1 Infrastructure as Code
 
-All AWS resources defined in AWS CDK (Python) under `infrastructure/cdk/stacks/`:
+All AWS resources defined in AWS CDK (Python) under `infrastructure/cdk/stacks/` (45+ stacks):
+
+**Core Stacks:**
 
 | Stack | Resources |
 |-------|-----------|
 | `core_stack.py` | DynamoDB tables, S3 buckets |
 | `api_stack.py` | API Gateway, Cognito, Lambda integrations |
-| `iot_stack.py` | IoT Core rules, certificates |
+| `iot_core_stack.py` | IoT Core rules, certificates |
 | `monitoring_stack.py` | CloudWatch dashboards, alarms |
 | `enhanced_consumer_ordering_stack.py` | Ordering Lambdas, payment tables |
+| `dashboard_overhaul_stack.py` | Cognito groups for new roles |
+| `auto_technician_assignment_stack.py` | Automated ETA-based assignment |
 
-### 10.2 CI/CD Pipeline (GitHub Actions)
+**Security & Compliance Stacks:**
+
+| Stack | Resources |
+|-------|-----------|
+| `security_stack.py` | WAF, KMS, security controls |
+| `iot_security_stack.py` | IoT device security and certificate management |
+| `iot_code_signing_stack.py` | Code signing for OTA firmware updates |
+| `gdpr_compliance_stack.py` | GDPR compliance controls |
+| `compliance_reporting_stack.py` | Compliance report generation |
+| `audit_logging_stack.py` | Immutable audit trail |
+| `ledger_security_stack.py` | Ledger integrity verification |
+| `data_classification_stack.py` | Data classification and handling |
+| `security_audit_stack.py` | Security event logging |
+| `dependency_scanner_stack.py` | Dependency vulnerability scanning |
+| `sbom_storage_stack.py` | Software Bill of Materials storage |
+
+**Observability & Performance Stacks:**
+
+| Stack | Resources |
+|-------|-----------|
+| `global_monitoring_dashboard_stack.py` | System-wide monitoring and alerting |
+| `production_monitoring_stack.py` | Production-specific monitoring |
+| `performance_dashboard_stack.py` | Performance metrics and SLO tracking |
+| `device_status_monitor_stack.py` | Real-time device health monitoring |
+| `api_throttling_stack.py` | API rate limiting and throttling |
+| `api_gateway_usage_plan.py` | API usage plans and quotas |
+
+**Infrastructure Stacks:**
+
+| Stack | Resources |
+|-------|-----------|
+| `vpc_stack.py` | VPC and networking |
+| `cache_stack.py` | ElastiCache Redis |
+| `cloudfront_stack.py` | CloudFront CDN |
+| `lambda_layers_stack.py` | Lambda layer management |
+| `lambda_performance_stack.py` | Lambda performance optimization |
+| `websocket_stack.py` | WebSocket API |
+| `websocket_multi_region_stack.py` | Multi-region WebSocket support |
+| `backup_stack.py` | Automated backup management |
+| `disaster_recovery_stack.py` | DR procedures and failover |
+| `deployment_pipeline_stack.py` | CI/CD pipeline |
+| `landing_page_stack.py` | Public landing page hosting |
+
+**ML Stacks:**
+
+| Stack | Resources |
+|-------|-----------|
+| `sagemaker_stack.py` | SageMaker training and inference |
+| `ml_model_registry_stack.py` | ML model versioning and deployment |
+| `training_data_validation_stack.py` | ML training data validation |
+
+### 11.2 CI/CD Pipeline (GitHub Actions)
 
 **On Pull Request:**
 - ESLint + Black + Flake8 linting
@@ -597,7 +882,7 @@ All AWS resources defined in AWS CDK (Python) under `infrastructure/cdk/stacks/`
 - Frontend build + S3 sync + CloudFront invalidation
 - Smoke tests
 
-### 10.3 Manual Deployment Commands
+### 11.3 Manual Deployment Commands
 
 ```bash
 # Deploy a Lambda function
@@ -624,7 +909,7 @@ aws lambda update-function-configuration \
   --region ap-south-1
 ```
 
-### 10.4 Branching Strategy
+### 11.4 Branching Strategy
 
 | Branch | Purpose |
 |--------|---------|
@@ -634,7 +919,7 @@ aws lambda update-function-configuration \
 | `bugfix/*` | Bug fixes |
 | `hotfix/*` | Emergency production fixes |
 
-### 10.5 AWS Resource Naming
+### 11.5 AWS Resource Naming
 
 Pattern: `AquaChain-{Resource}-{Environment}`
 
@@ -646,9 +931,9 @@ Examples:
 
 ---
 
-## 11. Production Incidents & Resolutions (March 2026)
+## 12. Production Incidents & Resolutions (March–May 2026)
 
-### 11.1 Incident: Technician Assignment — HTTP 502
+### 12.1 Incident: Technician Assignment — HTTP 502
 
 **Root Cause:** `update_order_status.py` had an `except dynamodb.meta.client.exceptions.ValidationException` clause. `ValidationException` does not exist on the DynamoDB boto3 client — Python raises `AttributeError` when evaluating the except clause, crashing the Lambda before any response is returned. API Gateway emits 502 on Lambda crash.
 
@@ -656,19 +941,19 @@ Examples:
 
 **Secondary Issue:** `ORDERS_TABLE` env var pointed to wrong table (`aquachain-table-orders-dev` instead of `aquachain-orders`). Corrected via `aws lambda update-function-configuration`.
 
-### 11.2 Incident: COD Orders — Silent Failure
+### 12.2 Incident: COD Orders — Silent Failure
 
 **Root Cause:** `handleCODConfirm` (async) was called from inside `CODConfirmationTimer`'s `setTimeout` callback. When `createOrder` threw, the re-throw became an unhandled promise rejection inside the timer — silently swallowed by the JS runtime. No error was shown, flow just stopped.
 
 **Resolution:** Removed re-throw from catch block. All errors handled locally — navigate back to `payment-method` step where `state.error` is displayed.
 
-### 11.3 Incident: Online Payment — No Success Screen
+### 12.3 Incident: Online Payment — No Success Screen
 
 **Root Cause:** `RazorpayCheckout` already verifies payment before calling `onSuccess`. `OrderingFlow.handlePaymentSuccess` then called `verifyPayment` a second time — which failed because the payment was already `COMPLETED` in DynamoDB. The error sent the user back to the payment screen instead of the success screen.
 
 **Resolution:** Removed duplicate verification from `handlePaymentSuccess`. Trusted `RazorpayCheckout`'s verification.
 
-### 11.4 Incident: Technician Assignment — HTTP 500 on New Orders
+### 12.4 Incident: Technician Assignment — HTTP 500 on New Orders
 
 **Root Cause:** `technicianRating` in the metadata payload (e.g. `4.5`) is parsed by Python's `json.loads` as a native `float`. boto3's DynamoDB resource client rejects `float` — only `Decimal` is accepted. The metadata was written directly to DynamoDB without type conversion.
 
@@ -685,7 +970,7 @@ def sanitize_for_dynamodb(obj):
     return obj
 ```
 
-### 11.5 Incident: Enhanced Order Management — Import Error (502)
+### 12.5 Incident: Enhanced Order Management — Import Error (502)
 
 **Root Cause:** Manual deploy script (`deploy_enhanced_order_management.bat`) only zipped the handler file without the `shared/` directory. Lambda crashed at cold start with `ModuleNotFoundError`. Additionally, the handler path in CDK is `orders/enhanced_order_management.lambda_handler` — the file must be at `orders/` prefix inside the zip.
 
@@ -694,11 +979,23 @@ def sanitize_for_dynamodb(obj):
 - Rewrote `deploy-with-shared.bat` using a separate `create_zip.py` script
 - Zip now places handler at `orders/enhanced_order_management.py` and shared modules at `shared/*.py`
 
+### 12.6 Incident: Hardcoded API ID and Admin User ID in Source (Security)
+
+**Root Cause:** The REST API Gateway ID and an admin `user_id` were hardcoded directly in source files committed to the repository. This exposed infrastructure identifiers and a privileged user ID in git history.
+
+**Resolution:** Removed hardcoded values from source. Moved to environment variables. Commit `f90a225` applied the fix.
+
+### 12.7 Incident: Presigned URL Expiry on Installation Photos
+
+**Root Cause:** Installation photo presigned URLs were cached after first generation. S3 presigned URLs expire (default 1 hour), causing broken image links on subsequent fetches.
+
+**Resolution:** Presigned URLs are now regenerated on every fetch rather than cached. Commit `5dd87b3` applied the fix.
+
 ---
 
-## 12. Performance Metrics
+## 13. Performance Metrics
 
-### 12.1 API Performance (Production)
+### 13.1 API Performance (Production)
 
 | Metric | Target | Actual |
 |--------|--------|--------|
@@ -708,7 +1005,7 @@ def sanitize_for_dynamodb(obj):
 | Error rate | < 1% | < 0.1% |
 | Uptime | 99.95% | 99.95%+ |
 
-### 12.2 IoT Pipeline
+### 13.2 IoT Pipeline
 
 | Metric | Value |
 |--------|-------|
@@ -717,7 +1014,7 @@ def sanitize_for_dynamodb(obj):
 | End-to-end (sensor → dashboard) | < 5 seconds |
 | ML inference latency | < 100ms |
 
-### 12.3 Frontend
+### 13.3 Frontend
 
 | Metric | Value |
 |--------|-------|
@@ -728,9 +1025,9 @@ def sanitize_for_dynamodb(obj):
 
 ---
 
-## 13. Database State (March 2026)
+## 14. Database State (May 2026)
 
-### 13.1 AquaChain-Users (5 active users)
+### 14.1 AquaChain-Users (5 active users)
 
 | Role | Count |
 |------|-------|
@@ -738,11 +1035,11 @@ def sanitize_for_dynamodb(obj):
 | Consumer | 2 |
 | Technician | 2 |
 
-### 13.2 aquachain-table-technicians-dev (4 profiles)
+### 14.2 aquachain-table-technicians-dev (4 profiles)
 
 Active technician profiles with location, skills, availability, and rating data.
 
-### 13.3 Data Cleanup Performed
+### 14.3 Data Cleanup Performed
 
 - Removed 7 orphaned `user-XXXXXXXXX` ghost records (no email/role)
 - Removed 4 old-schema technician duplicates (PK/SK format without userId)
@@ -750,21 +1047,30 @@ Active technician profiles with location, skills, availability, and rating data.
 
 ---
 
-## 14. Conclusion & Roadmap
+## 15. Conclusion & Roadmap
 
-### 14.1 What's Working in Production
+### 15.1 What's Working in Production
 
 - ✅ Real-time sensor data ingestion and WQI calculation
 - ✅ ML-powered anomaly detection and alerting
 - ✅ Consumer device ordering (COD + Razorpay online)
 - ✅ Manual technician assignment via admin dashboard
 - ✅ Automated ETA-based technician assignment
-- ✅ Multi-role dashboards (consumer, technician, admin)
+- ✅ Multi-role dashboards (7 roles: consumer, technician, admin, supplier_coordinator, warehouse_manager, inventory_manager, procurement_controller)
 - ✅ GDPR-compliant audit logging
 - ✅ WebSocket real-time updates
 - ✅ CloudFront-hosted React PWA
+- ✅ Supply chain management (supplier, warehouse, inventory, procurement)
+- ✅ Maintenance mode with role-based access control
+- ✅ Step-up authentication for sensitive admin operations
+- ✅ MFA enforcement and strengthened WAF protection
+- ✅ PII masking in admin API responses
+- ✅ Shipment tracking system
+- ✅ Pluggable device management
+- ✅ SageMaker ML training pipeline
+- ✅ Dependency vulnerability scanning (SBOM)
 
-### 14.2 Roadmap
+### 15.2 Roadmap
 
 | Feature | Priority | Status |
 |---------|----------|--------|
@@ -774,9 +1080,11 @@ Active technician profiles with location, skills, availability, and rating data.
 | Predictive maintenance ML | Medium | Planned |
 | Automated valve control | Low | Out of scope v1 |
 | Third-party integrations (Alexa, IFTTT) | Low | Out of scope v1 |
-| Multi-region deployment | Medium | Architecture ready |
+| Multi-region deployment | Medium | Architecture ready (websocket_multi_region_stack deployed) |
+| Demand forecasting dashboard | Medium | Lambda deployed, UI pending |
+| Automated procurement approvals | Medium | Workflow service deployed, UI pending |
 
-### 14.3 Lessons Learned
+### 15.3 Lessons Learned
 
 1. **Python `except` clauses are evaluated at runtime** — referencing a non-existent boto3 exception attribute crashes the Lambda silently from API Gateway's perspective (502).
 2. **React state is asynchronous** — never read `state.X` immediately after dispatching. Return values from async functions instead.
@@ -784,6 +1092,10 @@ Active technician profiles with location, skills, availability, and rating data.
 4. **Manual deploy scripts must mirror CDK zip structure** — handler path in CDK dictates the zip layout.
 5. **Always verify which Lambda an API Gateway route actually invokes** — `aws apigateway get-integration` is the ground truth.
 6. **Async functions called from `setTimeout` need their own error handling** — unhandled rejections in timer callbacks are silently swallowed.
+7. **Hardcoded API IDs and user IDs in source code are a security risk** — use environment variables and remove from git history.
+8. **Presigned URLs for S3 objects expire** — regenerate on every fetch rather than caching the URL.
+9. **CORS origin must be restricted** — wildcard `*` is acceptable only in development; production must specify exact origins.
+10. **Role normalization is required** — Cognito group names (plural) must be normalized to singular before frontend routing decisions.
 
 ---
 
@@ -797,10 +1109,24 @@ Active technician profiles with location, skills, availability, and rating data.
 | `aquachain-function-order-management-dev` | PAYMENTS_TABLE_NAME | aquachain-table-payments-dev |
 | `aquachain-function-order-management-dev` | ORDERING_EVENT_BUS_NAME | aquachain-event-bus-ordering-dev |
 | `aquachain-function-order-management-dev` | WEBSOCKET_ENDPOINT | https://nnznduptme.execute-api.ap-south-1.amazonaws.com/dev |
+| `admin_service` | CONFIG_TABLE | AquaChain-SystemConfig |
+| `admin_service` | CONFIG_HISTORY_TABLE | AquaChain-ConfigHistory |
+| `admin_service` | AUTH_EVENTS_TABLE | AquaChain-AuthEvents |
+| `admin_service` | SES_FROM_EMAIL | contact.aquachain@gmail.com |
+| `maintenance_middleware` (shared) | CONFIG_TABLE | AquaChain-SystemConfig |
 
 ## Appendix B — Git History (Recent)
 
 ```
+f10f3cd chore: add CORS fix script to deployment utilities
+5dd87b3 fix: regenerate presigned URLs for installation photos on every fetch
+a2094ad feat(security): enforce MFA, strengthen password policy, and enhance WAF protection
+f90a225 fix(security): remove hardcoded API ID and admin user_id from source
+4989f74 chore: commit pre-existing working tree changes
+0446e06 feat: RBAC order management, live inventory on AWS, admin operations tab
+425dc84 feat: implement RecentAlertsSection and AlertDetailModal for interactive alert management
+459496f fix: alert thresholds, reading history, export report, and public thresholds API
+736f17f docs: update PROJECT_REPORT.md to v2.0 reflecting March 2026 production state
 470251a docs(devops): add incident resolution report for March 25-27 2026
 5c4c5d9 fix: technician assignment, COD/online ordering, and DynamoDB serialization
 6a7e7bc fix: device management, online status detection, and pending tasks doc

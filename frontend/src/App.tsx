@@ -9,6 +9,9 @@ import { DashboardProvider } from './contexts/DashboardContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import performanceMonitor from './services/performanceMonitor';
 import GoogleCallbackHandler from './components/Auth/GoogleCallbackHandler';
+import MaintenanceScreen from './components/MaintenanceScreen';
+import { useAuth } from './contexts/AuthContext';
+import { useMaintenanceMode } from './hooks/useMaintenanceMode';
 import './App.css';
 
 // ✅ Lazy load dashboard components for code splitting
@@ -26,6 +29,17 @@ const DashboardLoadingFallback = () => (
     </div>
   </div>
 );
+
+/**
+ * Checks maintenance mode and blocks non-allowed roles.
+ * Must be rendered inside AuthProvider so useAuth() works.
+ */
+const MaintenanceGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const { isBlocked, message } = useMaintenanceMode(user?.role);
+  if (isBlocked) return <MaintenanceScreen message={message} />;
+  return <>{children}</>;
+};
 
 function App() {
   // Initialize performance monitoring
@@ -59,6 +73,7 @@ function App() {
                 }}
               >
             <div className="App">
+              <MaintenanceGate>
               <Routes>
             <Route
               path="/"
@@ -230,6 +245,7 @@ function App() {
               }
             />
               </Routes>
+              </MaintenanceGate>
             </div>
               </Router>
             </DashboardProvider>

@@ -24,6 +24,7 @@ from service_request_manager import ServiceRequestManager
 
 # Import structured logging
 from structured_logger import get_logger
+import maintenance_middleware
 
 # Configure structured logging
 logger = get_logger(__name__, service='technician-service')
@@ -71,7 +72,12 @@ def lambda_handler(event, context):
         user_info = extract_user_from_token(event)
         
         logger.info(f"Processing {http_method} {resource} for user {user_info.get('userId')}")
-        
+
+        # Maintenance mode check — admins always pass through
+        block = maintenance_middleware.check_maintenance_mode(event, user_info.get('role', 'consumer'))
+        if block:
+            return block
+
         # Route to appropriate handler
         if resource == '/api/v1/service-requests' and http_method == 'GET':
             return list_service_requests(query_parameters, user_info)

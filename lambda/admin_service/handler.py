@@ -24,6 +24,7 @@ from config_validation import (
     DEFAULT_ML_SETTINGS
 )
 import health_monitor
+import maintenance_middleware
 
 # Configure logging
 logger = logging.getLogger()
@@ -122,10 +123,19 @@ def lambda_handler(event, context):
         
         # Allow /api/devices for all authenticated users (not just admins)
         if path.startswith('/api/devices') and not path.startswith('/api/admin'):
+            # Maintenance mode check for non-admin users
+            user_role = _extract_user_role_from_event(event)
+            block = maintenance_middleware.check_maintenance_mode(event, user_role)
+            if block:
+                return block
             return _handle_user_device_management(event, http_method, path, query_params)
         
         # Allow /api/profile for all authenticated users (not just admins)
         if path.startswith('/api/profile'):
+            user_role = _extract_user_role_from_event(event)
+            block = maintenance_middleware.check_maintenance_mode(event, user_role)
+            if block:
+                return block
             return _handle_profile_management(event, http_method, path, body)
         
         # Allow login tracking for all authenticated users (not just admins)
@@ -139,7 +149,11 @@ def lambda_handler(event, context):
         # Allow fetching alert thresholds for any authenticated user (consumer dashboard needs this)
         if path == '/api/system/thresholds' and http_method == 'GET':
             return _get_public_thresholds()
-        
+
+        # Public maintenance status endpoint — no auth required (frontend polls this)
+        if path == '/api/system/maintenance' and http_method == 'GET':
+            return _create_response(200, maintenance_middleware.get_maintenance_status())
+
         # Verify admin authorization for admin endpoints
         is_admin, debug_info = _verify_admin_access(event)
         if not is_admin:
@@ -327,6 +341,31 @@ def _verify_admin_access(event) -> tuple[bool, dict]:
     except Exception as e:
         logger.error(f"Admin access verification failed: {str(e)}", exc_info=True)
         return False, {'error': str(e), 'source': 'exception'}
+
+
+def _extract_user_role_from_event(event: Dict) -> str:
+    """
+    Extract the user's role from the JWT in the Authorization header.
+    Used by maintenance_middleware for non-admin authenticated paths.
+    Returns 'consumer' as a safe default if role cannot be determined.
+    """
+    try:
+        headers = event.get('headers', {})
+        auth_header = headers.get('Authorization') or headers.get('authorization', '')
+        parts = auth_header.split(' ')
+        if len(parts) != 2:
+            return 'consumer'
+        claims = _decode_jwt_payload(parts[1])
+        groups = claims.get('cognito:groups', '')
+        if isinstance(groups, str):
+            groups = groups.split(',') if groups else []
+        if 'administrators' in groups:
+            return 'admin'
+        if 'technicians' in groups:
+            return 'technician'
+        return 'consumer'
+    except Exception:
+        return 'consumer'
 
 def _handle_user_management(method: str, path: str, body: Dict, query_params: Dict, path_params: Dict, event: Dict = None):
     """
@@ -890,6 +929,9 @@ def _update_system_configuration(config: Dict, query_params: Dict):
         
         config_table.put_item(Item=config_for_db)
         
+        # Invalidate maintenance mode cache so changes take effect immediately
+        maintenance_middleware.invalidate_cache()
+
         # Log audit entry
         _log_config_change(
             admin_id=admin_id,
