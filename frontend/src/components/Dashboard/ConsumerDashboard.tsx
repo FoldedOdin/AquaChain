@@ -68,7 +68,7 @@ interface ConsumerDashboardProps {
  */
 const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
   const navigate = useNavigate();
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout, refreshUser, getAuthToken } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [showFullReport, setShowFullReport] = useState(false);
   const [showReportIssue, setShowReportIssue] = useState(false);
@@ -577,8 +577,11 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
         deviceId: issueType === 'iot' ? selectedDevice : null
       };
 
-      // Call API to submit issue
-      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+      // Call API to submit issue — use getAuthToken() so expired tokens are refreshed automatically
+      const token = await getAuthToken();
+      if (!token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
       const response = await fetch(`${process.env.REACT_APP_API_ENDPOINT || 'https://vtqjfznspc.execute-api.ap-south-1.amazonaws.com/dev'}/api/issues`, {
         method: 'POST',
         headers: {
@@ -589,6 +592,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('Session expired. Please log in again.');
+        }
         throw new Error('Failed to submit issue');
       }
 
@@ -609,7 +615,7 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
     } finally {
       setIsSubmittingIssue(false);
     }
-  }, [issueType, issueTitle, issueDescription, issuePriority, selectedDevice, user, toggleReportIssue]);
+  }, [issueType, issueTitle, issueDescription, issuePriority, selectedDevice, user, toggleReportIssue, getAuthToken]);
 
   const handleManualRefresh = useCallback(async () => {
     setIsRefreshing(true);

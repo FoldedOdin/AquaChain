@@ -41,7 +41,7 @@ class ReadingsQueryService:
     def __init__(self, region: str = 'us-east-1'):
         self.region = region
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
-        self.readings_table = self.dynamodb.Table('aquachain-readings')
+        self.readings_table = self.dynamodb.Table(os.environ.get('READINGS_TABLE', 'AquaChain-Readings'))
         self.cache = get_cache_service()
     
     def query_by_metric_type(self, device_id: str, metric_type: str,

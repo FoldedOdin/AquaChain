@@ -3,6 +3,7 @@ import { Amplify } from 'aws-amplify';
 import { signOut } from 'aws-amplify/auth';
 import { fetchAuthSession } from '@aws-amplify/core';
 import { UserProfile } from '../types';
+import { dataService } from '../services/dataService';
 
 // Clear any cached AWS credentials from previous sessions
 // This prevents Amplify from trying to use Identity Pool
@@ -884,6 +885,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     requireMFA,
     verifyMFA
   };
+
+  // Wire getAuthToken into dataService so makeRequest can auto-refresh expired tokens
+  // This runs on every render but setTokenRefresher is a no-op if the reference hasn't changed
+  dataService.setTokenRefresher(getAuthToken);
 
   return (
     <AuthContext.Provider value={value}>

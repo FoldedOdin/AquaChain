@@ -1707,7 +1707,22 @@ class AquaChainApiStack(Stack):
         
         # /api/issues - Issue reporting endpoint
         if "issues_service" in self.lambda_functions:
-            issues_resource = api_root.add_resource("issues")
+            issues_resource = api_root.add_resource(
+                "issues",
+                default_cors_preflight_options=apigateway.CorsOptions(
+                    allow_origins=apigateway.Cors.ALL_ORIGINS,
+                    allow_methods=["GET", "POST", "OPTIONS"],
+                    allow_headers=[
+                        "Content-Type",
+                        "Authorization",
+                        "X-Amz-Date",
+                        "X-Api-Key",
+                        "X-Amz-Security-Token",
+                        "X-Requested-With"
+                    ],
+                    allow_credentials=False
+                )
+            )
             
             issues_integration = apigateway.LambdaIntegration(
                 self.lambda_functions["issues_service"],

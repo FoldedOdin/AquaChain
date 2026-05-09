@@ -21,6 +21,8 @@ interface ApiResponse<T> {
 
 class DataService {
   private authToken: string | null = null;
+  // Injected by AuthProvider so makeRequest can refresh expired tokens automatically
+  private tokenRefresher: (() => Promise<string | null>) | null = null;
 
   constructor() {
     // Get auth token from localStorage or auth context
@@ -28,9 +30,14 @@ class DataService {
     this.authToken = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
   }
 
+  /** Called once by AuthProvider after mount to wire up token refresh */
+  setTokenRefresher(refresher: () => Promise<string | null>): void {
+    this.tokenRefresher = refresher;
+  }
   private async makeRequest<T>(
     endpoint: string, 
-    options: RequestInit = {}
+    options: RequestInit = {},
+    isRetry = false
   ): Promise<T | null> {
     try {
       // Get fresh token on each request (in case user logged in after service was created)
@@ -85,6 +92,15 @@ class DataService {
         
         // Provide helpful error messages for common issues
         if (response.status === 401) {
+          // If we have a token refresher and haven't retried yet, refresh and retry once
+          if (!isRetry && this.tokenRefresher && !isDevelopmentToken) {
+            console.log('🔄 [makeRequest] 401 received — attempting token refresh and retry...');
+            const newToken = await this.tokenRefresher();
+            if (newToken) {
+              console.log('✅ [makeRequest] Token refreshed, retrying request...');
+              return this.makeRequest<T>(endpoint, options, true);
+            }
+          }
           if (isDevelopmentToken) {
             errorMessage = 'Authentication failed: Development token cannot be used with production API';
           } else if (!token) {

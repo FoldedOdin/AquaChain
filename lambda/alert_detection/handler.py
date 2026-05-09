@@ -23,9 +23,9 @@ sns_client = boto3.client('sns')
 lambda_client = boto3.client('lambda')
 
 # Environment variables — never hardcoded
-ALERTS_TABLE = os.environ.get('ALERTS_TABLE', 'aquachain-alerts')
-USERS_TABLE = os.environ.get('USERS_TABLE', 'aquachain-users')
-DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'aquachain-devices')
+ALERTS_TABLE = os.environ.get('ALERTS_TABLE', 'AquaChain-Alerts')
+USERS_TABLE = os.environ.get('USERS_TABLE', 'AquaChain-Users')
+DEVICES_TABLE = os.environ.get('DEVICES_TABLE', 'AquaChain-Devices')
 CONFIG_TABLE = os.environ.get('CONFIG_TABLE', 'AquaChain-SystemConfig')
 CRITICAL_ALERTS_TOPIC = os.environ.get('CRITICAL_ALERTS_TOPIC_ARN', '')
 WARNING_ALERTS_TOPIC = os.environ.get('WARNING_ALERTS_TOPIC_ARN', '')

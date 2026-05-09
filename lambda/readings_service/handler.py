@@ -7,6 +7,7 @@ Handles device readings API endpoints
 import json
 import boto3
 import logging
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
@@ -17,7 +18,7 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
-readings_table = dynamodb.Table('AquaChain-Readings')
+readings_table = dynamodb.Table(os.environ.get('READINGS_TABLE', 'AquaChain-Readings'))
 
 def get_cognito_claims(event):
     """Safely extract Cognito claims from API Gateway event"""
