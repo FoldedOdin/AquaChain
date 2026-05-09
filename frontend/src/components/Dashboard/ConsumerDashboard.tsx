@@ -1306,13 +1306,6 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
               </h3>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setShowPluggableDevices(prev => !prev)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
-                >
-                  <DevicePhoneMobileIcon className="w-4 h-4" />
-                  {showPluggableDevices ? 'Hide' : 'Connect'} Devices
-                </button>
-                <button
                   onClick={toggleAddDevice}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
                 >
