@@ -1,4 +1,4 @@
 # Dependencies for websocket Lambda
 # PyJWT is bundled here since the common layer is not attached to this function
 PyJWT==2.8.0
-cryptography>=42.0.0,<44
+cryptography>=48.0.0,<49
