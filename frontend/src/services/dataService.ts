@@ -1,16 +1,20 @@
 /**
- * Real Data Service - Fetches data from actual backend/database
- * Production data service with real API calls
+ * Real Data Service — fetches data from the AquaChain backend API.
+ *
+ * Security: all console statements have been replaced with the structured
+ * logger (src/lib/logger.ts) which:
+ *   - Is a no-op in production for non-error messages
+ *   - Automatically redacts fields matching /token|secret|key|authorization/i
+ *
+ * WHY: The previous implementation called console.log with raw token substrings
+ * (e.g. `token.substring(0, 20)`), which are visible to anyone who opens
+ * DevTools. This violates OWASP A02 (Cryptographic Failures).
  */
 
+import logger from '../lib/logger';
 import { WaterQualityReading, Alert, DeviceStatus, ServiceRequest, User } from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:3001';
-const ENABLE_FALLBACK_MODE = process.env.NODE_ENV === 'development';
-
-// Debug logging for environment
-console.log('🔧 [DataService] API_BASE_URL =', API_BASE_URL);
-console.log('🔧 [DataService] Environment =', process.env.NODE_ENV);
 
 interface ApiResponse<T> {
   success: boolean;
@@ -21,159 +25,146 @@ interface ApiResponse<T> {
 
 class DataService {
   private authToken: string | null = null;
-  // Injected by AuthProvider so makeRequest can refresh expired tokens automatically
+  /** Injected by AuthProvider so makeRequest can refresh expired tokens automatically. */
   private tokenRefresher: (() => Promise<string | null>) | null = null;
 
   constructor() {
-    // Get auth token from localStorage or auth context
-    // Try both token keys for compatibility
-    this.authToken = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+    this.authToken =
+      localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
   }
 
-  /** Called once by AuthProvider after mount to wire up token refresh */
   setTokenRefresher(refresher: () => Promise<string | null>): void {
     this.tokenRefresher = refresher;
   }
+
   private async makeRequest<T>(
-    endpoint: string, 
+    endpoint: string,
     options: RequestInit = {},
     isRetry = false
   ): Promise<T | null> {
     try {
-      // Get fresh token on each request (in case user logged in after service was created)
-      const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-      
+      const token =
+        localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
+
       const url = `${API_BASE_URL}${endpoint}`;
-      console.log(`🌐 [makeRequest] Calling: ${url}`);
-      console.log(`🔑 [makeRequest] Auth token: ${token ? 'Present (' + token.substring(0, 20) + '...)' : 'Missing'}`);
-      
-      // Check if we're using a development token with production API
-      const isDevelopmentToken = token && token.startsWith('dev-token-');
+      logger.debug('API request', { url, method: options.method ?? 'GET' });
+
+      const isDevelopmentToken = Boolean(token && token.startsWith('dev-token-'));
       const isProductionAPI = API_BASE_URL.includes('amazonaws.com');
-      
+
       if (isDevelopmentToken && isProductionAPI) {
-        console.warn('⚠️ [makeRequest] Development token detected with production API - requests will fail');
-        console.warn('⚠️ [makeRequest] Please use proper authentication or switch to mock data');
+        logger.warn('Development token used with production API — request blocked');
         return null;
       }
-      
+
       const response = await fetch(url, {
         ...options,
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : '',
+          Authorization: token ? `Bearer ${token}` : '',
           ...options.headers,
         },
       });
 
-      console.log(`📡 [makeRequest] Response status: ${response.status} ${response.statusText}`);
+      logger.debug('API response received', { status: response.status, url });
 
-      // Get response text first to handle both JSON and text responses
       const responseText = await response.text();
-      console.log(`📥 [makeRequest] Raw response text:`, responseText.substring(0, 200) + (responseText.length > 200 ? '...' : ''));
 
       if (!response.ok) {
-        // Try to parse error details from response
-        let errorData = null;
+        let errorData: Record<string, unknown> | null = null;
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        
+
         try {
           if (responseText) {
-            errorData = JSON.parse(responseText);
-            errorMessage = errorData?.error || errorData?.message || errorMessage;
+            errorData = JSON.parse(responseText) as Record<string, unknown>;
+            const msg = errorData?.error ?? errorData?.message;
+            if (typeof msg === 'string') errorMessage = msg;
           }
         } catch {
-          // If JSON parsing fails, use the text as error message
-          if (responseText) {
-            errorMessage = responseText;
-          }
+          if (responseText) errorMessage = responseText;
         }
-        
-        // Provide helpful error messages for common issues
+
         if (response.status === 401) {
-          // If we have a token refresher and haven't retried yet, refresh and retry once
           if (!isRetry && this.tokenRefresher && !isDevelopmentToken) {
-            console.log('🔄 [makeRequest] 401 received — attempting token refresh and retry...');
+            logger.info('401 received — attempting token refresh');
             const newToken = await this.tokenRefresher();
             if (newToken) {
-              console.log('✅ [makeRequest] Token refreshed, retrying request...');
+              logger.info('Token refreshed, retrying request');
               return this.makeRequest<T>(endpoint, options, true);
             }
           }
+
           if (isDevelopmentToken) {
-            errorMessage = 'Authentication failed: Development token cannot be used with production API';
+            errorMessage = 'Authentication failed: development token cannot be used with production API';
           } else if (!token) {
-            errorMessage = 'Authentication failed: No token found - please log in';
+            errorMessage = 'Authentication failed: no token found — please log in';
           } else {
-            errorMessage = 'Authentication failed: Invalid or expired token';
+            errorMessage = 'Authentication failed: invalid or expired token';
           }
         } else if (response.status === 403) {
-          errorMessage = 'Access forbidden: Insufficient permissions';
+          errorMessage = 'Access forbidden: insufficient permissions';
         } else if (response.status === 404) {
           errorMessage = `API endpoint not found: ${endpoint}`;
         } else if (response.status >= 500) {
-          errorMessage = 'Server error: Please try again later';
+          errorMessage = 'Server error: please try again later';
         }
-        
-        console.error(`❌ [makeRequest] API request failed: ${errorMessage}`);
-        if (errorData) {
-          console.error('📋 [makeRequest] Full error details:', errorData);
-        }
-        
-        // Create error object with status for better handling
-        const error = new Error(errorMessage) as any;
+
+        // Log error details but never log raw token or auth headers
+        logger.error('API request failed', { endpoint, status: response.status, errorMessage });
+
+        const error = new Error(errorMessage) as Error & {
+          status: number;
+          details: unknown;
+          endpoint: string;
+        };
         error.status = response.status;
         error.details = errorData;
         error.endpoint = endpoint;
         throw error;
       }
 
-      // Try to parse JSON response
-      let result: any = null;
+      let result: unknown = null;
       if (responseText) {
         try {
           result = JSON.parse(responseText);
         } catch (parseError) {
-          console.warn('⚠️ [makeRequest] Failed to parse JSON response, returning text:', parseError);
-          return responseText as any;
+          logger.warn('Failed to parse JSON response — returning raw text', { endpoint });
+          return responseText as unknown as T;
         }
       }
-      
-      console.log(`✅ [makeRequest] Parsed response:`, result);
-      
-      // Handle different response formats
+
       if (result && typeof result === 'object') {
-        // If response has success field, check it
-        if ('success' in result) {
-          if (result.success) {
-            console.log(`📦 [makeRequest] Returning result.data or full result:`, result.data || result);
-            // Return result.data if it exists, otherwise return the full result
-            // This handles both formats: {success: true, data: ...} and {success: true, reading: ...}
-            return result.data || result;
+        const r = result as Record<string, unknown>;
+        if ('success' in r) {
+          if (r.success) {
+            return (r.data ?? r) as T;
           } else {
-            const errorMsg = result.error || result.message || 'API request failed';
-            console.error(`❌ [makeRequest] API error: ${errorMsg}`);
+            const errorMsg =
+              typeof r.error === 'string'
+                ? r.error
+                : typeof r.message === 'string'
+                ? r.message
+                : 'API request failed';
+            logger.error('API returned success=false', { endpoint, errorMsg });
             throw new Error(errorMsg);
           }
-        } else {
-          // Direct data response
-          return result;
         }
-      } else {
-        // Non-object response (string, number, etc.)
-        return result;
+        return result as T;
       }
+
+      return result as T;
     } catch (error) {
-      // If it's already a structured error with status, re-throw it
-      if (error instanceof Error && (error as any).status) {
-        throw error;
-      }
-      
-      console.error('🚨 [makeRequest] Network/Request error:', error);
-      
-      // Create a proper error object
-      const networkError = new Error(`Network error: ${error instanceof Error ? error.message : 'Unable to connect to server'}`) as any;
+      if (error instanceof Error && (error as any).status) throw error;
+
+      logger.error('Network/request error', {
+        endpoint,
+        message: error instanceof Error ? error.message : String(error),
+      });
+
+      const networkError = new Error(
+        `Network error: ${error instanceof Error ? error.message : 'Unable to connect to server'}`
+      ) as Error & { status: number; originalError: unknown; endpoint: string };
       networkError.status = 0;
       networkError.originalError = error;
       networkError.endpoint = endpoint;
@@ -181,185 +172,138 @@ class DataService {
     }
   }
 
-  // Water Quality Data
-  async getWaterQualityData(timeRange: string = '24h'): Promise<WaterQualityReading[]> {
-    const data = await this.makeRequest<WaterQualityReading[]>(`/api/water-quality?range=${timeRange}`);
+  // ---------------------------------------------------------------------------
+  // Water Quality
+  // ---------------------------------------------------------------------------
+
+  async getWaterQualityData(timeRange = '24h'): Promise<WaterQualityReading[]> {
+    const data = await this.makeRequest<WaterQualityReading[]>(
+      `/api/water-quality?range=${timeRange}`
+    );
     return data || [];
   }
 
   async getLatestWaterQuality(): Promise<WaterQualityReading | null> {
-    const data = await this.makeRequest<WaterQualityReading>('/api/water-quality/latest');
-    return data;
+    return this.makeRequest<WaterQualityReading>('/api/water-quality/latest');
   }
 
+  // ---------------------------------------------------------------------------
   // Device Readings
-  async getDeviceReadings(deviceId: string, days: number = 7): Promise<any[]> {
-    console.log(`🔍 [dataService] Fetching readings for device ${deviceId}`);
-    const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/history?days=${days}`);
-    console.log('📦 [dataService] Readings received:', data);
-    return data?.readings || []; // Extract readings from response
+  // ---------------------------------------------------------------------------
+
+  async getDeviceReadings(deviceId: string, days = 7): Promise<any[]> {
+    logger.debug('Fetching device readings', { deviceId, days });
+    const data = await this.makeRequest<any>(
+      `/api/v1/readings/${deviceId}/history?days=${days}`
+    );
+    return data?.readings || [];
   }
 
-  async getHistoricalTrendData(deviceId: string, days: number = 7): Promise<{ date: string; wqi: number; }[]> {
-    console.log(`📈 [dataService] Fetching trend data for device ${deviceId}, ${days} days`);
+  async getHistoricalTrendData(
+    deviceId: string,
+    days = 7
+  ): Promise<{ date: string; wqi: number }[]> {
+    logger.debug('Fetching trend data', { deviceId, days });
     try {
       const readings = await this.getDeviceReadings(deviceId, days);
-      
-      if (!readings || readings.length === 0) {
-        console.log('📈 [dataService] No readings available for trend');
-        return [];
-      }
+      if (!readings || readings.length === 0) return [];
 
-      // Check if we have enough data for the requested period
       const oldestReading = new Date(readings[readings.length - 1]?.timestamp);
-      const requestedStartDate = new Date();
-      requestedStartDate.setDate(requestedStartDate.getDate() - days);
-      
-      const hasInsufficientData = oldestReading > requestedStartDate;
-      
-      if (hasInsufficientData) {
-        console.log(`📈 [dataService] Insufficient data: oldest reading is ${oldestReading.toISOString()}, requested start is ${requestedStartDate.toISOString()}`);
-        return []; // Return empty array to indicate insufficient data
-      }
+      const requestedStart = new Date();
+      requestedStart.setDate(requestedStart.getDate() - days);
+      if (oldestReading > requestedStart) return [];
 
-      // Group readings by date and calculate daily averages
       const dailyData = new Map<string, { wqiSum: number; count: number }>();
-      
-      readings.forEach(reading => {
+      readings.forEach((reading) => {
         if (reading.wqi && reading.wqi > 0) {
-          const date = new Date(reading.timestamp).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric' 
+          const date = new Date(reading.timestamp).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
           });
-          
-          if (!dailyData.has(date)) {
-            dailyData.set(date, { wqiSum: 0, count: 0 });
-          }
-          
-          const dayData = dailyData.get(date)!;
-          dayData.wqiSum += reading.wqi;
-          dayData.count += 1;
+          const existing = dailyData.get(date) ?? { wqiSum: 0, count: 0 };
+          existing.wqiSum += reading.wqi;
+          existing.count += 1;
+          dailyData.set(date, existing);
         }
       });
 
-      // Convert to chart format
-      const trendData = Array.from(dailyData.entries()).map(([date, data]) => ({
-        date,
-        wqi: Math.round(data.wqiSum / data.count)
-      }));
-
-      // Sort by date
-      trendData.sort((a, b) => {
-        const dateA = new Date(a.date + ', 2024');
-        const dateB = new Date(b.date + ', 2024');
-        return dateA.getTime() - dateB.getTime();
-      });
-
-      console.log(`📈 [dataService] Generated ${trendData.length} trend points`);
-      return trendData;
+      return Array.from(dailyData.entries())
+        .map(([date, d]) => ({ date, wqi: Math.round(d.wqiSum / d.count) }))
+        .sort((a, b) => new Date(a.date + ', 2024').getTime() - new Date(b.date + ', 2024').getTime());
     } catch (error) {
-      console.error('📈 [dataService] Error fetching trend data:', error);
+      logger.error('Error fetching trend data', {
+        deviceId,
+        message: error instanceof Error ? error.message : String(error),
+      });
       return [];
     }
   }
 
   async getLatestDeviceReading(deviceId: string): Promise<any | null> {
-    console.log(`🔍 [dataService] Fetching latest reading for device ${deviceId}`);
-    const data = await this.makeRequest<any>(`/api/v1/readings/${deviceId}/latest?_t=${Date.now()}`);
-    console.log('📦 [dataService] Latest reading RAW response:', JSON.stringify(data));
-    console.log('📦 [dataService] reading key:', data?.reading, 'pH direct:', data?.pH);
-    console.log('📦 [dataService] Latest reading response:', data);
-    
-    // Handle different response formats
+    logger.debug('Fetching latest device reading', { deviceId });
+    const data = await this.makeRequest<any>(
+      `/api/v1/readings/${deviceId}/latest?_t=${Date.now()}`
+    );
+
     if (data && typeof data === 'object') {
-      // If the response has a 'reading' field, extract it
-      if ('reading' in data) {
-        console.log('📊 [dataService] Extracting reading from response');
-        return data.reading;
-      }
-      // If the response has a 'data' field, extract it
-      else if ('data' in data) {
-        console.log('📊 [dataService] Extracting data from response');
-        return data.data;
-      }
-      // Otherwise return the data directly
-      else {
-        console.log('📊 [dataService] Returning data directly');
-        return data;
-      }
+      if ('reading' in data) return data.reading;
+      if ('data' in data) return data.data;
+      return data;
     }
-    
-    console.log('⚠️ [dataService] No valid reading data found');
     return null;
   }
 
+  // ---------------------------------------------------------------------------
   // Device Management
+  // ---------------------------------------------------------------------------
+
   async getDevices(): Promise<DeviceStatus[]> {
     try {
-      console.log('🔍 [dataService] Fetching devices from /api/devices');
       const data = await this.makeRequest<any>('/api/devices');
-      console.log('📦 [dataService] Devices received:', data);
-      // makeRequest returns result.data when success:true; handle both array and wrapped responses
-      const devices = Array.isArray(data) ? data : (data?.devices || data?.data || []);
-      console.log('📊 [dataService] Device count:', devices.length);
-      return devices;
+      return Array.isArray(data) ? data : (data?.devices ?? data?.data ?? []);
     } catch (error) {
-      console.error('Failed to fetch devices:', error);
+      logger.error('Failed to fetch devices', {
+        message: error instanceof Error ? error.message : String(error),
+      });
       return [];
     }
   }
 
   async getDeviceById(deviceId: string): Promise<DeviceStatus | null> {
     try {
-      const data = await this.makeRequest<DeviceStatus>(`/api/devices/${deviceId}`);
-      return data;
+      return this.makeRequest<DeviceStatus>(`/api/devices/${deviceId}`);
     } catch (error) {
-      console.error(`Failed to fetch device ${deviceId}:`, error);
+      logger.error('Failed to fetch device', {
+        deviceId,
+        message: error instanceof Error ? error.message : String(error),
+      });
       return null;
     }
   }
 
+  // ---------------------------------------------------------------------------
   // Alerts
-  async getAlerts(limit: number = 50): Promise<Alert[]> {
+  // ---------------------------------------------------------------------------
+
+  async getAlerts(limit = 50): Promise<Alert[]> {
     try {
-      // Use /alerts endpoint (not /api/alerts)
       const data = await this.makeRequest<Alert[]>(`/alerts?limit=${limit}`);
-      console.log('🔍 [getAlerts] Raw API response:', data);
-      console.log('🔍 [getAlerts] Response type:', typeof data);
-      console.log('🔍 [getAlerts] Is array:', Array.isArray(data));
-      
-      // Ensure we always return an array
-      if (Array.isArray(data)) {
-        console.log('✅ [getAlerts] Returning array with', data.length, 'items');
-        return data;
-      } else if (data && typeof data === 'object' && 'alerts' in data) {
-        console.log('🔧 [getAlerts] Extracting alerts from nested object');
-        const alerts = (data as any).alerts;
-        return Array.isArray(alerts) ? alerts : [];
-      } else if (data && typeof data === 'object' && 'data' in data) {
-        console.log('🔧 [getAlerts] Extracting data from nested object');
-        const nestedData = (data as any).data;
-        return Array.isArray(nestedData) ? nestedData : [];
-      } else {
-        console.warn('⚠️ [getAlerts] Unexpected response format, returning empty array');
-        return [];
+      if (Array.isArray(data)) return data;
+      if (data && typeof data === 'object') {
+        const d = data as Record<string, unknown>;
+        if (Array.isArray(d.alerts)) return d.alerts as Alert[];
+        if (Array.isArray(d.data)) return d.data as Alert[];
       }
+      logger.warn('Unexpected alerts response format');
+      return [];
     } catch (error) {
-      console.error('Failed to fetch alerts:', error);
-      
-      // Handle CORS errors specifically
-      if ((error as any)?.message?.includes('CORS') || (error as any)?.message?.includes('NetworkError')) {
-        console.warn('🚨 CORS error detected on alerts endpoint - this is a known issue');
-        console.warn('💡 The alerts endpoint needs CORS configuration in API Gateway');
-        console.warn('🔧 Run: python scripts/deployment/fix-cors-comprehensive.py');
-        
-        // Return empty array instead of crashing the app
-        return [];
-      }
-      
-      // Stop polling on auth errors
-      if ((error as any)?.status === 401) {
-        console.warn('🛑 [getAlerts] Authentication failed - stopping polling');
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('CORS') || msg.includes('NetworkError')) {
+        logger.warn('CORS error on alerts endpoint — returning empty array');
+      } else if ((error as any)?.status === 401) {
+        logger.warn('Authentication failed on alerts — stopping polling');
+      } else {
+        logger.error('Failed to fetch alerts', { message: msg });
       }
       return [];
     }
@@ -367,21 +311,14 @@ class DataService {
 
   async getCriticalAlerts(): Promise<Alert[]> {
     try {
-      // Use /alerts endpoint (not /api/alerts)
       const data = await this.makeRequest<Alert[]>('/alerts?severity=critical');
       return data || [];
     } catch (error) {
-      console.error('Failed to fetch critical alerts:', error);
-      
-      // Handle CORS errors specifically
-      if ((error as any)?.message?.includes('CORS') || (error as any)?.message?.includes('NetworkError')) {
-        console.warn('🚨 CORS error detected on critical alerts endpoint');
-        return [];
-      }
-      
-      // Stop polling on auth errors
-      if ((error as any)?.status === 401) {
-        console.warn('🛑 [getCriticalAlerts] Authentication failed - stopping polling');
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('CORS') || msg.includes('NetworkError')) {
+        logger.warn('CORS error on critical alerts — returning empty array');
+      } else {
+        logger.error('Failed to fetch critical alerts', { message: msg });
       }
       return [];
     }
@@ -392,12 +329,17 @@ class DataService {
       await this.makeRequest(`/api/alerts/${alertId}/acknowledge`, { method: 'PUT' });
       return true;
     } catch (error) {
-      console.error('Failed to acknowledge alert:', error);
+      logger.error('Failed to acknowledge alert', { alertId });
       return false;
     }
   }
 
-  async muteAlert(alertId: string, deviceId: string, parameter: string, minutes: number = 120): Promise<boolean> {
+  async muteAlert(
+    alertId: string,
+    deviceId: string,
+    parameter: string,
+    minutes = 120
+  ): Promise<boolean> {
     try {
       await this.makeRequest(`/api/alerts/${alertId}/mute`, {
         method: 'PUT',
@@ -405,37 +347,44 @@ class DataService {
       });
       return true;
     } catch (error) {
-      console.error('Failed to mute alert:', error);
+      logger.error('Failed to mute alert', { alertId, deviceId });
       return false;
     }
   }
 
+  // ---------------------------------------------------------------------------
   // Service Requests
+  // ---------------------------------------------------------------------------
+
   async getServiceRequests(): Promise<ServiceRequest[]> {
     const data = await this.makeRequest<ServiceRequest[]>('/api/v1/service-requests');
     return data || [];
   }
 
   async createServiceRequest(request: Partial<ServiceRequest>): Promise<ServiceRequest | null> {
-    const data = await this.makeRequest<ServiceRequest>('/api/v1/service-requests', {
+    return this.makeRequest<ServiceRequest>('/api/v1/service-requests', {
       method: 'POST',
       body: JSON.stringify(request),
     });
-    return data;
   }
 
+  // ---------------------------------------------------------------------------
   // Users
+  // ---------------------------------------------------------------------------
+
   async getUsers(): Promise<User[]> {
     const data = await this.makeRequest<User[]>('/api/v1/users');
     return data || [];
   }
 
   async getUserById(userId: string): Promise<User | null> {
-    const data = await this.makeRequest<User>(`/api/v1/users/${userId}`);
-    return data;
+    return this.makeRequest<User>(`/api/v1/users/${userId}`);
   }
 
+  // ---------------------------------------------------------------------------
   // Dashboard Statistics
+  // ---------------------------------------------------------------------------
+
   async getDashboardStats(): Promise<{
     totalDevices: number;
     activeDevices: number;
@@ -445,8 +394,6 @@ class DataService {
     pendingRequests: number;
   }> {
     const data = await this.makeRequest<any>('/api/dashboard/stats');
-    
-    // Return zeros if no data available
     return data || {
       totalDevices: 0,
       activeDevices: 0,
@@ -457,15 +404,20 @@ class DataService {
     };
   }
 
-  // Real-time data subscription
-  async subscribeToRealTimeUpdates(callback: (data: any) => void): Promise<WebSocket | null> {
+  // ---------------------------------------------------------------------------
+  // Real-time / WebSocket
+  // ---------------------------------------------------------------------------
+
+  async subscribeToRealTimeUpdates(
+    callback: (data: any) => void
+  ): Promise<WebSocket | null> {
     try {
       const wsUrl = process.env.REACT_APP_WEBSOCKET_ENDPOINT || 'ws://localhost:3001/ws';
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        console.log('Connected to real-time updates');
-        // Send authentication if needed
+        logger.info('WebSocket connected');
+        // WHY: we send only the token, not token substrings or debug info
         if (this.authToken) {
           ws.send(JSON.stringify({ type: 'auth', token: this.authToken }));
         }
@@ -473,29 +425,26 @@ class DataService {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          callback(data);
-        } catch (error) {
-          console.warn('Invalid WebSocket message:', error);
+          callback(JSON.parse(event.data));
+        } catch {
+          logger.warn('Received invalid WebSocket message');
         }
       };
 
-      ws.onerror = (error) => {
-        console.warn('WebSocket error:', error);
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket connection closed');
-      };
+      ws.onerror = () => logger.warn('WebSocket error');
+      ws.onclose = () => logger.info('WebSocket connection closed');
 
       return ws;
     } catch (error) {
-      console.warn('Failed to establish WebSocket connection:', error);
+      logger.warn('Failed to establish WebSocket connection');
       return null;
     }
   }
 
+  // ---------------------------------------------------------------------------
   // Health check
+  // ---------------------------------------------------------------------------
+
   async checkBackendHealth(): Promise<boolean> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/health`);
@@ -505,11 +454,13 @@ class DataService {
     }
   }
 
-  // Update auth token
+  // ---------------------------------------------------------------------------
+  // Token management
+  // ---------------------------------------------------------------------------
+
   setAuthToken(token: string | null): void {
     this.authToken = token;
     if (token) {
-      // Store in both keys for compatibility
       localStorage.setItem('aquachain_token', token);
       localStorage.setItem('authToken', token);
     } else {
@@ -519,6 +470,5 @@ class DataService {
   }
 }
 
-// Export singleton instance
 export const dataService = new DataService();
 export default dataService;

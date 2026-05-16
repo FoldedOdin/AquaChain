@@ -581,6 +581,11 @@ lambda/orders/response.json
 # IoT firmware config files with real credentials (use config.h.template instead)
 iot-firmware/**/config.h
 notif-key.json
+otp-key.json
+temp-user.json
+response4.json
+api-test.html
+check_readings.py
 
 # Lambda test payload/response artifacts
 lambda/auth-test-payload.json
