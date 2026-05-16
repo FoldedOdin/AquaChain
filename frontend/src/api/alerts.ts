@@ -18,7 +18,7 @@ export const alertsApi = {
     );
     if (Array.isArray(data)) return data;
     if (data && typeof data === 'object') {
-      const d = data as Record<string, unknown>;
+      const d = data as unknown as Record<string, unknown>;
       if (Array.isArray(d.alerts)) return d.alerts as Alert[];
       if (Array.isArray(d.data)) return d.data as Alert[];
     }

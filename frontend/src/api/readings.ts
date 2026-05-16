@@ -45,7 +45,7 @@ export const readingsApi = {
       );
       // Unwrap envelope variants: { reading: ... } | { data: ... } | flat object
       if (data && typeof data === 'object') {
-        const d = data as Record<string, unknown>;
+        const d = data as unknown as Record<string, unknown>;
         if (d.reading) return d.reading as WaterQualityReading;
         if (d.data) return d.data as WaterQualityReading;
         return data as unknown as WaterQualityReading;
@@ -70,7 +70,7 @@ export const readingsApi = {
     );
     // Handle { readings: [...] } or direct array
     if (Array.isArray(data)) return data;
-    const d = data as Record<string, unknown>;
+    const d = data as unknown as Record<string, unknown>;
     return (Array.isArray(d.readings) ? d.readings : []) as WaterQualityReading[];
   },
 
