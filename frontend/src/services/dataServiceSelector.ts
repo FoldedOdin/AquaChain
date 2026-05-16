@@ -1,64 +1,41 @@
 /**
- * Data Service Selector
- * 
- * Automatically selects between real API and mock data based on:
- * 1. Environment variables
- * 2. Authentication status
- * 3. API connectivity
+ * Data Service Selector — Compatibility Shim
+ *
+ * This file previously contained a complex selector that duplicated the
+ * mock/real routing logic spread across 3+ files. It has been replaced
+ * by the `src/api/` domain modules (client.ts, readings.ts, alerts.ts,
+ * devices.ts, users.ts).
+ *
+ * This shim preserves the `unifiedDataService` export so existing
+ * components do NOT require a simultaneous refactor. Migrate components
+ * one-by-one to import directly from `src/api/` and delete this file
+ * once no imports remain.
+ *
+ * Mock data gate: controlled exclusively by the env var
+ * REACT_APP_USE_MOCK_DATA=true — the previous heuristic that
+ * auto-switched to mock data in dev was a source of confusion.
  */
 
+import logger from '../lib/logger';
+import { readingsApi } from '../api/readings';
+import { alertsApi } from '../api/alerts';
+import { devicesApi } from '../api/devices';
 import { dataService } from './dataService';
-import { MockDataService } from './mockDataService';
 
-// Check if we should use mock data
-const shouldUseMockData = () => {
-  // Force mock data if explicitly set
-  if (process.env.REACT_APP_USE_MOCK_DATA === 'true') {
-    return true;
-  }
-  
-  // Use mock data in development with localhost API
-  if (process.env.NODE_ENV === 'development' && 
-      process.env.REACT_APP_API_ENDPOINT?.includes('localhost')) {
-    return true;
-  }
-  
-  // Check authentication status
-  const token = localStorage.getItem('aquachain_token') || localStorage.getItem('authToken');
-  const isDevelopmentToken = token && token.startsWith('dev-token-');
-  const isProductionAPI = process.env.REACT_APP_API_ENDPOINT?.includes('amazonaws.com');
-  
-  // Dev token + production API: warn loudly but still try real API
-  // (mock data here causes stale/static values that never update)
-  if (isDevelopmentToken && isProductionAPI) {
-    console.warn('⚠️ Development token detected with production API — attempting real API anyway. If requests fail, log out and back in to get a real Cognito token.');
-    return false;
-  }
-  
-  // Use mock data if no token
-  if (!token) {
-    console.log('ℹ️ No token found - user needs to log in');
-    return false;
-  }
-  
-  return false;
-};
+const USE_MOCK = process.env.REACT_APP_USE_MOCK_DATA === 'true';
 
-// Create a unified service interface
 export const unifiedDataService = {
   async getDevices() {
-    if (shouldUseMockData()) {
-      console.log('📊 Using mock data for devices');
-      return MockDataService.getDevices();
+    if (USE_MOCK) {
+      logger.debug('Mock data: getDevices');
+      return [];
     }
-    console.log('📊 Using real API for devices');
-    return await dataService.getDevices();
+    return devicesApi.getAll();
   },
 
   async getLatestDeviceReading(deviceId: string) {
-    if (shouldUseMockData()) {
-      console.log('📊 Using mock data for device reading');
-      // Generate mock reading data
+    if (USE_MOCK) {
+      logger.debug('Mock data: getLatestDeviceReading', { deviceId });
       return {
         deviceId,
         timestamp: new Date().toISOString(),
@@ -68,55 +45,46 @@ export const unifiedDataService = {
         temperature: 22 + (Math.random() - 0.5) * 4,
       };
     }
-    console.log('📊 Using real API for device reading');
-    return await dataService.getLatestDeviceReading(deviceId);
+    return readingsApi.getLatest(deviceId);
   },
 
-  async getDeviceReadings(deviceId: string, days: number = 7) {
-    if (shouldUseMockData()) {
-      console.log('📊 Using mock data for device readings');
-      // Generate mock historical data
-      const readings = [];
-      for (let i = days - 1; i >= 0; i--) {
+  async getDeviceReadings(deviceId: string, days = 7) {
+    if (USE_MOCK) {
+      logger.debug('Mock data: getDeviceReadings', { deviceId, days });
+      return Array.from({ length: days }, (_, i) => {
         const date = new Date();
-        date.setDate(date.getDate() - i);
-        readings.push({
+        date.setDate(date.getDate() - (days - 1 - i));
+        return {
           deviceId,
           timestamp: date.toISOString(),
           pH: 7.2 + (Math.random() - 0.5) * 0.4,
           turbidity: 2.5 + (Math.random() - 0.5) * 1.0,
           tds: 450 + (Math.random() - 0.5) * 100,
           temperature: 22 + (Math.random() - 0.5) * 4,
-        });
-      }
-      return readings;
+        };
+      });
     }
-    console.log('📊 Using real API for device readings');
-    return await dataService.getDeviceReadings(deviceId, days);
+    return readingsApi.getHistory(deviceId, days);
   },
 
-  async getAlerts() {
-    if (shouldUseMockData()) {
-      console.log('📊 Using mock data for alerts');
-      return MockDataService.getAlerts();
+  async getAlerts(limit = 50) {
+    if (USE_MOCK) {
+      logger.debug('Mock data: getAlerts');
+      return [];
     }
-    console.log('📊 Using real API for alerts');
-    return await dataService.getAlerts();
+    return alertsApi.getAll(limit);
   },
 
   async getDeviceById(deviceId: string) {
-    if (shouldUseMockData()) {
-      console.log('📊 Using mock data for device by id');
-      const devices = await MockDataService.getDevices();
-      return devices.find((d: any) => d.deviceId === deviceId || d.device_id === deviceId) || null;
+    if (USE_MOCK) {
+      logger.debug('Mock data: getDeviceById', { deviceId });
+      return null;
     }
-    console.log('📊 Using real API for device by id');
-    return await dataService.getDeviceById(deviceId);
+    return devicesApi.getById(deviceId);
   },
 
   async getDashboardStats() {
-    if (shouldUseMockData()) {
-      console.log('📊 Using mock data for dashboard stats');
+    if (USE_MOCK) {
       return {
         totalDevices: 3,
         activeDevices: 2,
@@ -126,19 +94,15 @@ export const unifiedDataService = {
         pendingRequests: 0,
       };
     }
-    console.log('📊 Using real API for dashboard stats');
-    return await dataService.getDashboardStats();
+    return dataService.getDashboardStats();
   },
 
-  // Utility methods
-  isUsingMockData: shouldUseMockData,
-  
+  isUsingMockData: () => USE_MOCK,
+
   async checkBackendHealth() {
-    if (shouldUseMockData()) {
-      return true; // Mock data is always "healthy"
-    }
-    return await dataService.checkBackendHealth();
-  }
+    if (USE_MOCK) return true;
+    return dataService.checkBackendHealth();
+  },
 };
 
 export default unifiedDataService;
