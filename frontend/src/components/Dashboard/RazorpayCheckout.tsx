@@ -32,6 +32,7 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
 }) => {
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const [razorpayOrderId, setRazorpayOrderId] = useState<string | null>(null);
+  const [razorpayKey, setRazorpayKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -93,36 +94,62 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     }
   }, []);
 
-  // Create Razorpay order
+  // Create Razorpay order - ALWAYS create fresh order for each payment attempt
   const createRazorpayOrder = useCallback(async () => {
+    // Reset previous order state to ensure fresh order creation
+    setRazorpayOrderId(null);
+    setRazorpayKey(null);
+    
     const result = await makeRequest(
       async () => {
         try {
           // Call backend payment service to create Razorpay order
-          console.log('💳 Creating Razorpay order for amount:', amount);
+          console.log('💳 Creating NEW Razorpay order for amount:', amount);
           const response = await paymentService.createRazorpayOrder({
             amount,
             currency: 'INR'
           });
 
-          if (response.success && response.data?.razorpayOrderId) {
-            console.log('✅ Razorpay order created:', response.data);
+          if (response.success && response.data?.razorpayOrderId && response.data?.key) {
+            console.log('✅ Razorpay order created:', {
+              orderId: response.data.razorpayOrderId,
+              amount: response.data.amount,
+              hasKey: !!response.data.key
+            });
+            
+            // Store both order ID and key from backend
             setRazorpayOrderId(response.data.razorpayOrderId);
+            setRazorpayKey(response.data.key);
+            
+            // Validate that key is not undefined
+            if (!response.data.key || response.data.key === 'undefined') {
+              throw new Error('Razorpay key is missing from backend response');
+            }
+            
             return response.data;  // Return full data including razorpayOrderId and key
           } else {
-            throw new Error('Failed to create payment order');
+            throw new Error('Failed to create payment order - missing required fields');
           }
         } catch (apiError: any) {
+          // Check if it's an authorization error
+          if (apiError.message?.includes('403') || apiError.message?.includes('Forbidden')) {
+            throw new Error('Payment service authorization failed. Please log in again.');
+          }
+          
           // Fallback to mock service if API is not available
           console.warn('Backend API not available, using mock payment service:', apiError.message);
           
           const mockOrder = await MockPaymentService.createRazorpayOrder(amount, orderId);
+          const mockKey = process.env.REACT_APP_RAZORPAY_KEY_ID || 'rzp_test_mock_key_for_dev';
+          
           setRazorpayOrderId(mockOrder.razorpayOrderId);
+          setRazorpayKey(mockKey);
+          
           return {
             razorpayOrderId: mockOrder.razorpayOrderId,
             amount: amount * 100,
             currency: 'INR',
-            key: process.env.REACT_APP_RAZORPAY_KEY_ID
+            key: mockKey
           };
         }
       },
@@ -211,6 +238,8 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
 
   // Handle payment failure
   const handlePaymentFailure = useCallback((response: any) => {
+    console.log('❌ Payment failed:', response);
+    
     const razorpayError: RazorpayError = {
       code: response.error?.code || 'PAYMENT_FAILED',
       description: response.error?.description || 'Payment failed',
@@ -218,6 +247,15 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
       step: response.error?.step || 'payment',
       reason: response.error?.reason || 'user_cancelled'
     };
+    
+    // Log different types of failures
+    if (razorpayError.reason === 'user_cancelled' || razorpayError.code === 'PAYMENT_CANCELLED') {
+      console.log('ℹ️ Payment cancelled by user - this is normal behavior');
+    } else if (razorpayError.description?.includes('temporary technical issue')) {
+      console.warn('⚠️ Razorpay temporary issue - user should retry');
+    } else {
+      console.error('❌ Payment error:', razorpayError);
+    }
 
     onFailure(razorpayError);
   }, [onFailure]);
@@ -230,14 +268,28 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
     }
 
     try {
+      // ALWAYS create a fresh order for each payment attempt
       const orderData = await createRazorpayOrder();
       
-      if (!orderData || !orderData.razorpayOrderId) {
+      if (!orderData || !orderData.razorpayOrderId || !orderData.key) {
+        console.error('❌ Order creation failed or missing required fields:', orderData);
+        setError(new Error('Failed to create payment order'));
         return;
       }
       
+      // Validate that key is not undefined
+      if (orderData.key === 'undefined' || !orderData.key) {
+        console.error('❌ Razorpay key is undefined');
+        setError(new Error('Payment configuration error - missing API key'));
+        return;
+      }
+      
+      console.log('🔑 Using Razorpay key:', orderData.key.substring(0, 10) + '...');
+      console.log('📦 Order ID:', orderData.razorpayOrderId);
+      console.log('💰 Amount:', orderData.amount);
+      
       const options = {
-        key: orderData.key || process.env.REACT_APP_RAZORPAY_KEY_ID,  // Use key from backend
+        key: orderData.key,  // Use key from backend (NEVER undefined)
         amount: orderData.amount,  // Amount in paise from backend
         currency: orderData.currency || 'INR',
         name: 'AquaChain',
@@ -257,6 +309,7 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
         },
         modal: {
           ondismiss: () => {
+            console.log('⚠️ Payment modal dismissed by user');
             const razorpayError: RazorpayError = {
               code: 'PAYMENT_CANCELLED',
               description: 'Payment was cancelled by user',
@@ -272,13 +325,22 @@ const RazorpayCheckout: React.FC<RazorpayCheckoutProps> = ({
           max_count: 3
         }
       };
+      
+      // Final validation before opening Razorpay
+      console.log('✅ Opening Razorpay with options:', {
+        hasKey: !!options.key,
+        keyPrefix: options.key?.substring(0, 10),
+        orderId: options.order_id,
+        amount: options.amount
+      });
 
       const razorpay = new window.Razorpay(options);
       razorpay.on('payment.failed', handlePaymentFailure);
       razorpay.open();
 
     } catch (err: any) {
-      console.error('Payment initiation failed:', err);
+      console.error('❌ Payment initiation failed:', err);
+      setError(err);
     }
   }, [
     isScriptLoaded,

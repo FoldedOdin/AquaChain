@@ -124,58 +124,45 @@ def create_response(status_code: int, body: Dict[str, Any], cors: bool = True) -
 def get_latest_reading(device_id: str) -> Optional[Dict[str, Any]]:
     """Get the latest reading for a device"""
     try:
-        # Get current month for partition key
         now = datetime.utcnow()
-        device_month = f"{device_id}_{now.strftime('%Y-%m')}"
-        
-        logger.info(f"Querying latest reading for device: {device_id}, month: {device_month}")
-        
-        # Query the table with device_month partition key, sorted by timestamp descending
-        response = readings_table.query(
-            KeyConditionExpression='deviceId_month = :device_month',
-            ExpressionAttributeValues={
-                ':device_month': device_month
-            },
-            ScanIndexForward=False,  # Sort descending (latest first)
-            Limit=1
-        )
-        
-        if response['Items']:
-            reading = response['Items'][0]
-            # Convert Decimals to floats for JSON serialization
-            reading = convert_decimals(reading)
-            # Add WQI and quality if missing
-            reading = add_missing_wqi_quality([reading])[0]
-            logger.info(f"Found latest reading: {reading}")
-            return reading
-        
-        # If no readings in current month, try previous month
-        prev_month = (now.replace(day=1) - timedelta(days=1))
-        prev_device_month = f"{device_id}_{prev_month.strftime('%Y-%m')}"
-        
-        logger.info(f"No readings in current month, trying previous: {prev_device_month}")
-        
-        response = readings_table.query(
-            KeyConditionExpression='deviceId_month = :device_month',
-            ExpressionAttributeValues={
-                ':device_month': prev_device_month
-            },
-            ScanIndexForward=False,
-            Limit=1
-        )
-        
-        if response['Items']:
-            reading = response['Items'][0]
-            # Convert Decimals to floats for JSON serialization
-            reading = convert_decimals(reading)
-            # Add WQI and quality if missing
-            reading = add_missing_wqi_quality([reading])[0]
-            logger.info(f"Found reading in previous month: {reading}")
-            return reading
-        
-        logger.warning(f"No readings found for device: {device_id}")
+
+        # Try current month and up to 3 previous months (device may have been offline for a while)
+        months_to_check = []
+        for i in range(4):
+            month_dt = (now.replace(day=1) - timedelta(days=1) * 0) if i == 0 else \
+                       (now.replace(day=1) - timedelta(days=i * 28))
+            months_to_check.append(now.strftime('%Y-%m') if i == 0 else
+                                   (now.replace(day=1) - timedelta(days=i * 28)).strftime('%Y-%m'))
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_months = []
+        for m in months_to_check:
+            if m not in seen:
+                seen.add(m)
+                unique_months.append(m)
+
+        for month_str in unique_months:
+            device_month = f"{device_id}_{month_str}"
+            logger.info(f"Querying latest reading for device: {device_id}, month key: {device_month}")
+
+            response = readings_table.query(
+                KeyConditionExpression='deviceId_month = :device_month',
+                ExpressionAttributeValues={':device_month': device_month},
+                ScanIndexForward=False,  # Sort descending (latest first)
+                Limit=1
+            )
+
+            if response['Items']:
+                reading = response['Items'][0]
+                reading = convert_decimals(reading)
+                reading = add_missing_wqi_quality([reading])[0]
+                logger.info(f"Found latest reading in {month_str}: {reading}")
+                return reading
+
+        logger.warning(f"No readings found for device: {device_id} in last 4 months")
         return None
-        
+
     except Exception as e:
         logger.error(f"Error getting latest reading for {device_id}: {e}")
         return None

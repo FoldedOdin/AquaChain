@@ -1572,6 +1572,14 @@ class AquaChainApiStack(Stack):
                 authorizer=self.cognito_authorizer,
                 authorization_type=apigateway.AuthorizationType.COGNITO
             )
+            
+            # /api/system/maintenance - Public maintenance status (NO AUTH - frontend polls this before login)
+            api_system_maintenance = api_system.node.try_find_child("maintenance") or api_system.add_resource("maintenance")
+            api_system_maintenance.add_method(
+                "GET",
+                admin_integration,
+                authorization_type=apigateway.AuthorizationType.NONE  # Public endpoint
+            )
 
         # /api/payments - Payment endpoints (authenticated)
         if "payment_service" in self.lambda_functions:
