@@ -278,8 +278,9 @@ const ConsumerDashboard = memo<ConsumerDashboardProps>(() => {
       try {
         const reading = await unifiedDataService.getLatestDeviceReading(deviceId);
         console.log('📦 Current reading fetched:', JSON.stringify(reading));
-        console.log('📦 Reading pH:', reading?.pH, 'turbidity:', reading?.turbidity, 'tds:', reading?.tds, 'temp:', reading?.temperature);
-        console.log('📦 Reading nested:', reading?.readings);
+        const r: any = reading;
+        console.log('📦 Reading pH:', r?.pH, 'turbidity:', r?.turbidity, 'tds:', r?.tds, 'temp:', r?.temperature);
+        console.log('📦 Reading nested:', r?.readings);
         if (reading) {
           const normalized = normalizeReading(reading);
           // Only apply REST result if it's newer than what WebSocket already delivered.
